@@ -330,10 +330,11 @@ class ApifyConnector:
             raise ScrapeError("API_ERROR", "Apify run started without an id",
                               actor_id=actor_id, details=str(started)[:500])
         logger.info(f"[Apify] polling run {run_id} ({label}) for cancellation")
+        run_client = client.run(run_id)
         while True:
             if should_abort():
                 try:
-                    client.actor(actor_id).run(run_id).abort()
+                    run_client.abort()
                     logger.info(f"[Apify] aborted run {run_id} — user cancelled")
                 except Exception as e:
                     logger.warning(f"[Apify] abort of run {run_id} failed: {e}")
@@ -341,7 +342,7 @@ class ApifyConnector:
                     "CANCELLED", "Search cancelled by user",
                     actor_id=actor_id, run_id=run_id)
             try:
-                run = client.actor(actor_id).run(run_id).get()
+                run = run_client.get()
             except Exception as e:
                 raise ScrapeError(
                     "API_ERROR", f"Apify run status check failed: {e}",
