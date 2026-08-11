@@ -39,6 +39,9 @@
     .comment-row .c-name { font-weight: 600; font-size: .86rem; }
     .comment-row .c-text { font-size: .85rem; color: rgba(255,255,255,.85); margin-top: 2px; line-height: 1.45; }
     .comment-row .c-meta { font-size: .72rem; color: rgba(255,255,255,.45); margin-top: 4px; }
+    .comment-row .c-lead { display: inline-block; font-size: .66rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 6px; background: rgba(239,68,68,.18); color: #fca5a5; border: 1px solid rgba(239,68,68,.4); vertical-align: middle; }
+    .comment-row .c-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+    .comment-row .c-chip { font-size: .7rem; padding: 2px 8px; border-radius: 999px; background: rgba(139,92,246,.12); border: 1px solid rgba(139,92,246,.35); color: #c4b5fd; }
     .plain-link { color: #7ab8ff; word-break: break-all; }
   </style>
 </head>
@@ -158,6 +161,8 @@
         <span class="stat-pill">Activity: <b>${esc(page.activity_status || "N/A")}</b></span>
         <span class="stat-pill">Posts: <b>${d.posts.length}</b></span>
         <span class="stat-pill">Comments: <b>${d.comments.length}</b></span>
+        ${page.qualifying_posts_count ? `<span class="stat-pill">Qualifying: <b>${fmt(page.qualifying_posts_count)}</b></span>` : ""}
+        ${page.lead_score != null ? `<span class="stat-pill">Lead score: <b>${Math.round(page.lead_score * 100)}</b></span>` : ""}
         <span class="stat-pill">Generated: <b>${esc((d.generated_at || "").slice(0,16).replace("T"," "))}</b></span>`;
 
       const kv = [];
@@ -203,11 +208,26 @@
       $("rComments").innerHTML = d.comments.length
         ? d.comments.map((c) => {
             const initial = (c.author_name || "?").trim().charAt(0).toUpperCase();
+            const leadBadge = c.is_lead
+              ? `<span class="c-lead">🎯 Lead</span><span class="c-lead">⭐ ${Math.round(c.lead_score * 100)}</span>`
+              : "";
+            const chips = [];
+            if (c.phone) chips.push(["📞", c.phone]);
+            if (c.email) chips.push(["✉️", c.email]);
+            if (c.whatsapp) chips.push(["💬", c.whatsapp]);
+            if (c.budget) chips.push(["💰", c.budget]);
+            if (c.intent) chips.push(["🎯", c.intent]);
+            if (c.urgency) chips.push(["⚡", c.urgency]);
+            if (c.location) chips.push(["📍", c.location]);
+            if (c.website) chips.push(["🌐", c.website]);
+            const chipHtml = chips.map(([ic, v]) =>
+              `<span class="c-chip">${ic} ${esc(v)}</span>`).join("");
             return `<div class="comment-row">
               <div class="c-avatar">${esc(initial)}</div>
               <div style="flex:1;min-width:0">
-                <div class="c-name">${esc(c.author_name || "Unknown commenter")}</div>
+                <div class="c-name">${esc(c.author_name || "Unknown commenter")} ${leadBadge}</div>
                 <div class="c-text">${esc(c.text || "—")}</div>
+                ${chipHtml ? `<div class="c-chips">${chipHtml}</div>` : ""}
                 <div class="c-meta">
                   ${c.published_date ? `📅 ${esc(c.published_date)} · ` : ""}
                   ${c.reactions_count != null ? `❤️ ${fmt(c.reactions_count)} · ` : ""}

@@ -266,6 +266,16 @@ async def url_search_report(run_id: str):
     for c in comments:
         c["commenter_name"] = c.get("author_name")
         c["comment_text"] = c.get("text")
+        # enrich raw comments with AI analysis (phone, email, intent, lead score…)
+        analysis = await db.ai_comments.find_one({"comment_ref": c["id"]})
+        if analysis:
+            a = _serialize(analysis)
+            for key in ("is_lead", "lead_score", "priority", "lead_quality",
+                        "confidence", "intent", "urgency", "budget", "requirement",
+                        "location", "phone", "email", "whatsapp", "website",
+                        "reason", "analyzed_by"):
+                if a.get(key) is not None:
+                    c[key] = a[key]
 
     page["activity_status"] = page.get("activity_status") or _activity_status(page.get("latest_post_date"))
     return {

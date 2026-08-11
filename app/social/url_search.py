@@ -206,6 +206,29 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
         "posts_collected_at": utcnow(), "updated_at": utcnow()}})
     logger.info(f"[URL SEARCH] stored {len(post_docs)} posts for page {page_id}")
 
+    # post statistics for this page — identical to the keyword-search flow
+    try:
+        from app.agent.search import _compute_page_stats
+        stats = _compute_page_stats(post_docs)
+        page_stats = {
+            "total_posts_found": stats["total_posts_found"],
+            "latest_post_date": stats["latest_post_date"],
+            "activity_status": stats["activity_status"],
+            "total_comments_on_qualifying_posts": stats["total_comments_on_qualifying_posts"],
+            "lead_score": stats["lead_score"],
+            "has_qualifying_posts": stats["has_qualifying_posts"],
+        }
+        # only set counts when > 0 — the pages list keeps URL-search pages
+        # visible via source="apify_url_search" regardless
+        if stats["relevant_posts_count"]:
+            page_stats["relevant_posts_count"] = stats["relevant_posts_count"]
+        if stats["qualifying_posts_count"]:
+            page_stats["qualifying_posts_count"] = stats["qualifying_posts_count"]
+        db.facebook_pages.update_one({"_id": page_doc["_id"]},
+                                     {"$set": {**page_stats, "updated_at": utcnow()}})
+    except Exception:
+        logger.warning("[URL SEARCH] page stats computation failed", exc_info=True)
+
     # ── 4. comments (facebook + instagram only) ────────────────────────────
     progress(phase="comments", message="Collecting comments…")
     comment_docs = 0
@@ -220,6 +243,7 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
             except Exception as e:
                 logger.warning(f"[URL SEARCH] comments failed for {post['post_url']}: {e}")
                 raw_comments = []
+            stored_for_post = 0
             for item in raw_comments:
                 comment_json = scraper.normalize_comment(item, post)
                 if not comment_json or not comment_json.get("comment_url"):
@@ -232,12 +256,23 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
                 try:
                     db.facebook_comments.insert_one(comment_json)
                     comment_docs += 1
+                    stored_for_post += 1
                 except DuplicateKeyError:
                     continue
                 if comment_docs >= cap:
                     break
+            # analyze each post's comments through the same AI pipeline used
+            # by the keyword search so leads get phone/email/intent/score etc.
+            if stored_for_post:
+                try:
+                    from app.pipeline.comment_ai import analyze_comments_for_post
+                    analyze_comments_for_post(str(post["_id"]))
+                except Exception as e:
+                    logger.warning(f"[URL SEARCH] AI comment analysis failed for "
+                                   f"{post['post_url']}: {e}")
             db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
-                "comments_status": "completed", "scraped_comment_count": comment_docs,
+                "comments_status": "completed" if stored_for_post else "empty",
+                "scraped_comment_count": stored_for_post,
                 "comments_collected_at": utcnow(), "updated_at": utcnow()}})
 
     # ── 5. finalize ────────────────────────────────────────────────────────
