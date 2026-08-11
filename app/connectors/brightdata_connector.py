@@ -270,7 +270,8 @@ class BrightDataConnector:
     # ─────────────────────────────────────────────────────────────────────────
 
     def scrape_facebook_pages(self, keyword: str, limit: int = 10,
-                              locations: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+                              locations: Optional[List[str]] = None,
+                              should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
         """
         Bright Data has no Facebook page keyword-search endpoint, so we use
         the Discover API (AI-ranked Google search): `site:facebook.com
@@ -325,7 +326,8 @@ class BrightDataConnector:
     # 2. PAGES/PROFILES BY URL — sync /scrape (max 20 URLs per call)
     # ─────────────────────────────────────────────────────────────────────────
 
-    def scrape_facebook_pages_by_urls(self, page_urls: List[str]) -> List[Dict[str, Any]]:
+    def scrape_facebook_pages_by_urls(self, page_urls: List[str],
+                                      should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
         if not page_urls:
             return []
         self._require_key()
@@ -359,7 +361,8 @@ class BrightDataConnector:
     # 3. PAGE POSTS — async /trigger on the posts dataset
     # ─────────────────────────────────────────────────────────────────────────
 
-    def scrape_facebook_posts(self, page_urls: List[str], posts_per_page: int = 20) -> List[Dict[str, Any]]:
+    def scrape_facebook_posts(self, page_urls: List[str], posts_per_page: int = 20,
+                              should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
         if not page_urls:
             return []
         self._require_key()
@@ -372,7 +375,8 @@ class BrightDataConnector:
     # 4. POST COMMENTS — async /trigger on the comments dataset
     # ─────────────────────────────────────────────────────────────────────────
 
-    def scrape_facebook_comments(self, post_urls: List[str], comments_per_post: int = 50) -> List[Dict[str, Any]]:
+    def scrape_facebook_comments(self, post_urls: List[str], comments_per_post: int = 50,
+                                 should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
         if not post_urls:
             return []
         self._require_key()

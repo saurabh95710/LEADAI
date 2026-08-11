@@ -87,11 +87,22 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
         return {"status": "error", "error": "Database unavailable"}
     settings = get_settings()
 
+    from app.agent.search import is_run_cancelled, mark_run_cancelled
+
     def progress(message: str = "", **fields):
         db.search_history.update_one(
             {"run_id": run_id},
             {"$set": {"message": message, "updated_at": utcnow(), **fields}},
         )
+
+    def should_abort():
+        return is_run_cancelled(run_id, db)
+
+    def cancelled():
+        mark_run_cancelled(run_id, db)
+        return {"status": "cancelled", "success": False,
+                "message": "Search cancelled by user",
+                "posts": 0, "comments": 0, "items": []}
 
     # ── 1. validate the URL ────────────────────────────────────────────────
     try:
@@ -100,6 +111,11 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
         progress(status="error", error=e.message, phase="url_invalid")
         return {"status": "error", "error": e.message,
                 "success": False, "items": [], "page_id": None}
+
+    if should_abort():
+        progress(status="cancelled", phase="cancelled",
+                 message="Search cancelled by user", completed_at=utcnow())
+        return cancelled()
 
     if not settings.apify_api_token:
         msg = ("APIFY_API_TOKEN is not set in .env — add it and restart. "
@@ -115,8 +131,13 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
     # ── 2. fetch + store the page ──────────────────────────────────────────
     page_error: Dict[str, Any] = {}
     try:
-        page_items = scraper.fetch_page_details(canonical_url)
+        page_items = scraper.fetch_page_details(canonical_url,
+                                                should_abort=should_abort)
     except Exception as e:
+        if should_abort():
+            progress(status="cancelled", phase="cancelled",
+                     message="Search cancelled by user", completed_at=utcnow())
+            return cancelled()
         # keep the run alive: page details may be unavailable (actor access /
         # credits / private page) while posts are still scrapeable
         logger.warning("[URL SEARCH] page details for %s failed: %s", platform, e)
@@ -174,12 +195,21 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
     progress(phase="posts", page_id=page_id, message="Collecting posts…")
     post_docs: List[Dict[str, Any]] = []
     try:
-        post_items = scraper.fetch_posts(canonical_url, max_posts)
+        post_items = scraper.fetch_posts(canonical_url, max_posts,
+                                         should_abort=should_abort)
     except Exception as e:
+        if should_abort():
+            progress(status="cancelled", phase="cancelled",
+                     message="Search cancelled by user", completed_at=utcnow())
+            return cancelled()
         logger.exception("[URL SEARCH] posts scrape failed")
         post_items = []
         progress(message=f"Posts collection failed: {e}", posts_error=str(e))
     for item in post_items:
+        if should_abort():
+            progress(status="cancelled", phase="cancelled",
+                     message="Search cancelled by user", completed_at=utcnow())
+            return cancelled()
         post_json = scraper.normalize_post(item, page_doc)
         if not post_json or not post_json.get("post_url"):
             continue
@@ -236,15 +266,28 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
         cap = int(getattr(settings, "max_comments_to_collect", 100) or 100)
         per_post = max(1, min(cap, 30))
         for post in post_docs:
+            if should_abort():
+                progress(status="cancelled", phase="cancelled",
+                         message="Search cancelled by user", completed_at=utcnow())
+                return cancelled()
             if comment_docs >= cap:
                 break
             try:
-                raw_comments = scraper.fetch_comments(post["post_url"], per_post)
+                raw_comments = scraper.fetch_comments(post["post_url"], per_post,
+                                                      should_abort=should_abort)
             except Exception as e:
+                if should_abort():
+                    progress(status="cancelled", phase="cancelled",
+                             message="Search cancelled by user", completed_at=utcnow())
+                    return cancelled()
                 logger.warning(f"[URL SEARCH] comments failed for {post['post_url']}: {e}")
                 raw_comments = []
             stored_for_post = 0
             for item in raw_comments:
+                if should_abort():
+                    progress(status="cancelled", phase="cancelled",
+                             message="Search cancelled by user", completed_at=utcnow())
+                    return cancelled()
                 comment_json = scraper.normalize_comment(item, post)
                 if not comment_json or not comment_json.get("comment_url"):
                     continue

@@ -69,6 +69,25 @@ def _stale(doc: Dict[str, Any], started_key: str) -> bool:
         return True
 
 
+def is_run_cancelled(run_id: str, db=None) -> bool:
+    """True when the user requested cancellation of this run
+    (POST /api/search/{run_id}/cancel sets `cancel_requested`)."""
+    db = db or get_sync_db()
+    if db is None:
+        return False
+    doc = db.search_history.find_one({"run_id": run_id}, {"cancel_requested": 1})
+    return bool(doc and doc.get("cancel_requested"))
+
+
+def mark_run_cancelled(run_id: str, db=None, message: str = "Search cancelled by user") -> None:
+    db = db or get_sync_db()
+    if db is None:
+        return
+    db.search_history.update_one({"run_id": run_id}, {"$set": {
+        "status": "cancelled", "phase": "cancelled", "message": message,
+        "cancel_requested": True, "completed_at": utcnow(), "updated_at": utcnow()}})
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Normalization — raw actor items → data-model docs (never fabricate)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -524,6 +543,14 @@ def run_search(run_id: str, query: str, limit: int = 10, provider: str = "apify"
     def update_history(**fields):
         db.search_history.update_one({"run_id": run_id}, {"$set": {**fields, "updated_at": utcnow()}})
 
+    def should_abort():
+        return is_run_cancelled(run_id, db)
+
+    def cancelled():
+        mark_run_cancelled(run_id, db)
+        return {"status": "cancelled", "message": "Search cancelled by user",
+                "pages_found": 0, "pages_stored": 0}
+
     update_history(phase="searching", message="Searching Facebook Pages...")
     intent = parse_query(query, limit)
     update_history(intent=intent)
@@ -544,8 +571,15 @@ def run_search(run_id: str, query: str, limit: int = 10, provider: str = "apify"
 
     try:
         locations = [intent["city"]] if intent.get("city") else None
-        items = connector.scrape_facebook_pages(intent["keyword"], intent["limit"], locations=locations)
+        items = connector.scrape_facebook_pages(intent["keyword"], intent["limit"],
+                                                locations=locations,
+                                                should_abort=should_abort)
     except (ScrapeError, ApifyError, BrightDataError) as e:
+        if isinstance(e, ScrapeError) and e.error_type == "CANCELLED":
+            logger.info(f"[Agent] Search '{query}' cancelled by user")
+            update_history(status="cancelled", phase="cancelled",
+                           message="Search cancelled by user", completed_at=utcnow())
+            return cancelled()
         if isinstance(e, ScrapeError):
             # classified failure → persist the structured error object
             logger.info(f"[Agent] Search failed for '{query}' errorType={e.error_type} "
@@ -559,6 +593,11 @@ def run_search(run_id: str, query: str, limit: int = 10, provider: str = "apify"
         logger.error(f"[Agent] Search failed for '{query}': {e}")
         update_history(status="error", error=f"Search failed: {e}")
         return {"status": "error", "error": f"Search failed: {e}"}
+
+    if should_abort():
+        update_history(status="cancelled", phase="cancelled",
+                       message="Search cancelled by user", completed_at=utcnow())
+        return cancelled()
 
     pages_found = len(items)
     scrape_info = getattr(connector, "last_call", None) or {}
@@ -581,6 +620,10 @@ def run_search(run_id: str, query: str, limit: int = 10, provider: str = "apify"
     # a later search is a fresh copy, never re-assigned to the new run)
     stored = 0
     for item in items:
+        if should_abort():
+            update_history(status="cancelled", phase="cancelled",
+                           message="Search cancelled by user", completed_at=utcnow())
+            return cancelled()
         doc = map_page_item(item, run_id, intent["keyword"])
         if not doc:
             continue
@@ -604,7 +647,8 @@ def run_search(run_id: str, query: str, limit: int = 10, provider: str = "apify"
     if urls:
         update_history(phase="enriching", message="Enriching page details...")
         try:
-            detail_items = connector.scrape_facebook_pages_by_urls(urls)
+            detail_items = connector.scrape_facebook_pages_by_urls(urls,
+                                                                   should_abort=should_abort)
             enriched = 0
             for item in detail_items:
                 if not isinstance(item, dict) or item.get("error"):
@@ -622,8 +666,19 @@ def run_search(run_id: str, query: str, limit: int = 10, provider: str = "apify"
                                                  {"$set": {**updates, "updated_at": utcnow()}})
                     enriched += 1
             logger.info(f"[Agent] Enriched {enriched}/{len(urls)} pages")
+        except ScrapeError as e:
+            if e.error_type == "CANCELLED":
+                update_history(status="cancelled", phase="cancelled",
+                               message="Search cancelled by user", completed_at=utcnow())
+                return cancelled()
+            logger.warning(f"[Agent] Page enrichment skipped: {e}")
         except Exception as e:
             logger.warning(f"[Agent] Page enrichment skipped: {e}")
+
+    if should_abort():
+        update_history(status="cancelled", phase="cancelled",
+                       message="Search cancelled by user", completed_at=utcnow())
+        return cancelled()
 
     update_history(status="completed", phase="completed", message="Completed",
                    completed_at=utcnow())
@@ -643,7 +698,8 @@ def run_search(run_id: str, query: str, limit: int = 10, provider: str = "apify"
 # Posts — POST /api/pages/{id}/posts (one selected page only)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def collect_page_posts(page_id: str, max_posts: int = 20) -> Dict[str, Any]:
+def collect_page_posts(page_id: str, max_posts: int = 20,
+                       run_id: Optional[str] = None) -> Dict[str, Any]:
     db = get_sync_db()
     if db is None:
         return {"status": "error", "error": "Database unavailable"}
@@ -654,15 +710,31 @@ def collect_page_posts(page_id: str, max_posts: int = 20) -> Dict[str, Any]:
     if page.get("posts_status") == "running" and not _stale(page, "posts_started_at"):
         return {"status": "running", "message": "Posts collection already in progress"}
 
+    run_id = run_id or page.get("search_run_id")
+    if run_id and is_run_cancelled(run_id, db):
+        mark_run_cancelled(run_id, db)
+        return {"status": "cancelled", "message": "Search cancelled by user"}
+
+    def should_abort():
+        return bool(run_id and is_run_cancelled(run_id, db))
+
     db.facebook_pages.update_one({"_id": page["_id"]}, {"$set": {
         "posts_status": "running", "posts_error": None,
         "posts_started_at": utcnow(), "updated_at": utcnow()}})
 
     connector = get_connector(page.get("provider") or "apify")
     try:
-        items = connector.scrape_facebook_posts([page["facebook_url"]], posts_per_page=max_posts)
+        items = connector.scrape_facebook_posts([page["facebook_url"]],
+                                                posts_per_page=max_posts,
+                                                should_abort=should_abort)
     except (ScrapeError, ApifyError, BrightDataError) as e:
-        if isinstance(e, ScrapeError):
+        if isinstance(e, ScrapeError) and e.error_type == "CANCELLED":
+            if run_id:
+                mark_run_cancelled(run_id, db)
+            db.facebook_pages.update_one({"_id": page["_id"]}, {"$set": {
+                "posts_status": "cancelled", "posts_error": "Search cancelled by user",
+                "updated_at": utcnow()}})
+            return {"status": "cancelled", "message": "Search cancelled by user"}
             logger.info(f"[Agent] Posts failed for page {page_id} errorType={e.error_type} "
                         f"runId={e.error.get('runId')} datasetId={e.error.get('datasetId')}")
             db.facebook_pages.update_one({"_id": page["_id"]}, {"$set": {
@@ -722,7 +794,8 @@ def collect_page_posts(page_id: str, max_posts: int = 20) -> Dict[str, Any]:
 # Comments + AI analysis — POST /api/posts/{id}/comments
 # ─────────────────────────────────────────────────────────────────────────────
 
-def collect_post_comments(post_id: str, max_comments: int = 200) -> Dict[str, Any]:
+def collect_post_comments(post_id: str, max_comments: int = 200,
+                          run_id: Optional[str] = None) -> Dict[str, Any]:
     db = get_sync_db()
     if db is None:
         return {"status": "error", "error": "Database unavailable"}
@@ -732,6 +805,14 @@ def collect_post_comments(post_id: str, max_comments: int = 200) -> Dict[str, An
         raise NotFoundError("Post not found")
     if post.get("comments_status") == "running" and not _stale(post, "comments_started_at"):
         return {"status": "running", "message": "Comments collection already in progress"}
+
+    run_id = run_id or post.get("search_run_id")
+    if run_id and is_run_cancelled(run_id, db):
+        mark_run_cancelled(run_id, db)
+        return {"status": "cancelled", "message": "Search cancelled by user"}
+
+    def should_abort():
+        return bool(run_id and is_run_cancelled(run_id, db))
 
     # only posts with at least MIN_COMMENTS (Facebook-reported total) are
     # worth the expensive comment scrape — everything else is skipped
@@ -751,8 +832,17 @@ def collect_post_comments(post_id: str, max_comments: int = 200) -> Dict[str, An
 
     connector = get_connector(post.get("provider") or "apify")
     try:
-        items = connector.scrape_facebook_comments([post["post_url"]], comments_per_post=max_comments)
+        items = connector.scrape_facebook_comments([post["post_url"]],
+                                                   comments_per_post=max_comments,
+                                                   should_abort=should_abort)
     except (ScrapeError, ApifyError, BrightDataError) as e:
+        if isinstance(e, ScrapeError) and e.error_type == "CANCELLED":
+            if run_id:
+                mark_run_cancelled(run_id, db)
+            db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
+                "comments_status": "cancelled",
+                "comments_error": "Search cancelled by user", "updated_at": utcnow()}})
+            return {"status": "cancelled", "message": "Search cancelled by user"}
         if isinstance(e, ScrapeError):
             logger.info(f"[Agent] Comments failed for post {post_id} errorType={e.error_type} "
                         f"runId={e.error.get('runId')} datasetId={e.error.get('datasetId')}")
@@ -823,6 +913,10 @@ def collect_run_posts(run_id: str, max_posts: int = 20, auto_comments: int = 3) 
     if db is None:
         return {"status": "error", "error": "Database unavailable"}
 
+    if is_run_cancelled(run_id, db):
+        mark_run_cancelled(run_id, db)
+        return {"status": "cancelled", "message": "Search cancelled by user"}
+
     pages = list(db.facebook_pages.find({"search_run_id": run_id}))
     if not pages:
         return {"status": "empty", "message": "No pages in this run"}
@@ -834,9 +928,13 @@ def collect_run_posts(run_id: str, max_posts: int = 20, auto_comments: int = 3) 
     total = len(pages)
     progress(f"Auto-collection started — {total} page(s) to process")
     for idx, page in enumerate(pages, start=1):
+        if is_run_cancelled(run_id, db):
+            mark_run_cancelled(run_id, db)
+            progress("Search cancelled by user")
+            return {"status": "cancelled", "message": "Search cancelled by user"}
         page_id = str(page["_id"])
         progress(f"Collecting posts — page {idx}/{total}")
-        collect_page_posts(page_id, max_posts)
+        collect_page_posts(page_id, max_posts, run_id=run_id)
 
         if auto_comments > 0:
             # only qualifying posts get the expensive comment scrape
@@ -844,9 +942,13 @@ def collect_run_posts(run_id: str, max_posts: int = 20, auto_comments: int = 3) 
                 {"page_ref": page_id, "is_qualifying": True})
                 .sort("total_comment_count", -1).limit(auto_comments))
             for jdx, post in enumerate(top, start=1):
+                if is_run_cancelled(run_id, db):
+                    mark_run_cancelled(run_id, db)
+                    progress("Search cancelled by user")
+                    return {"status": "cancelled", "message": "Search cancelled by user"}
                 if post.get("comments_status") not in ("completed", "running"):
                     progress(f"Collecting comments — post {jdx}/{len(top)} on page {idx}/{total}")
-                    collect_post_comments(str(post["_id"]), 200)
+                    collect_post_comments(str(post["_id"]), 200, run_id=run_id)
 
     db.search_history.update_one({"run_id": run_id}, {
         "$set": {"message": "Auto-collection finished", "phase": "completed",

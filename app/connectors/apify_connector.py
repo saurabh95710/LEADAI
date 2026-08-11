@@ -265,17 +265,30 @@ class ApifyConnector:
     # ─────────────────────────────────────────────────────────────────────────
 
     def _call_actor(self, actor_id: str, run_input: Dict[str, Any], label: str,
-                    attempts: int = 1) -> Any:
-        """Run an actor; classify every failure. Logs request + response."""
+                    attempts: int = 1,
+                    should_abort: Optional[callable] = None) -> Any:
+        """Run an actor; classify every failure. Logs request + response.
+
+        When `should_abort` is given (callable → bool), the run is started
+        asynchronously and polled; a True return aborts the Apify run and
+        raises a CANCELLED ScrapeError, so cancellation is responsive even
+        while an actor is mid-flight.
+        """
         client = self._get_client()
         last_error: Optional[ScrapeError] = None
         for attempt in range(attempts):
             _log_request(label, actor_id, run_input)
             try:
-                run = client.actor(actor_id).call(
-                    run_input=run_input, content_type="application/json",
-                    **_run_wait_and_timeout())
+                if should_abort is None:
+                    run = client.actor(actor_id).call(
+                        run_input=run_input, content_type="application/json",
+                        **_run_wait_and_timeout())
+                else:
+                    run = self._call_actor_polling(
+                        client, actor_id, run_input, label, should_abort)
             except Exception as e:
+                if isinstance(e, ScrapeError) and e.error_type == "CANCELLED":
+                    raise
                 billing = _explain_error(e)
                 if billing:
                     raise ApifyError(billing)
@@ -304,6 +317,39 @@ class ApifyConnector:
             return run
         assert last_error is not None
         raise last_error
+
+    def _call_actor_polling(self, client: Any, actor_id: str,
+                            run_input: Dict[str, Any], label: str,
+                            should_abort: callable) -> Any:
+        """Start the actor run, then poll its status — aborting it as soon as
+        `should_abort()` returns True (user clicked Cancel)."""
+        started = client.actor(actor_id).start(
+            run_input=run_input, content_type="application/json")
+        run_id = _rget(started, "id")
+        if not run_id:
+            raise ScrapeError("API_ERROR", "Apify run started without an id",
+                              actor_id=actor_id, details=str(started)[:500])
+        logger.info(f"[Apify] polling run {run_id} ({label}) for cancellation")
+        while True:
+            if should_abort():
+                try:
+                    client.actor(actor_id).run(run_id).abort()
+                    logger.info(f"[Apify] aborted run {run_id} — user cancelled")
+                except Exception as e:
+                    logger.warning(f"[Apify] abort of run {run_id} failed: {e}")
+                raise ScrapeError(
+                    "CANCELLED", "Search cancelled by user",
+                    actor_id=actor_id, run_id=run_id)
+            try:
+                run = client.actor(actor_id).run(run_id).get()
+            except Exception as e:
+                raise ScrapeError(
+                    "API_ERROR", f"Apify run status check failed: {e}",
+                    actor_id=actor_id, run_id=run_id, details=str(e)[:2000])
+            status = str(_rget(run, "status") or "").upper()
+            if status in ("SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"):
+                return run
+            time.sleep(5)
 
     def _read_items(self, run: Any, *, actor_id: str,
                     keyword: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -342,7 +388,8 @@ class ApifyConnector:
     # ─────────────────────────────────────────────────────────────────────────
 
     def scrape_actor(self, actor_id: str, run_input: Dict[str, Any],
-                     label: str, keyword: Optional[str] = None) -> List[Dict[str, Any]]:
+                     label: str, keyword: Optional[str] = None,
+                     should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
         """Run an arbitrary Apify actor and return its dataset items.
 
         Failures are classified exactly like the Facebook actors
@@ -351,7 +398,8 @@ class ApifyConnector:
         """
         self._get_client()
         logger.info(f"[Apify] Running actor {actor_id} ({label})")
-        run = self._call_actor(actor_id, run_input, label, attempts=2)
+        run = self._call_actor(actor_id, run_input, label, attempts=2,
+                               should_abort=should_abort)
         hint = _blocking_hint(run)
         if hint:
             raise ScrapeError(
@@ -385,7 +433,8 @@ class ApifyConnector:
         return variants[:max_variants] or [keyword]
 
     def scrape_facebook_pages(self, keyword: str, limit: int = 10,
-                              locations: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+                              locations: Optional[List[str]] = None,
+                              should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
         """
         Search Facebook pages by keyword. Tries the full query first, then
         shorter variants. Zero results from successful runs are reported as
@@ -396,6 +445,10 @@ class ApifyConnector:
 
         failures: List[ScrapeError] = []
         for variant in self._keyword_variants(keyword):
+            if should_abort and should_abort():
+                raise ScrapeError("CANCELLED", "Search cancelled by user",
+                                  keyword=keyword,
+                                  actor_id="apify/facebook-search-scraper")
             run = self._call_actor(
                 "apify/facebook-search-scraper",
                 {
@@ -405,6 +458,7 @@ class ApifyConnector:
                 },
                 "search",
                 attempts=1,
+                should_abort=should_abort,
             )
             hint = _blocking_hint(run)
             if hint:
@@ -451,7 +505,8 @@ class ApifyConnector:
     # 2. FACEBOOK PAGES SCRAPER — details by URL
     # ─────────────────────────────────────────────────────────────────────────
 
-    def scrape_facebook_pages_by_urls(self, page_urls: List[str]) -> List[Dict[str, Any]]:
+    def scrape_facebook_pages_by_urls(self, page_urls: List[str],
+                                      should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
         if not page_urls:
             return []
         self._get_client()
@@ -465,6 +520,7 @@ class ApifyConnector:
             },
             "pages-details",
             attempts=2,
+            should_abort=should_abort,
         )
         hint = _blocking_hint(run)
         if hint:
@@ -484,7 +540,8 @@ class ApifyConnector:
     # 3. FACEBOOK POSTS SCRAPER
     # ─────────────────────────────────────────────────────────────────────────
 
-    def scrape_facebook_posts(self, page_urls: List[str], posts_per_page: int = 20) -> List[Dict[str, Any]]:
+    def scrape_facebook_posts(self, page_urls: List[str], posts_per_page: int = 20,
+                              should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
         if not page_urls:
             return []
         self._get_client()
@@ -498,6 +555,7 @@ class ApifyConnector:
             },
             "posts",
             attempts=2,
+            should_abort=should_abort,
         )
         hint = _blocking_hint(run)
         if hint:
@@ -517,7 +575,8 @@ class ApifyConnector:
     # 4. FACEBOOK COMMENTS SCRAPER
     # ─────────────────────────────────────────────────────────────────────────
 
-    def scrape_facebook_comments(self, post_urls: List[str], comments_per_post: int = 50) -> List[Dict[str, Any]]:
+    def scrape_facebook_comments(self, post_urls: List[str], comments_per_post: int = 50,
+                                 should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
         if not post_urls:
             return []
         self._get_client()
@@ -538,6 +597,7 @@ class ApifyConnector:
             },
             "comments",
             attempts=2,
+            should_abort=should_abort,
         )
         hint = _blocking_hint(run)
         if hint:

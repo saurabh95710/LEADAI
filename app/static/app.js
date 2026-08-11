@@ -96,6 +96,7 @@ async function handleSearch(event) {
   if (!query) return;
 
   const btn = $("searchBtn");
+  const cancelBtn = $("searchCancelBtn");
   btn.disabled = true;
   const prog = $("searchProgress");
   prog.classList.remove("hidden");
@@ -107,8 +108,27 @@ async function handleSearch(event) {
     const data = await res.json();
     saveMemory("runId", data.run_id);
     renderIntentChips(data.intent);
+    cancelBtn.classList.remove("hidden");
 
-    const run = await pollSearchRun(data.run_id);
+    const run = await pollSearchRun(data.run_id, (setCancelFlag) => {
+      cancelBtn.onclick = () => {
+        setCancelFlag(true);
+        cancelBtn.disabled = true;
+        cancelBtn.textContent = "Cancelling…";
+        fetch(`/api/search/${data.run_id}/cancel`, { method: "POST" }).catch(() => {});
+        toast("Cancelling search…", "info");
+      };
+    });
+    cancelBtn.classList.add("hidden");
+
+    if (run.status === "cancelled") {
+      setBadge("Cancelled", "status-warn");
+      $("searchProgressLabel").textContent = "Search cancelled";
+      setTimeout(() => prog.classList.add("hidden"), 2500);
+      renderRecentSearches();
+      return;
+    }
+
     setBadge(run.status === "completed" ? "Completed" : run.status === "partial" ? "Partial" : "Error",
              run.status === "completed" ? "status-success" : run.status === "partial" ? "status-warn" : "status-error");
 
@@ -127,6 +147,7 @@ async function handleSearch(event) {
     setBadge("Idle", "status-idle");
   } finally {
     btn.disabled = false;
+    cancelBtn.classList.add("hidden");
     renderRecentSearches();
   }
 }
@@ -145,7 +166,9 @@ function renderIntentChips(intent) {
   box.classList.remove("hidden");
 }
 
-async function pollSearchRun(runId) {
+async function pollSearchRun(runId, onCancelRequested) {
+  let cancelled = false;
+  if (onCancelRequested) onCancelRequested(() => { cancelled = true; });
   while (true) {
     const res = await fetch(`/api/search/${runId}`);
     const data = await res.json();
@@ -160,6 +183,16 @@ async function pollSearchRun(runId) {
     if (run.status !== "running") {
       if (run.status === "error") toast(run.error || "Search failed", "error");
       return run;
+    }
+    if (cancelled) {
+      // the user clicked Cancel — the backend stops the Apify run; stop
+      // polling once it flips to a terminal status
+      while (true) {
+        const c = await fetch(`/api/search/${runId}`);
+        const cd = await c.json();
+        if (cd.search.status !== "running") return cd.search;
+        await sleep(1500);
+      }
     }
     await sleep(1500);
   }
@@ -204,6 +237,10 @@ const URL_LABELS = {
   youtube: ["YouTube", "▶️"], linkedin: ["LinkedIn", "💼"],
 };
 
+// replaced with the real handler by handleSearch/handleUrlSearch while a run
+// is active — exists so the inline onclick never throws
+function cancelCurrentSearch() {}
+
 async function handleUrlSearch(event) {
   event.preventDefault();
   const url = $("urlSearchInput").value.trim();
@@ -211,6 +248,7 @@ async function handleUrlSearch(event) {
   if (!url) return;
 
   const btn = $("urlSearchBtn");
+  const cancelBtn = $("urlSearchCancelBtn");
   btn.disabled = true;
   const prog = $("urlSearchProgress");
   prog.classList.remove("hidden");
@@ -229,9 +267,28 @@ async function handleUrlSearch(event) {
     chip.classList.remove("hidden");
     saveMemory("runId", data.run_id);
     renderIntentChips({ keyword: url, type: "url" });
+    cancelBtn.classList.remove("hidden");
 
-    const run = await pollSearchRun(data.run_id);
+    const run = await pollSearchRun(data.run_id, (setCancelFlag) => {
+      cancelBtn.onclick = () => {
+        setCancelFlag(true);
+        cancelBtn.disabled = true;
+        cancelBtn.textContent = "Cancelling…";
+        fetch(`/api/search/${data.run_id}/cancel`, { method: "POST" }).catch(() => {});
+        toast("Cancelling search…", "info");
+      };
+    });
+    cancelBtn.classList.add("hidden");
     chip.classList.add("hidden");
+
+    if (run.status === "cancelled") {
+      setBadge("Cancelled", "status-warn");
+      $("urlSearchProgressLabel").textContent = "Search cancelled";
+      setTimeout(() => prog.classList.add("hidden"), 2500);
+      renderRecentSearches();
+      return;
+    }
+
     setBadge(run.status === "completed" ? "Completed" : "Error",
              run.status === "completed" ? "status-success" : "status-error");
     $("urlSearchProgressFill").style.width = "100%";
@@ -252,6 +309,7 @@ async function handleUrlSearch(event) {
     $("urlPlatformChip").classList.add("hidden");
   } finally {
     btn.disabled = false;
+    cancelBtn.classList.add("hidden");
     renderRecentSearches();
   }
 }

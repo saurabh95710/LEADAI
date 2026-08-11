@@ -148,6 +148,28 @@ async def auto_collect_run(
     return {"status": "running", "message": "Auto-collection started"}
 
 
+@router.post("/search/{run_id}/cancel")
+async def cancel_search_run(run_id: str):
+    """Request cancellation of a running search (keyword or URL-based).
+    The background worker picks up `cancel_requested` at its next checkpoint
+    and aborts the in-flight Apify run. Poll GET /api/search/{run_id} to see
+    the final status (`cancelled`)."""
+    db = get_async_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    run = await db.search_history.find_one({"run_id": run_id})
+    if not run:
+        raise HTTPException(status_code=404, detail="Search run not found")
+    if run.get("status") != "running":
+        return {"run_id": run_id, "status": run.get("status"),
+                "message": "This search is no longer running"}
+    await db.search_history.update_one({"run_id": run_id}, {"$set": {
+        "cancel_requested": True, "message": "Cancelling search…",
+        "updated_at": utcnow()}})
+    return {"run_id": run_id, "status": "cancelling",
+            "message": "Cancellation requested — stopping soon"}
+
+
 @router.get("/search/history")
 async def search_history(limit: int = Query(20, ge=1, le=100)):
     db = get_async_db()
