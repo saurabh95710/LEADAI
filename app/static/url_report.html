@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LeadAI — URL Search Report</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+  <style>
+    .report-wrap { max-width: 1100px; margin: 0 auto; }
+    .report-hero { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+    .report-hero img.avatar { width: 96px; height: 96px; border-radius: 16px; object-fit: cover; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); }
+    .report-hero .meta { flex: 1; min-width: 260px; }
+    .report-hero h1 { margin: 0 0 6px; font-size: 1.5rem; }
+    .report-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 10px 18px; margin-top: 14px; }
+    .report-kv .kv { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 8px 12px; }
+    .kv .l { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: rgba(255,255,255,.5); }
+    .kv .v { font-weight: 600; }
+    .report-section { margin-top: 26px; }
+    .report-section h2 { font-size: 1.05rem; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+    .report-error { border-left: 3px solid #ff6b6b; background: rgba(255,107,107,.08); padding: 10px 14px; border-radius: 8px; margin-top: 14px; }
+    .report-loading { text-align: center; padding: 80px 0; color: rgba(255,255,255,.6); }
+    .back-link { display: inline-flex; align-items: center; gap: 6px; color: rgba(255,255,255,.7); text-decoration: none; font-size: .9rem; margin-bottom: 18px; }
+    .back-link:hover { color: #fff; }
+    .report-stats { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 14px; }
+    .stat-pill { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); padding: 8px 16px; border-radius: 999px; font-size: .85rem; }
+    .stat-pill b { color: #7ee2a8; }
+    .post-card { background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+    .post-card .p-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+    .post-card .p-cap { margin: 0; font-size: .92rem; line-height: 1.5; max-height: 84px; overflow: hidden; text-overflow: ellipsis; }
+    .post-card .p-stats { display: flex; gap: 16px; color: rgba(255,255,255,.55); font-size: .8rem; margin-top: 8px; }
+    .p-thumb { max-width: 120px; border-radius: 8px; display: block; }
+    .post-card .p-body { display: flex; gap: 14px; }
+    .comment-row { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+    .comment-row:last-child { border-bottom: none; }
+    .comment-row .c-avatar { width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.08); flex: none; display: grid; place-items: center; font-weight: 700; }
+    .comment-row .c-name { font-weight: 600; font-size: .86rem; }
+    .comment-row .c-text { font-size: .85rem; color: rgba(255,255,255,.85); margin-top: 2px; line-height: 1.45; }
+    .comment-row .c-meta { font-size: .72rem; color: rgba(255,255,255,.45); margin-top: 4px; }
+    .plain-link { color: #7ab8ff; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <div class="bg-orbs">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
+    </div>
+
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand-logo">
+          <span class="logo-icon">🎯</span>
+          <div>
+            <div class="brand-name">LeadAI</div>
+            <div class="brand-sub">Social URL Lead Report</div>
+          </div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <a href="/" class="docs-link">← Dashboard</a>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <div class="report-wrap glass-card" style="padding:28px">
+        <div id="reportLoading" class="report-loading">Loading the URL search report…</div>
+        <div id="reportContent" class="hidden">
+          <a href="/" class="back-link">← Back to dashboard</a>
+
+          <div class="report-hero">
+            <img id="rAvatar" class="avatar hidden" alt="profile" onerror="this.style.display='none'">
+            <div class="meta">
+              <h1 id="rTitle">—</h1>
+              <div style="font-size:.86rem;color:rgba(255,255,255,.6)" id="rUrl"></div>
+              <div id="rError" class="report-error hidden"></div>
+              <div class="report-stats" id="rStats"></div>
+            </div>
+          </div>
+
+          <div class="report-kv" id="rKv"></div>
+
+          <div class="report-section">
+            <h2>📝 Recent Posts <span class="muted" id="rPostCount"></span></h2>
+            <div id="rPosts"></div>
+          </div>
+
+          <div class="report-section">
+            <h2>💬 Comments Collected <span class="muted" id="rCommentCount"></span></h2>
+            <div id="rComments"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+  "use strict";
+  const RUN_ID = new URLSearchParams(location.search).get("run_id") || "";
+  const $ = (id) => document.getElementById(id);
+
+  function esc(t) {
+    if (t === null || t === undefined) return "";
+    return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  }
+  function fmt(n) {
+    if (n === null || n === undefined) return "—";
+    const num = Number(n);
+    if (isNaN(num)) return "—";
+    if (num >= 10000000) return (num/10000000).toFixed(1).replace(/\.0$/,"") + " Cr";
+    if (num >= 100000) return (num/100000).toFixed(1).replace(/\.0$/,"") + " L";
+    if (num >= 1000) return (num/1000).toFixed(1).replace(/\.0$/,"") + "K";
+    return String(num);
+  }
+  const PLATFORM_ICON = { facebook:"🏠", instagram:"📸", youtube:"▶️", linkedin:"💼" };
+  const PLATFORM_NAME = { facebook:"Facebook", instagram:"Instagram", youtube:"YouTube", linkedin:"LinkedIn" };
+
+  async function load() {
+    if (!RUN_ID) {
+      $("reportLoading").textContent = "Missing run_id — open the report from a URL search.";
+      return;
+    }
+    try {
+      const res = await fetch(`/api/url/search/${encodeURIComponent(RUN_ID)}/report`);
+      if (!res.ok) throw new Error("Report not found");
+      const d = await res.json();
+      $("reportLoading").classList.add("hidden");
+      const box = $("reportContent");
+      box.classList.remove("hidden");
+
+      const page = d.page;
+      if (!page) {
+        $("rTitle").textContent = "No page found";
+        const err = $("rError");
+        err.textContent = d.error || d.message || "The URL search produced no page details — the page may be private or the URL invalid.";
+        err.classList.remove("hidden");
+        return;
+      }
+
+      document.title = `LeadAI — ${page.page_name || "URL Report"}`;
+      const platform = d.platform || "facebook";
+      const icon = PLATFORM_ICON[platform] || "🔗";
+      $("rTitle").textContent = `${icon} ${esc(page.page_name || "Unnamed")}`;
+      $("rUrl").textContent = esc(d.search_url || page.facebook_url || "");
+      if (page.profile_picture) {
+        const av = $("rAvatar");
+        av.src = page.profile_picture;
+        av.classList.remove("hidden");
+      }
+
+      $("rStats").innerHTML = `
+        <span class="stat-pill">Platform: <b>${esc(PLATFORM_NAME[platform] || platform)}</b></span>
+        <span class="stat-pill">Followers: <b>${fmt(page.followers)}</b></span>
+        <span class="stat-pill">Activity: <b>${esc(page.activity_status || "N/A")}</b></span>
+        <span class="stat-pill">Posts: <b>${d.posts.length}</b></span>
+        <span class="stat-pill">Comments: <b>${d.comments.length}</b></span>
+        <span class="stat-pill">Generated: <b>${esc((d.generated_at || "").slice(0,16).replace("T"," "))}</b></span>`;
+
+      const kv = [];
+      if (page.category) kv.push(["Category", page.category]);
+      if (page.about) kv.push(["About", page.about]);
+      if (page.phone) kv.push(["Phone", page.phone]);
+      if (page.email) kv.push(["Email", page.email]);
+      if (page.whatsapp) kv.push(["WhatsApp", page.whatsapp]);
+      if (page.website) kv.push(["Website", `<a class="plain-link" href="${esc(page.website)}" target="_blank" rel="noopener">${esc(page.website)}</a>`]);
+      if (page.address) kv.push(["Address", page.address]);
+      if (page.country) kv.push(["Country", page.country]);
+      if (page.followers != null) kv.push(["Followers", fmt(page.followers)]);
+      if (page.verified != null) kv.push(["Verified", page.verified ? "Yes" : "No"]);
+      kv.push(["Source", platform + " (Apify)"]);
+      $("rKv").innerHTML = kv.map(([l, v]) =>
+        `<div class="kv"><div class="l">${esc(l)}</div><div class="v">${v}</div></div>`).join("");
+
+      $("rPostCount").textContent = `(${d.posts.length})`;
+      $("rPosts").innerHTML = d.posts.length
+        ? d.posts.map((p) => {
+            const thumb = p.images && p.images.length
+              ? `<img class="p-thumb" src="${esc(p.images[0])}" loading="lazy" onerror="this.style.display='none'">`
+              : (p.videos && p.videos.length ? `<span class="p-thumb">🎬</span>` : "");
+            return `<div class="post-card">
+              <div class="p-body">
+                ${thumb}
+                <div style="flex:1;min-width:0">
+                  <p class="p-cap">${esc(p.caption || p.description || "No caption")}</p>
+                  <div class="p-stats">
+                    <span>❤️ ${fmt(p.likes_count)}</span>
+                    <span>💬 ${fmt(p.comments_count || p.total_comment_count)}</span>
+                    ${p.shares_count != null ? `<span>🔁 ${fmt(p.shares_count)}</span>` : ""}
+                    <span>📅 ${esc(p.published_date || "—")}</span>
+                    ${p.post_url ? `<a class="plain-link" href="${esc(p.post_url)}" target="_blank" rel="noopener">open ↗</a>` : ""}
+                  </div>
+                </div>
+              </div>
+            </div>`;
+          }).join("")
+        : `<div class="empty-state"><div class="empty-icon">📝</div><div class="empty-title">No posts found</div><div class="empty-sub">This ${esc(PLATFORM_NAME[platform] || "page")} may have no public posts.</div></div>`;
+
+      $("rCommentCount").textContent = `(${d.comments.length})`;
+      $("rComments").innerHTML = d.comments.length
+        ? d.comments.map((c) => {
+            const initial = (c.author_name || "?").trim().charAt(0).toUpperCase();
+            return `<div class="comment-row">
+              <div class="c-avatar">${esc(initial)}</div>
+              <div style="flex:1;min-width:0">
+                <div class="c-name">${esc(c.author_name || "Unknown commenter")}</div>
+                <div class="c-text">${esc(c.text || "—")}</div>
+                <div class="c-meta">
+                  ${c.published_date ? `📅 ${esc(c.published_date)} · ` : ""}
+                  ${c.reactions_count != null ? `❤️ ${fmt(c.reactions_count)} · ` : ""}
+                  ${c.author_profile_url ? `<a class="plain-link" href="${esc(c.author_profile_url)}" target="_blank" rel="noopener">profile ↗</a> · ` : ""}
+                  ${c.comment_url ? `<a class="plain-link" href="${esc(c.comment_url)}" target="_blank" rel="noopener">comment ↗</a>` : ""}
+                </div>
+              </div>
+            </div>`;
+          }).join("")
+        : `<div class="empty-state"><div class="empty-icon">💬</div><div class="empty-title">No comments collected</div><div class="empty-sub">Comments are collected for Facebook & Instagram posts in URL search.</div></div>`;
+    } catch (err) {
+      $("reportLoading").textContent = "Could not load the report: " + err.message;
+    }
+  }
+
+  load();
+  </script>
+</body>
+</html>

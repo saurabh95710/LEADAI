@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LeadAI — Facebook AI Lead Intelligence Platform</title>
+  <meta name="description" content="AI-orchestrated Facebook lead intelligence — the agent searches real pages via Apify, you drill into posts, comments and AI-analyzed leads.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
+</head>
+<body>
+  <div class="app-shell">
+
+    <!-- ── Animated Background ── -->
+    <div class="bg-orbs">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
+    </div>
+
+    <!-- ── Header ── -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand-logo">
+          <span class="logo-icon">🎯</span>
+          <div>
+            <div class="brand-name">LeadAI</div>
+            <div class="brand-sub">Facebook AI Lead Intelligence</div>
+          </div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div id="pipelineStatusBadge" class="status-badge status-idle">⬤ Idle</div>
+        <a href="/docs" target="_blank" class="docs-link">API Docs ↗</a>
+      </div>
+    </header>
+
+    <!-- ── Workflow Breadcrumb ── -->
+    <nav class="workflow-breadcrumb" id="workflowBreadcrumb" aria-label="Workflow navigation">
+      <button type="button" class="breadcrumb-item active" data-view="search" onclick="navigateToView('search')">🔍 Search</button>
+      <span class="breadcrumb-sep">›</span>
+      <button type="button" class="breadcrumb-item" data-view="pages" onclick="navigateToView('pages')" disabled>📇 Pages</button>
+      <span class="breadcrumb-sep">›</span>
+      <button type="button" class="breadcrumb-item" data-view="posts" onclick="navigateToView('posts')" disabled>📝 Posts</button>
+      <span class="breadcrumb-sep">›</span>
+      <button type="button" class="breadcrumb-item" data-view="comments" onclick="navigateToView('comments')" disabled>💬 Comments</button>
+    </nav>
+
+    <main class="main-content">
+
+      <!-- ── VIEW 1: SEARCH ── -->
+      <section id="view-search" class="workflow-view search-panel glass-card">
+        <div class="panel-head">
+          <h1 class="panel-title">
+            <span class="title-icon">🔍</span>
+            Find Facebook Leads
+          </h1>
+          <p class="panel-subtitle">Tell the agent what you're looking for — e.g. <strong>"property dealers in jaipur"</strong> or <strong>"car dealers kota rajasthan"</strong>. Pick a provider, the agent searches real Facebook pages, and you drill down: pages → posts → comments → AI-analyzed leads.</p>
+        </div>
+
+        <form id="searchForm" class="search-form" onsubmit="handleSearch(event)">
+          <div class="form-row">
+            <div class="form-group grow">
+              <label class="form-label" for="searchQuery">Search Query</label>
+              <div class="input-wrapper">
+                <span class="input-icon">🔎</span>
+                <input type="text" id="searchQuery" class="form-input" placeholder="e.g. property dealers in jaipur" required>
+              </div>
+            </div>
+            <div class="form-group narrow">
+              <label class="form-label" for="searchLimit">Pages to Find</label>
+              <input type="number" id="searchLimit" class="form-input" min="1" max="100" value="10">
+            </div>
+            <div class="form-group provider-group">
+              <label class="form-label">Provider</label>
+              <div class="provider-toggle" id="providerToggle">
+                <label class="provider-opt">
+                  <input type="radio" name="provider" value="apify" checked>
+                  <span>Apify</span>
+                </label>
+                <label class="provider-opt">
+                  <input type="radio" name="provider" value="brightdata">
+                  <span>Bright&nbsp;Data</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div id="intentChips" class="intent-chips hidden"></div>
+          <div class="form-actions">
+            <button type="submit" id="searchBtn" class="btn-primary">
+              <span class="btn-icon">🔍</span>
+              <span class="btn-text">Search Real Facebook Pages</span>
+              <span class="btn-shine"></span>
+            </button>
+            <div id="searchProgress" class="pipeline-progress hidden">
+              <div class="progress-bar">
+                <div class="progress-fill" id="searchProgressFill"></div>
+              </div>
+              <div class="progress-label" id="searchProgressLabel">Searching Facebook Pages...</div>
+            </div>
+          </div>
+        </form>
+
+        <div class="panel-head" style="margin-top:28px">
+          <h2 class="panel-title" style="font-size:1rem">
+            <span class="title-icon">🗂️</span>
+            Recent Searches
+          </h2>
+        </div>
+        <div id="recentSearches" class="recent-searches">
+          <div class="empty-state" id="recentSearchesEmpty">
+            <div class="empty-icon">🕘</div>
+            <div class="empty-title">No Searches Yet</div>
+            <div class="empty-sub">Your past searches will appear here — click one to reopen it</div>
+          </div>
+          <div id="recentSearchesList" class="recent-searches-list"></div>
+        </div>
+
+        <div class="panel-head" style="margin-top:28px">
+          <h2 class="panel-title" style="font-size:1rem">
+            <span class="title-icon">🔗</span>
+            Find Leads From a Social URL
+          </h2>
+          <p class="panel-subtitle">Know the page already? Paste a <strong>Facebook page</strong>, <strong>Instagram profile</strong>, <strong>YouTube channel</strong> or <strong>LinkedIn company</strong> URL — the platform is detected automatically and its page, posts and comments (when available) are collected.</p>
+        </div>
+
+        <form id="urlSearchForm" class="search-form" onsubmit="handleUrlSearch(event)">
+          <div class="form-row">
+            <div class="form-group grow">
+              <label class="form-label" for="urlSearchInput">Page / Profile URL</label>
+              <div class="input-wrapper">
+                <span class="input-icon">🔗</span>
+                <input type="url" id="urlSearchInput" class="form-input" placeholder="https://www.facebook.com/yourpage or https://www.instagram.com/username" required>
+              </div>
+            </div>
+            <div class="form-group narrow">
+              <label class="form-label" for="urlSearchLimit">Max Posts</label>
+              <input type="number" id="urlSearchLimit" class="form-input" min="1" max="100" value="20">
+            </div>
+          </div>
+          <div id="urlPlatformChip" class="intent-chips hidden"></div>
+          <div class="form-actions">
+            <button type="submit" id="urlSearchBtn" class="btn-primary">
+              <span class="btn-icon">🔗</span>
+              <span class="btn-text">Search This Profile</span>
+              <span class="btn-shine"></span>
+            </button>
+            <div id="urlSearchProgress" class="pipeline-progress hidden">
+              <div class="progress-bar">
+                <div class="progress-fill" id="urlSearchProgressFill"></div>
+              </div>
+              <div class="progress-label" id="urlSearchProgressLabel">Starting URL search...</div>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <!-- ── VIEW 2: PAGES ── -->
+      <section class="workflow-view leads-panel glass-card hidden" id="view-pages">
+        <div class="leads-header">
+          <div class="leads-tabs">
+            <button class="tab-btn active" id="tabPages">📇 Pages Found</button>
+          </div>
+          <div class="leads-controls">
+            <span class="filter-label">Category:</span>
+            <select id="pagesCategoryFilter" class="form-input filter-select" onchange="renderPagesScreen()">
+              <option value="">All</option>
+            </select>
+            <label class="filter-check">
+              <input type="checkbox" id="pagesContactOnly" onchange="renderPagesScreen()"> With contact
+            </label>
+            <button class="btn-export" onclick="exportPagesCsv()" title="Download the pages of this search as CSV">📄 Export CSV</button>
+            <button class="btn-refresh" onclick="renderPagesScreen()" title="Refresh (data is cached)">↺ Refresh</button>
+          </div>
+        </div>
+
+        <p class="workflow-hint">Pages are ranked by post statistics: only pages with at least one <b>qualifying post</b> (relevant + ≥10 Facebook comments) are shown as results. Click a page to see its post analysis.</p>
+
+        <div id="pagesScreenStatus" class="page-search-summary hidden"></div>
+
+        <div id="pagesListContainer" class="leads-container">
+          <div class="empty-state" id="pagesListEmpty">
+            <div class="empty-icon">📇</div>
+            <div class="empty-title">No Pages Found</div>
+            <div class="empty-sub">Run a search on the Search screen first</div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table pages-table">
+              <thead>
+                <tr>
+                  <th>Page</th>
+                  <th>Category</th>
+                  <th class="num">Followers</th>
+                  <th class="num">Likes</th>
+                  <th>Phone</th>
+                  <th>Email</th>
+                  <th>Website</th>
+                  <th>Address</th>
+                  <th class="num">Posts</th>
+                  <th class="num">Comments</th>
+                  <th>Activity</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="pagesGrid"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── VIEW 3: POSTS ── -->
+      <section class="workflow-view leads-panel glass-card hidden" id="view-posts">
+        <div class="leads-header">
+          <div class="leads-tabs">
+            <button class="tab-btn active" id="tabPosts">📝 Posts of <span id="postsPageName">this page</span></button>
+          </div>
+          <div class="leads-controls">
+            <button class="btn-export" onclick="exportPostsCsv()" title="Download posts of this page as CSV">📄 Export CSV</button>
+            <button class="btn-refresh" onclick="renderPostsScreen()" title="Refresh (data is cached)">↺ Refresh</button>
+          </div>
+        </div>
+
+        <p class="workflow-hint">Posts are sorted with qualifying posts first. Only qualifying posts (relevant + ≥10 Facebook comments) are worth collecting comments from — the expensive comment scrape never runs on low-engagement posts.</p>
+
+        <div id="postsScreenStatus" class="page-search-summary hidden"></div>
+
+        <div id="postsListContainer" class="leads-container">
+          <div class="empty-state" id="postsListEmpty">
+            <div class="empty-icon">📝</div>
+            <div class="empty-title">No Posts Yet</div>
+            <div class="empty-sub">No posts collected for this page yet</div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Post</th>
+                  <th>Date</th>
+                  <th class="num">Likes</th>
+                  <th class="num">Comments</th>
+                  <th class="num">Shares</th>
+                  <th>Relevance</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="postsGrid"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── VIEW 4: COMMENTS / LEADS ── -->
+      <section class="workflow-view leads-panel glass-card hidden" id="view-comments">
+        <div class="leads-header">
+          <div class="leads-tabs">
+            <button class="tab-btn active" id="tabComments">💬 Comments on <span id="commentsPostName">this post</span></button>
+          </div>
+          <div class="leads-controls">
+            <label class="filter-check">
+              <input type="checkbox" id="commentsLeadsOnly" onchange="renderCommentsScreen()"> Leads only
+            </label>
+            <button class="btn-export" onclick="exportLeadsCsv()" title="Download AI-analyzed leads as CSV">📄 Export Leads CSV</button>
+            <button class="btn-refresh" onclick="renderCommentsScreen()" title="Refresh (data is cached)">↺ Refresh</button>
+          </div>
+        </div>
+
+        <p class="workflow-hint">Only valuable comments are shown by default — the AI ignores "nice", "awesome", emoji-only and spam. Click a row for the full AI lead card.</p>
+
+        <div id="commentsScreenStatus" class="page-search-summary hidden"></div>
+
+        <div id="commentsListContainer" class="leads-container">
+          <div class="empty-state" id="commentsListEmpty">
+            <div class="empty-icon">💬</div>
+            <div class="empty-title">No Leads Yet</div>
+            <div class="empty-sub">Collect comments from the Posts screen</div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table comments-table">
+              <thead>
+                <tr>
+                  <th>Commenter</th>
+                  <th>Comment</th>
+                  <th>Phone</th>
+                  <th>Email</th>
+                  <th>WhatsApp</th>
+                  <th>Budget / Requirement</th>
+                  <th>Location</th>
+                  <th>Intent</th>
+                  <th>Priority</th>
+                  <th>Score</th>
+                </tr>
+              </thead>
+              <tbody id="commentsGrid"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ── Lead Details Modal ── -->
+  <div id="leadDetailModal" class="modal-backdrop hidden" onclick="if(event.target===this)closeLeadDetails()">
+    <div class="modal-card lead-detail-card">
+      <div class="modal-header">
+        <h3 id="leadDetailTitle">Lead Details</h3>
+        <button class="modal-close" onclick="closeLeadDetails()">✕</button>
+      </div>
+      <div id="leadDetailContent" class="lead-detail-content"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeLeadDetails()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Toast Container ── -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
