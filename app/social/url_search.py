@@ -263,6 +263,7 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
     progress(phase="comments", message="Collecting comments…")
     comment_docs = 0
     if getattr(scraper, "comments_supported", True) and post_docs:
+        from app.pipeline.comment_ai import has_contact_info
         cap = int(getattr(settings, "max_comments_to_collect", 100) or 100)
         per_post = max(1, min(cap, 30))
         for post in post_docs:
@@ -290,6 +291,10 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
                     return cancelled()
                 comment_json = scraper.normalize_comment(item, post)
                 if not comment_json or not comment_json.get("comment_url"):
+                    continue
+                # only comments carrying a phone number or email become leads —
+                # everything else is noise and is never stored or analyzed
+                if not has_contact_info(comment_json.get("text")):
                     continue
                 comment_json["_id"] = ObjectId()
                 comment_json["post_ref"] = str(post["_id"])

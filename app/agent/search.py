@@ -856,9 +856,16 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
         return {"status": "error", "error": str(e)}
 
     stored = 0
+    filtered = 0
+    from app.pipeline.comment_ai import has_contact_info
     for item in items:
         doc = map_comment_item(item, post)
         if not doc:
+            continue
+        # only comments carrying a phone number or email are kept as leads —
+        # everything else is noise and is never stored or analyzed
+        if not has_contact_info(doc.get("text")):
+            filtered += 1
             continue
         # per-run dedup: a comment on a post collected again in a later run
         # belongs to THAT run's post doc
@@ -876,10 +883,12 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
 
     if stored == 0:
         status = "empty"
-        message = "No comments returned for this post"
+        message = (f"No comments with a phone number or email found "
+                   f"({filtered} comment(s) had no contact info)")
     else:
         status = "completed"
-        message = f"{stored} comments collected"
+        message = (f"{stored} comments with contact info collected "
+                   f"({filtered} skipped — no phone/email)")
 
     analysis_error = None
     if stored:

@@ -126,6 +126,14 @@ def strip_emoji(text: str) -> str:
     return _EMOJI_RE.sub("", text)
 
 
+def has_contact_info(text: Optional[str]) -> bool:
+    """True when the text contains a phone number OR an email address —
+    the only comments worth storing as leads (nothing else qualifies)."""
+    if not text:
+        return False
+    return bool(_PHONE_RE.search(text) or _EMAIL_RE.search(text))
+
+
 def is_emoji_only(text: str) -> bool:
     if not text:
         return False

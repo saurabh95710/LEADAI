@@ -135,3 +135,16 @@ def test_parse_iso_variants():
     assert _parse_iso("2026-06-01T12:00:00Z") is not None
     assert _parse_iso("2026-06-01") is not None
     assert _parse_iso("2026-06-01T12:00:00.000Z") is not None
+
+
+# ── contact filter: only comments with a phone number or email are kept ──
+def test_has_contact_info_phone_or_email():
+    from app.pipeline.comment_ai import has_contact_info
+    assert has_contact_info("please call me on 9876543210") is True
+    assert has_contact_info("contact me at ramesh@gmail.com") is True
+    assert has_contact_info("+91 98765 43210 is my number") is True
+    assert has_contact_info("whatsapp 98765-43210") is True
+    assert has_contact_info("nice post, keep it up") is False
+    assert has_contact_info("") is False
+    assert has_contact_info(None) is False
+    assert has_contact_info("my email is info@shyamprop.in") is True
