@@ -148,3 +148,55 @@ def test_has_contact_info_phone_or_email():
     assert has_contact_info("") is False
     assert has_contact_info(None) is False
     assert has_contact_info("my email is info@shyamprop.in") is True
+
+
+# ── cancel helpers must never truth-test the pymongo Database ──────────
+def test_is_run_cancelled_accepts_database_object():
+    """Regression: pymongo Database raises NotImplementedError on bool(),
+    so `db or get_sync_db()` crashed every URL search. Passing a real
+    Database-like object must not trigger truth-testing."""
+    from app.agent.search import is_run_cancelled
+
+    class DatabaseLike:
+        def __bool__(self):
+            raise NotImplementedError(
+                "Database objects do not implement truth value testing")
+
+        def search_history(self):
+            raise AssertionError("find_one must be reached with the passed db")
+
+    class History:
+        def find_one(self, run_id, projection=None):
+            assert run_id == {"run_id": "URL123"}
+            return {"cancel_requested": True}
+
+    class DB(DatabaseLike):
+        def __init__(self):
+            self.search_history = History()
+
+    assert is_run_cancelled("URL123", DB()) is True
+
+
+def test_mark_run_cancelled_accepts_database_object():
+    from app.agent.search import mark_run_cancelled
+
+    class DatabaseLike:
+        def __bool__(self):
+            raise NotImplementedError(
+                "Database objects do not implement truth value testing")
+
+    class History:
+        def __init__(self):
+            self.updated = []
+
+        def update_one(self, run_id, fields):
+            self.updated.append((run_id, fields))
+
+    class DB(DatabaseLike):
+        def __init__(self):
+            self.search_history = History()
+
+    db = DB()
+    mark_run_cancelled("URL123", db)
+    assert db.search_history.updated[0][0] == {"run_id": "URL123"}
+    assert db.search_history.updated[0][1]["$set"]["status"] == "cancelled"

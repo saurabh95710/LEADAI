@@ -72,7 +72,8 @@ def _stale(doc: Dict[str, Any], started_key: str) -> bool:
 def is_run_cancelled(run_id: str, db=None) -> bool:
     """True when the user requested cancellation of this run
     (POST /api/search/{run_id}/cancel sets `cancel_requested`)."""
-    db = db or get_sync_db()
+    if db is None:
+        db = get_sync_db()
     if db is None:
         return False
     doc = db.search_history.find_one({"run_id": run_id}, {"cancel_requested": 1})
@@ -80,7 +81,8 @@ def is_run_cancelled(run_id: str, db=None) -> bool:
 
 
 def mark_run_cancelled(run_id: str, db=None, message: str = "Search cancelled by user") -> None:
-    db = db or get_sync_db()
+    if db is None:
+        db = get_sync_db()
     if db is None:
         return
     db.search_history.update_one({"run_id": run_id}, {"$set": {
