@@ -452,6 +452,8 @@ def map_post_item(item: Dict[str, Any], page_doc: Dict[str, Any],
             thumb = m.get("thumbnail")
             if not thumb and isinstance(m.get("thumbnailImage"), dict):
                 thumb = m["thumbnailImage"].get("uri")
+            if not thumb and isinstance(m.get("photo_image"), dict):
+                thumb = m["photo_image"].get("uri")
             if not thumb and isinstance(m.get("image"), dict):
                 thumb = m["image"].get("uri")
             if thumb and thumb not in images:
@@ -737,6 +739,7 @@ def collect_page_posts(page_id: str, max_posts: int = 20,
                 "posts_status": "cancelled", "posts_error": "Search cancelled by user",
                 "updated_at": utcnow()}})
             return {"status": "cancelled", "message": "Search cancelled by user"}
+        if isinstance(e, ScrapeError):
             logger.info(f"[Agent] Posts failed for page {page_id} errorType={e.error_type} "
                         f"runId={e.error.get('runId')} datasetId={e.error.get('datasetId')}")
             db.facebook_pages.update_one({"_id": page["_id"]}, {"$set": {
@@ -858,17 +861,18 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
         return {"status": "error", "error": str(e)}
 
     stored = 0
-    filtered = 0
+    contact_stored = 0
     from app.pipeline.comment_ai import has_contact_info
     for item in items:
         doc = map_comment_item(item, post)
         if not doc:
             continue
-        # only comments carrying a phone number or email are kept as leads —
-        # everything else is noise and is never stored or analyzed
-        if not has_contact_info(doc.get("text")):
-            filtered += 1
-            continue
+        # every scraped comment is kept; comments carrying a phone number or
+        # email are flagged (has_contact) so they surface at the top of the
+        # comments view and can be AI-analyzed as leads
+        doc["has_contact"] = bool(has_contact_info(doc.get("text")))
+        if doc["has_contact"]:
+            contact_stored += 1
         # per-run dedup: a comment on a post collected again in a later run
         # belongs to THAT run's post doc
         existing = db.facebook_comments.find_one({"comment_url": doc["comment_url"], "post_ref": post_id})
@@ -885,14 +889,20 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
 
     if stored == 0:
         status = "empty"
-        message = (f"No comments with a phone number or email found "
-                   f"({filtered} comment(s) had no contact info)")
+        message = "No comments were returned for this post"
     else:
         status = "completed"
-        message = (f"{stored} comments with contact info collected "
-                   f"({filtered} skipped — no phone/email)")
+        message = (f"{stored} comments collected "
+                   f"({contact_stored} with phone/email)")
 
     analysis_error = None
+    # mark completed as soon as comments are stored so the UI can show them
+    # immediately — AI analysis below only refines the data further
+    db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
+        "comments_status": status, "scraped_comment_count": stored,
+        "comments_error": None if stored else message,
+        "comments_collected_at": utcnow(), "updated_at": utcnow()}})
+
     if stored:
         try:
             from app.pipeline.comment_ai import analyze_comments_for_post
@@ -900,11 +910,8 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
         except Exception as e:
             analysis_error = str(e)
             logger.warning(f"[Agent] AI comment analysis failed: {e}")
-
-    db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
-        "comments_status": status, "scraped_comment_count": stored,
-        "comments_error": analysis_error or (None if stored else message),
-        "comments_collected_at": utcnow(), "updated_at": utcnow()}})
+            db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
+                "comments_error": str(e), "updated_at": utcnow()}})
 
     logger.info(f"[Agent] Comments done for post {post_id}: status={status} stored={stored} "
                 f"analysis_error={analysis_error}")

@@ -2276,6 +2276,8 @@ select.form-input {
 .badge-hot { background: rgba(239,68,68,.18); color: #fca5a5; border: 1px solid rgba(239,68,68,.4); }
 .badge-warm { background: rgba(245,158,11,.16); color: #fcd34d; border: 1px solid rgba(245,158,11,.4); }
 .badge-cold { background: rgba(59,130,246,.16); color: #93c5fd; border: 1px solid rgba(59,130,246,.4); }
+.badge-lead { background: rgba(16,185,129,.18); color: #6ee7b7; border: 1px solid rgba(16,185,129,.45); text-transform: none; }
+.row-lead { background: rgba(16,185,129,.06); }
 .score-pill { display: inline-block; min-width: 30px; text-align: center; background: rgba(139,92,246,.18); color: #c4b5fd;
   border: 1px solid rgba(139,92,246,.4); border-radius: 8px; padding: 2px 7px; font-weight: 700; font-size: .8rem; }
 

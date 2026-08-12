@@ -292,10 +292,11 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
                 comment_json = scraper.normalize_comment(item, post)
                 if not comment_json or not comment_json.get("comment_url"):
                     continue
-                # only comments carrying a phone number or email become leads —
-                # everything else is noise and is never stored or analyzed
-                if not has_contact_info(comment_json.get("text")):
-                    continue
+                # every scraped comment is kept; comments carrying a phone
+                # number or email are flagged (has_contact) so they surface
+                # at the top of the comments view as leads
+                comment_json["has_contact"] = bool(
+                    has_contact_info(comment_json.get("text")))
                 comment_json["_id"] = ObjectId()
                 comment_json["post_ref"] = str(post["_id"])
                 comment_json["search_run_id"] = run_id
@@ -309,6 +310,12 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
                     continue
                 if comment_docs >= cap:
                     break
+            # mark the post completed as soon as comments are stored so the
+            # UI can show them immediately — AI analysis below only refines
+            db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
+                "comments_status": "completed" if stored_for_post else "empty",
+                "scraped_comment_count": stored_for_post,
+                "comments_collected_at": utcnow(), "updated_at": utcnow()}})
             # analyze each post's comments through the same AI pipeline used
             # by the keyword search so leads get phone/email/intent/score etc.
             if stored_for_post:
@@ -318,10 +325,6 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
                 except Exception as e:
                     logger.warning(f"[URL SEARCH] AI comment analysis failed for "
                                    f"{post['post_url']}: {e}")
-            db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
-                "comments_status": "completed" if stored_for_post else "empty",
-                "scraped_comment_count": stored_for_post,
-                "comments_collected_at": utcnow(), "updated_at": utcnow()}})
 
     # ── 5. finalize ────────────────────────────────────────────────────────
     # a run that could not fetch details AND got no posts is a failure, not

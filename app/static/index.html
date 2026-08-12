@@ -266,6 +266,9 @@
           </div>
           <div class="leads-controls">
             <label class="filter-check">
+              <input type="checkbox" id="commentsContactOnly" checked onchange="renderCommentsScreen()"> Contact only
+            </label>
+            <label class="filter-check">
               <input type="checkbox" id="commentsLeadsOnly" onchange="renderCommentsScreen()"> Leads only
             </label>
             <button class="btn-export" onclick="exportLeadsCsv()" title="Download AI-analyzed leads as CSV">📄 Export Leads CSV</button>

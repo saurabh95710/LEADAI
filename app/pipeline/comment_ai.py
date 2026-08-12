@@ -75,6 +75,13 @@ _TOKEN_SPLIT_RE = re.compile(r"[^\w\u0900-\u097F]+", re.UNICODE)
 
 _PHONE_RE = re.compile(r"(?<!\d)(?:\+?91[\s\-.]?)?\d{5}[\s\-.]?\d{5}(?!\d)")
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+# email providers written WITHOUT the @ — e.g. "abc.gmail.com", "mail me gmail.com"
+_BARE_EMAIL_DOMAIN_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:gmail|yahoo|hotmail|outlook|rediffmail|aol|live|"
+    r"ymail|icloud|protonmail|zoho|msn|mail)\s*\.\s*(?:com|in|co\.in|org|"
+    r"net|co|me|uk)(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
 _URL_RE = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
 _WHATSAPP_RE = re.compile(r"whatsapp|whats ?app|wa\.me", re.IGNORECASE)
 _WHATSAPP_WITH_NUM_RE = re.compile(r"(?i)whatsapp[^\d]{0,12}(?:\+?91[\s\-.]?)?\d{5}[\s\-.]?\d{5}")
@@ -127,11 +134,27 @@ def strip_emoji(text: str) -> str:
 
 
 def has_contact_info(text: Optional[str]) -> bool:
-    """True when the text contains a phone number OR an email address —
-    the only comments worth storing as leads (nothing else qualifies)."""
+    """True when the text contains a 10-digit phone number OR an email
+    address (incl. bare provider domains like gmail.com)."""
     if not text:
         return False
-    return bool(_PHONE_RE.search(text) or _EMAIL_RE.search(text))
+    return bool(_PHONE_RE.search(text) or _EMAIL_RE.search(text)
+                or _BARE_EMAIL_DOMAIN_RE.search(text))
+
+
+def extract_contact_quick(text: Optional[str]) -> Dict[str, Optional[str]]:
+    """Fast regex extraction of phone/email/whatsapp for display without AI."""
+    text = text or ""
+    phone_m = _PHONE_RE.search(text)
+    email_m = _EMAIL_RE.search(text)
+    wa_m = _WHATSAPP_WITH_NUM_RE.search(text)
+    bare_m = _BARE_EMAIL_DOMAIN_RE.search(text)
+    return {
+        "phone": phone_m.group(0).strip() if phone_m else None,
+        "email": (email_m.group(0).strip() if email_m
+                  else (bare_m.group(0).strip() if bare_m else None)),
+        "whatsapp": wa_m.group(0).strip() if wa_m else None,
+    }
 
 
 def is_emoji_only(text: str) -> bool:
@@ -282,8 +305,15 @@ _QUALITY_VALUES = {"hot", "warm", "cold", "none"}
 _SENTIMENT_VALUES = {"excited", "positive", "neutral", "negative"}
 
 
-def _call_gemini(system_prompt: str, user_content: str, temperature: float = 0.1, retries: int = 3) -> dict:
-    """Gemini API call with 429 backoff. Raises when it finally fails."""
+_GEMINI_DISABLED_UNTIL = 0.0  # circuit breaker: skip Gemini while rate-limited
+
+
+def _call_gemini(system_prompt: str, user_content: str, temperature: float = 0.1, retries: int = 1) -> dict:
+    """Gemini API call with 429 backoff + circuit breaker. Raises when it
+    finally fails — callers fall back to rule-based analysis."""
+    global _GEMINI_DISABLED_UNTIL
+    if time.time() < _GEMINI_DISABLED_UNTIL:
+        raise RuntimeError("Gemini rate-limited — circuit open, using rules")
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{settings.gemini_model}:generateContent?key={settings.gemini_api_key}"
@@ -293,16 +323,22 @@ def _call_gemini(system_prompt: str, user_content: str, temperature: float = 0.1
         "contents": [{"role": "user", "parts": [{"text": user_content}]}],
         "generationConfig": {"response_mime_type": "application/json", "temperature": temperature},
     }
-    backoff = [5, 15, 30]
+    backoff = [5]
     for attempt in range(retries + 1):
         try:
             with httpx.Client(timeout=60) as client:
                 resp = client.post(url, json=payload)
-                if resp.status_code == 429 and attempt < retries:
-                    wait = backoff[min(attempt, len(backoff) - 1)]
-                    logger.warning(f"[Gemini] 429 rate limit, retrying in {wait}s...")
-                    time.sleep(wait)
-                    continue
+                if resp.status_code == 429:
+                    # open the circuit for 10 minutes so the whole comment
+                    # batch isn't slowed by endless retries
+                    _GEMINI_DISABLED_UNTIL = time.time() + 600
+                    logger.warning(f"[Gemini] 429 rate limit, circuit open until "
+                                   f"{time.strftime('%H:%M:%S', time.localtime(_GEMINI_DISABLED_UNTIL))}")
+                    if attempt < retries:
+                        wait = backoff[min(attempt, len(backoff) - 1)]
+                        time.sleep(wait)
+                        continue
+                    raise RuntimeError("Gemini rate-limited (429)")
                 resp.raise_for_status()
                 data = resp.json()
                 candidates = data.get("candidates", [])
@@ -318,11 +354,15 @@ def _call_gemini(system_prompt: str, user_content: str, temperature: float = 0.1
                         raw = raw[4:]
                 return json.loads(raw.strip())
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429 and attempt < retries:
-                wait = backoff[min(attempt, len(backoff) - 1)]
-                logger.warning(f"[Gemini] 429 rate limit (attempt {attempt+1}), waiting {wait}s...")
-                time.sleep(wait)
-                continue
+            if e.response.status_code == 429:
+                _GEMINI_DISABLED_UNTIL = time.time() + 600
+                logger.warning(f"[Gemini] 429 rate limit, circuit open until "
+                               f"{time.strftime('%H:%M:%S', time.localtime(_GEMINI_DISABLED_UNTIL))}")
+                if attempt < retries:
+                    wait = backoff[min(attempt, len(backoff) - 1)]
+                    logger.warning(f"[Gemini] retrying in {wait}s...")
+                    time.sleep(wait)
+                    continue
             raise
     raise RuntimeError("Gemini API failed after all retries")
 

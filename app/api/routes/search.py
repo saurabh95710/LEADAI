@@ -325,15 +325,10 @@ async def list_pages(
     db = get_async_db()
     if db is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    # Only pages with at least one qualifying post are results. Pages that are
-    # still being analyzed (or failed) stay visible so the UI can show progress
-    # and offer "Analyze Posts". Legacy pages analyzed before this feature are
-    # kept visible too.
-    query = {"$or": [
-        {"posts_status": {"$in": ["not_started", "pending", "running", "error"]}},
-        {"qualifying_posts_count": {"$gt": 0}},
-        {"posts_status": "completed", "qualifying_posts_count": {"$exists": False}},
-    ]}
+    # Every scraped page of the run is a result and must stay visible — the
+    # qualifying/lead info is displayed per-row (sorted so qualifying pages
+    # rank first) instead of hiding pages that did not qualify.
+    query: dict = {}
     if run_id:
         query["search_run_id"] = run_id
     if q:
@@ -465,7 +460,8 @@ async def collect_comments(post_id: str, max_comments: int = Query(200, ge=1, le
 @router.get("/posts/{post_id}/comments")
 async def list_post_comments(
     post_id: str,
-    only_leads: bool = Query(True, description="show only valuable comments (is_lead)"),
+    only_leads: bool = Query(False, description="show only valuable comments (is_lead)"),
+    contact_only: bool = Query(True, description="only comments with a 10-digit phone number or email"),
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
 ):
@@ -500,13 +496,23 @@ async def list_post_comments(
             c["reactions_count"] = raw.get("reactions_count")
         total = await db.ai_comments.count_documents(query)
     else:
-        # ALL raw comments, enriched with AI analysis where it exists
-        total = await db.facebook_comments.count_documents(query)
-        async for raw in (db.facebook_comments.find(query)
-                          .sort("published_date", -1).skip(offset).limit(limit)):
+        # ALL raw comments for the post, contact-bearing ones first; by
+        # default only comments with a 10-digit phone number or email are
+        # shown (contact_only) — unchecking reveals every comment
+        from app.pipeline.comment_ai import extract_contact_quick
+        all_docs = []
+        async for raw in db.facebook_comments.find(query):
             c = _serialize(raw)
             c["commenter_name"] = raw.get("author_name")
             c["comment_text"] = raw.get("text")
+            quick = extract_contact_quick(raw.get("text"))
+            has_contact = raw.get("has_contact")
+            if has_contact is None:
+                has_contact = bool(quick["phone"] or quick["email"])
+            c["has_contact"] = bool(has_contact)
+            for k, v in quick.items():
+                if v:
+                    c[k] = v
             analysis = await db.ai_comments.find_one({"comment_ref": c["id"]})
             if analysis:
                 a = _serialize(analysis)
@@ -516,11 +522,24 @@ async def list_post_comments(
                             "reason", "analyzed_by"):
                     if a.get(key) is not None:
                         c[key] = a[key]
-            docs.append(c)
+            all_docs.append(c)
+        contact_count = sum(1 for d in all_docs if d.get("has_contact"))
+        all_docs_len = len(all_docs)
+        if contact_only:
+            all_docs = [d for d in all_docs if d.get("has_contact")]
+        # newest first, then stable-sorted so contact comments stay on top
+        all_docs.sort(key=lambda d: d.get("published_date") or "", reverse=True)
+        all_docs.sort(key=lambda d: d.get("has_contact") is not True)
+        total = len(all_docs)
+        docs = all_docs[offset:offset + limit]
     return {
         "post": _serialize(post),
         "comments": docs,
         "total": total,
+        "all_count": all_docs_len if not only_leads else total,
+        "contact_count": contact_count if not only_leads else
+            await db.ai_comments.count_documents(
+                {"post_ref": post_id, "is_lead": True}),
         "comments_status": post.get("comments_status"),
         "total_comment_count": post.get("total_comment_count") or post.get("comments_count") or 0,
         "scraped_comment_count": post.get("scraped_comment_count") or 0,

@@ -162,7 +162,7 @@
         <span class="stat-pill">Posts: <b>${d.posts.length}</b></span>
         <span class="stat-pill">Comments: <b>${d.comments.length}</b></span>
         ${page.qualifying_posts_count ? `<span class="stat-pill">Qualifying: <b>${fmt(page.qualifying_posts_count)}</b></span>` : ""}
-        ${page.lead_score != null ? `<span class="stat-pill">Lead score: <b>${Math.round(page.lead_score * 100)}</b></span>` : ""}
+        ${page.lead_score != null ? `<span class="stat-pill">Lead score: <b>${Math.round(page.lead_score)}</b></span>` : ""}
         <span class="stat-pill">Generated: <b>${esc((d.generated_at || "").slice(0,16).replace("T"," "))}</b></span>`;
 
       const kv = [];
@@ -209,7 +209,7 @@
         ? d.comments.map((c) => {
             const initial = (c.author_name || "?").trim().charAt(0).toUpperCase();
             const leadBadge = c.is_lead
-              ? `<span class="c-lead">🎯 Lead</span><span class="c-lead">⭐ ${Math.round(c.lead_score * 100)}</span>`
+              ? `<span class="c-lead">🎯 Lead</span><span class="c-lead">⭐ ${Math.round(c.lead_score)}</span>`
               : "";
             const chips = [];
             if (c.phone) chips.push(["📞", c.phone]);

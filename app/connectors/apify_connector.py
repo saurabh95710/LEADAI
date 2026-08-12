@@ -322,15 +322,22 @@ class ApifyConnector:
                             run_input: Dict[str, Any], label: str,
                             should_abort: callable) -> Any:
         """Start the actor run, then poll its status — aborting it as soon as
-        `should_abort()` returns True (user clicked Cancel)."""
+        `should_abort()` returns True (user clicked Cancel).
+
+        Keeps the same server-side run timeout as the blocking `.call()` path
+        (`run_timeout`) and adds a local watchdog so a hung/blocked run can
+        never keep the pipeline looping forever.
+        """
         started = client.actor(actor_id).start(
-            run_input=run_input, content_type="application/json")
+            run_input=run_input, content_type="application/json",
+            run_timeout=timedelta(minutes=_RUN_TIMEOUT_MIN))
         run_id = _rget(started, "id")
         if not run_id:
             raise ScrapeError("API_ERROR", "Apify run started without an id",
                               actor_id=actor_id, details=str(started)[:500])
         logger.info(f"[Apify] polling run {run_id} ({label}) for cancellation")
         run_client = client.run(run_id)
+        deadline = time.monotonic() + _RUN_TIMEOUT_MIN * 60 + 120  # server timeout + margin
         while True:
             if should_abort():
                 try:
@@ -340,6 +347,17 @@ class ApifyConnector:
                     logger.warning(f"[Apify] abort of run {run_id} failed: {e}")
                 raise ScrapeError(
                     "CANCELLED", "Search cancelled by user",
+                    actor_id=actor_id, run_id=run_id)
+            if time.monotonic() > deadline:
+                logger.warning(f"[Apify] run {run_id} ({label}) exceeded "
+                               f"{_RUN_TIMEOUT_MIN} min — aborting locally")
+                try:
+                    run_client.abort()
+                except Exception:
+                    pass
+                raise ScrapeError(
+                    "ACTOR_TIMED_OUT",
+                    f"Apify actor run timed out after {_RUN_TIMEOUT_MIN} minutes — retry",
                     actor_id=actor_id, run_id=run_id)
             try:
                 run = run_client.get()
@@ -516,8 +534,6 @@ class ApifyConnector:
             "apify/facebook-pages-scraper",
             {
                 "startUrls": [{"url": u} for u in page_urls],
-                "maxResults": len(page_urls),
-                "proxyConfiguration": {"useApifyProxy": True},
             },
             "pages-details",
             attempts=2,
@@ -586,15 +602,9 @@ class ApifyConnector:
             "apify/facebook-comments-scraper",
             {
                 "startUrls": [{"url": u} for u in post_urls],
-                "commentSettings": {
-                    "maxComments": max(comments_per_post, 1),
-                    "includeReplies": True,
-                    "maxRepliesPerComment": 0,
-                    "maxReplyDepth": 1,
-                    "emitRepliesAsSeparateRows": True,
-                    "commentsSortOrder": "all",
-                },
-                "proxyConfiguration": {"useApifyProxy": True},
+                "resultsLimit": max(comments_per_post, 1),
+                "includeNestedComments": True,
+                "viewOption": "RANKED_UNFILTERED",
             },
             "comments",
             attempts=2,

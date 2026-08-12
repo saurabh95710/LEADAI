@@ -639,36 +639,48 @@ function exportPostsCsv() {
 async function renderCommentsScreen() {
   if (!memory.postId) { $("commentsGrid").innerHTML = ""; $("commentsListEmpty").classList.remove("hidden"); return; }
   const onlyLeads = $("commentsLeadsOnly").checked;
+  const contactOnly = $("commentsContactOnly").checked;
   try {
-    const res = await fetch(`/api/posts/${memory.postId}/comments?only_leads=${onlyLeads}`);
+    const res = await fetch(`/api/posts/${memory.postId}/comments?only_leads=${onlyLeads}&contact_only=${contactOnly}`);
     const data = await res.json();
     $("commentsPostName").textContent = (data.post && data.post.caption ? data.post.caption.slice(0, 60) : "this post") || "this post";
 
     const statusBox = $("commentsScreenStatus");
     const total = data.total_comment_count || 0;
     const scraped = data.scraped_comment_count || 0;
-    if (data.comments_status === "running") {
+    const hasComments = data.comments && data.comments.length;
+    if (data.comments_status === "running" && !hasComments) {
       statusBox.innerHTML = `<div class="summary-line status-running-text"><span class="mini-spinner"></span> Collecting comments and running AI analysis...</div>`;
       statusBox.classList.remove("hidden");
       setTimeout(() => renderCommentsScreen(), 2000);
-    } else if (data.comments_status === "skipped") {
+      return;
+    }
+    if (data.comments_status === "skipped") {
       statusBox.innerHTML = `<div class="summary-line status-warn-text">${esc(data.comments_error || "Not scraped — post has fewer than the comment threshold")}</div>`;
       statusBox.classList.remove("hidden");
     } else {
       const progress = (total > 0 && scraped > 0) ? ` · <b>${scraped} of ${total}</b> collected` : ` · ${scraped} collected`;
-      statusBox.innerHTML = onlyLeads
-        ? `<div class="summary-line">Total comments on this post: <b>${total}</b>${progress} · AI found <b>${data.total}</b> valuable lead(s)</div>`
-        : `<div class="summary-line">Total comments on this post: <b>${total}</b>${progress}</div>`;
+      if (data.comments_status === "running") {
+        statusBox.innerHTML = `<div class="summary-line status-running-text"><span class="mini-spinner"></span> AI analysis in progress — showing <b>${data.total}</b> comment(s) found so far, refresh for updates…</div>`;
+      } else if (onlyLeads) {
+        statusBox.innerHTML = `<div class="summary-line">Total comments on this post: <b>${total}</b>${progress} · AI found <b>${data.total}</b> valuable lead(s)</div>`;
+      } else if (contactOnly) {
+        statusBox.innerHTML = `<div class="summary-line">Comments with a phone/email on this post: <b>${data.total}</b> of <b>${data.all_count || 0}</b> total</div>`;
+      } else {
+        statusBox.innerHTML = `<div class="summary-line">Total comments on this post: <b>${data.total}</b>${progress} · <b>${data.contact_count || 0}</b> with phone/email</div>`;
+      }
       statusBox.classList.remove("hidden");
     }
 
     const tbody = $("commentsGrid");
     const empty = $("commentsListEmpty");
-    if (!data.comments.length) {
+    if (!hasComments) {
       tbody.innerHTML = "";
       empty.classList.remove("hidden");
       empty.querySelector(".empty-sub").textContent =
-        onlyLeads ? "No valuable comments found on this post yet — try collecting again or uncheck 'Leads only'" : "No comments on this post yet";
+        onlyLeads ? "No valuable comments found on this post yet — try collecting again or uncheck 'Leads only'"
+        : contactOnly ? "No comments with a 10-digit phone number or email on this post yet"
+        : "No comments on this post yet";
       return;
     }
     empty.classList.add("hidden");
@@ -676,10 +688,13 @@ async function renderCommentsScreen() {
     tbody.innerHTML = data.comments.map((c) => {
       const priorityClass = { high: "badge-hot", medium: "badge-warm", low: "badge-cold" }[c.priority] || "";
       const intent = c.intent ? c.intent.replace("_", " ") : "—";
-      return `<tr class="clickable-row" onclick="openLeadDetail('${c.id}')">
+      const contactBadge = c.has_contact
+        ? `<span class="badge badge-lead" title="Has phone or email">📞 contact</span>`
+        : "";
+      return `<tr class="clickable-row${c.has_contact ? " row-lead" : ""}" onclick="openLeadDetail('${c.id}')">
         <td>
           <div class="commenter-cell">
-            <div class="commenter-name">${esc(c.commenter_name || "Unknown")}</div>
+            <div class="commenter-name">${esc(c.commenter_name || "Unknown")} ${contactBadge}</div>
             ${c.comment_url ? `<a class="page-link" href="${esc(c.comment_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">view on Facebook ↗</a>` : ""}
           </div>
         </td>
