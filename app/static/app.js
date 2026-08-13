@@ -1,6 +1,6 @@
-/* LeadAI — AI-orchestrated Facebook lead intelligence dashboard.
-   Flow: Search (agent) → Pages → Posts → Comments (AI-analyzed leads).
-   The agent works on real provider data (Apify / Bright Data) only. */
+/* LeadAI — AI-orchestrated social lead intelligence dashboard.
+   Flow: URL search (platform auto-detected) → Pages → Posts → Comments.
+   All data comes from real Apify actor output — never fabricated. */
 
 "use strict";
 
@@ -86,84 +86,50 @@ function navigateToView(view) {
   if (view === "comments") renderCommentsScreen();
 }
 
-// ── Search ───────────────────────────────────────────────────────────────
-async function handleSearch(event) {
-  event.preventDefault();
-  const query = $("searchQuery").value.trim();
-  const limit = parseInt($("searchLimit").value, 10) || 10;
-  const provider = (document.querySelector('input[name="provider"]:checked') || {}).value || "apify";
-  saveMemory("provider", provider);
-  if (!query) return;
+// ── URL SEARCH — paste a social media link, platform auto-detected ──────
+const URL_LABELS = {
+  facebook: ["Facebook", "🏠"], instagram: ["Instagram", "📸"],
+  youtube: ["YouTube", "▶️"], linkedin: ["LinkedIn", "💼"],
+};
 
-  const btn = $("searchBtn");
-  const cancelBtn = $("searchCancelBtn");
-  btn.disabled = true;
-  const prog = $("searchProgress");
-  prog.classList.remove("hidden");
-  setBadge("Searching", "status-running");
+// replaced with the real handler by handleUrlSearch while a run is active —
+// exists so the inline onclick never throws
+function cancelCurrentSearch() {}
 
-  try {
-    const res = await fetch(`/api/search?query=${encodeURIComponent(query)}&limit=${limit}&provider=${provider}`, { method: "POST" });
-    if (!res.ok) throw new Error((await res.json()).detail || "Search failed");
-    const data = await res.json();
-    saveMemory("runId", data.run_id);
-    renderIntentChips(data.intent);
-    cancelBtn.classList.remove("hidden");
+// real progress percentages mapped from the backend run phases
+const URL_PHASE_PCT = {
+  url_invalid: 5, page: 20, posts: 55, comments: 75,
+  completed: 100, error: 100, cancelled: 100,
+};
 
-    const run = await pollSearchRun(data.run_id, (setCancelFlag) => {
-      cancelBtn.onclick = () => {
-        setCancelFlag(true);
-        cancelBtn.disabled = true;
-        cancelBtn.textContent = "Cancelling…";
-        fetch(`/api/search/${data.run_id}/cancel`, { method: "POST" }).catch(() => {});
-        toast("Cancelling search…", "info");
-      };
-    });
-    cancelBtn.classList.add("hidden");
+// steps in the checklist once a phase is reached (URL validated, platform
+// detected, page details, posts, comments)
+const STEP_DONE = { page: 2, posts: 3, comments: 4 };
+let lastActiveStep = 0;
 
-    if (run.status === "cancelled") {
-      setBadge("Cancelled", "status-warn");
-      $("searchProgressLabel").textContent = "Search cancelled";
-      setTimeout(() => prog.classList.add("hidden"), 2500);
-      renderRecentSearches();
-      return;
-    }
-
-    setBadge(run.status === "completed" ? "Completed" : run.status === "partial" ? "Partial" : "Error",
-             run.status === "completed" ? "status-success" : run.status === "partial" ? "status-warn" : "status-error");
-
-    $("searchProgressFill").style.width = run.status === "completed" ? "100%" : "100%";
-    $("searchProgressLabel").textContent = run.message || run.error || "Completed";
-    setTimeout(() => prog.classList.add("hidden"), 2500);
-
-    if (run.pages_stored > 0) {
-      // the backend already auto-collects posts (then top comments) for this
-      // run — land on the pages screen, live counts fill in as it works
-      navigateToView("pages");
-    }
-    else renderRecentSearches();
-  } catch (err) {
-    toast(err.message || "Search failed", "error");
-    setBadge("Idle", "status-idle");
-  } finally {
-    btn.disabled = false;
-    cancelBtn.classList.add("hidden");
-    renderRecentSearches();
+function setAnalysisSteps(phase, status) {
+  const list = $("urlSearchSteps");
+  if (!list) return;
+  const items = Array.from(list.querySelectorAll("li[data-step]"));
+  let done = 0;
+  if (status === "completed") {
+    done = items.length;
+  } else if (phase === "url_invalid") {
+    done = 0;
+  } else if (STEP_DONE[phase] != null) {
+    done = STEP_DONE[phase];
+    lastActiveStep = Math.min(done, items.length - 1);
   }
-}
-
-function renderIntentChips(intent) {
-  const box = $("intentChips");
-  if (!intent) { box.classList.add("hidden"); return; }
-  const chips = [];
-  if (intent.keyword) chips.push(["🎯 Keyword", intent.keyword]);
-  if (intent.city) chips.push(["🏙️ City", intent.city]);
-  if (intent.state) chips.push(["🗺️ State", intent.state]);
-  if (intent.category) chips.push(["🏷️ Category", intent.category]);
-  if (!chips.length) { box.classList.add("hidden"); return; }
-  box.innerHTML = chips.map(([label, value]) =>
-    `<span class="intent-chip"><b>${label}:</b> ${esc(value)}</span>`).join("");
-  box.classList.remove("hidden");
+  items.forEach((li, i) => {
+    li.classList.remove("done", "active", "error");
+    if (status === "error") {
+      if (i === lastActiveStep) li.classList.add("error");
+    } else if (i < done) {
+      li.classList.add("done");
+    } else if (i === done && status === "running") {
+      li.classList.add("active");
+    }
+  });
 }
 
 async function pollSearchRun(runId, onCancelRequested) {
@@ -173,12 +139,17 @@ async function pollSearchRun(runId, onCancelRequested) {
     const res = await fetch(`/api/search/${runId}`);
     const data = await res.json();
     const run = data.search;
-    const fill = $("searchProgressFill");
-    const label = $("searchProgressLabel");
+    const fill = $("urlSearchProgressFill");
+    const bar = $("urlSearchProgressBar");
+    const label = $("urlSearchProgressLabel");
     label.textContent = run.message || run.error || run.status;
 
-    const phase = { searching: 30, stored: 70, enriching: 90, queued: 5, completed: 100 }[run.phase] || 30;
-    fill.style.width = (phase + Math.random() * 4).toFixed(1) + "%";
+    const pct = URL_PHASE_PCT[run.phase];
+    if (pct !== undefined) {
+      fill.style.width = pct + "%";
+      if (bar) bar.setAttribute("aria-valuenow", String(pct));
+    }
+    setAnalysisSteps(run.phase, run.status);
 
     if (run.status !== "running") {
       if (run.status === "error") toast(run.error || "Search failed", "error");
@@ -190,6 +161,7 @@ async function pollSearchRun(runId, onCancelRequested) {
       while (true) {
         const c = await fetch(`/api/search/${runId}`);
         const cd = await c.json();
+        setAnalysisSteps(cd.search.phase, cd.search.status);
         if (cd.search.status !== "running") return cd.search;
         await sleep(1500);
       }
@@ -198,24 +170,115 @@ async function pollSearchRun(runId, onCancelRequested) {
   }
 }
 
+let recentData = [];
+let recentFilter = "all";
+let recentLimit = 8;
+
+function relativeTime(ts) {
+  if (!ts) return "";
+  const t = new Date(String(ts).replace(" ", "T") + "Z").getTime();
+  if (isNaN(t)) return "";
+  const diff = Date.now() - t;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return m + "m ago";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + "h ago";
+  const d = Math.floor(h / 24);
+  if (d < 30) return d + "d ago";
+  return new Date(t).toLocaleDateString();
+}
+
+function formatDate(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return String(ts);
+  return d.toLocaleString(undefined, {
+    day: "numeric", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+}
+
+const RECENT_STATUS = {
+  completed: ["ok", "✓", "Completed"],
+  running: ["running", "◌", "Processing"],
+  error: ["err", "!", "Failed"],
+  cancelled: ["warn", "–", "Cancelled"],
+};
+
+async function fetchRecentSearches() {
+  const res = await fetch(`/api/search/history?limit=${recentLimit}`);
+  const data = await res.json();
+  recentData = data.searches || [];
+}
+
+function renderRecentRows() {
+  const list = $("recentSearchesList");
+  const empty = $("recentSearchesEmpty");
+  const rows = recentData.filter((s) => recentFilter === "all" || s.platform === recentFilter);
+  if (!rows.length) {
+    list.innerHTML = "";
+    empty.classList.remove("hidden");
+    return;
+  }
+  empty.classList.add("hidden");
+  list.innerHTML = rows.map((s) => {
+    const [label, icon] = URL_LABELS[s.platform] || [s.platform || "URL", "🔗"];
+    const [cls, mark, stLabel] = RECENT_STATUS[s.status] || ["warn", "–", s.status || "—"];
+    const count = s.pages_stored || 0;
+    return `
+      <button class="rs-row" onclick="reopenSearch('${s.run_id}')" aria-label="Open search for ${esc(s.query)}">
+        <span class="rs-icon" aria-hidden="true">${icon}</span>
+        <span class="rs-main">
+          <span class="rs-title">${esc(s.query)}</span>
+          <span class="rs-sub">${esc(label)} · ${count} page${count === 1 ? "" : "s"}</span>
+        </span>
+        <span class="rs-right">
+          <span class="rs-badge ${cls}">${mark} ${stLabel}</span>
+          <span class="rs-time">${relativeTime(s.created_at)}</span>
+          <span class="rs-open">Open →</span>
+        </span>
+      </button>`;
+  }).join("");
+}
+
+function renderSessionStats() {
+  const strip = $("sessionStats");
+  if (!strip) return;
+  if (!recentData.length) { strip.classList.add("hidden"); return; }
+  const completed = recentData.filter((s) => s.status === "completed").length;
+  const posts = recentData.reduce((sum, s) => sum + (s.pages_stored || 0), 0);
+  $("statSearches").textContent = recentData.length;
+  $("statCompleted").textContent = completed;
+  $("statPosts").textContent = posts;
+  strip.classList.remove("hidden");
+}
+
+function setRecentFilter(btn) {
+  document.querySelectorAll("#recentFilters .filter-chip").forEach((c) => c.classList.toggle("active", c === btn));
+  recentFilter = btn.dataset.f;
+  renderRecentRows();
+}
+
+async function recentViewAll() {
+  recentLimit = recentLimit === 8 ? 100 : 8;
+  const viewAllBtn = $("recentViewAll");
+  if (viewAllBtn) viewAllBtn.textContent = recentLimit === 100 ? "Show less" : "View all →";
+  try {
+    await fetchRecentSearches();
+  } catch (err) { /* offline-safe */ }
+  renderRecentRows();
+  renderSessionStats();
+}
+
 async function renderRecentSearches() {
   try {
-    const res = await fetch("/api/search/history?limit=8");
-    const data = await res.json();
-    const list = $("recentSearchesList");
-    const empty = $("recentSearchesEmpty");
-    if (!data.searches || !data.searches.length) {
-      list.innerHTML = "";
-      empty.classList.remove("hidden");
-      return;
-    }
-    empty.classList.add("hidden");
-    list.innerHTML = data.searches.map((s) => `
-      <button class="recent-search-chip" onclick="reopenSearch('${s.run_id}')">
-        <span class="rs-query">${esc(s.query)}</span>
-        <span class="rs-meta">${s.status} · ${s.pages_stored || 0} pages · ${esc(s.created_at || "").replace("T", " ").slice(0, 16)}</span>
-      </button>`).join("");
-  } catch (err) { /* offline-safe */ }
+    await fetchRecentSearches();
+  } catch (err) {
+    recentData = [];
+  }
+  renderRecentRows();
+  renderSessionStats();
 }
 
 async function reopenSearch(runId) {
@@ -223,23 +286,12 @@ async function reopenSearch(runId) {
     const res = await fetch(`/api/search/${runId}`);
     const data = await res.json();
     saveMemory("runId", runId);
-    renderIntentChips(data.search.intent);
     toast("Opened search: " + data.search.query, "info");
     navigateToView("pages");  // renderPagesScreen auto-fires collection if needed
   } catch (err) {
     toast("Could not open that search", "error");
   }
 }
-
-// ── URL SEARCH — paste a social media link, platform auto-detected ──────
-const URL_LABELS = {
-  facebook: ["Facebook", "🏠"], instagram: ["Instagram", "📸"],
-  youtube: ["YouTube", "▶️"], linkedin: ["LinkedIn", "💼"],
-};
-
-// replaced with the real handler by handleSearch/handleUrlSearch while a run
-// is active — exists so the inline onclick never throws
-function cancelCurrentSearch() {}
 
 async function handleUrlSearch(event) {
   event.preventDefault();
@@ -248,8 +300,11 @@ async function handleUrlSearch(event) {
   if (!url) return;
 
   const btn = $("urlSearchBtn");
+  const btnText = btn.querySelector(".btn-text");
   const cancelBtn = $("urlSearchCancelBtn");
   btn.disabled = true;
+  btn.classList.add("is-loading");
+  if (btnText) btnText.textContent = "Analyzing Profile…";
   const prog = $("urlSearchProgress");
   prog.classList.remove("hidden");
   setBadge("URL search", "status-running");
@@ -266,7 +321,6 @@ async function handleUrlSearch(event) {
     chip.innerHTML = `<span class="intent-chip"><b>Platform:</b> ${icon} ${label}</span><span class="intent-chip"><b>Canonical:</b> ${esc(data.canonical_url)}</span><span class="intent-chip"><b>Status:</b> running…</span>`;
     chip.classList.remove("hidden");
     saveMemory("runId", data.run_id);
-    renderIntentChips({ keyword: url, type: "url" });
     cancelBtn.classList.remove("hidden");
 
     const run = await pollSearchRun(data.run_id, (setCancelFlag) => {
@@ -309,6 +363,8 @@ async function handleUrlSearch(event) {
     $("urlPlatformChip").classList.add("hidden");
   } finally {
     btn.disabled = false;
+    btn.classList.remove("is-loading");
+    if (btnText) btnText.textContent = "Analyze Profile";
     cancelBtn.classList.add("hidden");
     renderRecentSearches();
   }
@@ -352,16 +408,13 @@ async function renderPagesScreen() {
 
     let anyRunning = false;
     const needsCollect = data.pages.some((p) => !p.posts_status || p.posts_status === "not_started");
-    const providerBadge = data.pages[0] && data.pages[0].provider
-      ? ` · via <b>${data.pages[0].provider === "brightdata" ? "Bright Data" : "Apify"}</b>`
-      : "";
     const collectNote = needsCollect
       ? (data.pages.some((p) => p.posts_status === "running")
           ? " · analyzing posts…"
           : " · auto-analyzing posts now…")
       : "";
     const qualified = data.pages.filter((p) => p.has_qualifying_posts).length;
-    statusBox.innerHTML = `<div class="summary-line">${data.pages.length} real Facebook page(s) · <b>${qualified} with qualifying posts</b>${collectNote}${providerBadge}</div>`;
+    statusBox.innerHTML = `<div class="summary-line">${data.pages.length} page(s) · <b>${qualified} with qualifying posts</b>${collectNote}</div>`;
     statusBox.classList.remove("hidden");
 
     tbody.innerHTML = data.pages.map((p) => {
@@ -407,28 +460,39 @@ async function renderPagesScreen() {
         error: `<button class="btn-mini" onclick="openPage('${p.id}', event)">↻ Retry</button><div class="row-error" title="${esc(err)}">${esc((err || "Analyze failed").slice(0, 80))}</div>`,
       }[postStatus] || `<button class="btn-mini" onclick="openPage('${p.id}', event)">🔍 Analyze Posts</button>`;
 
-      return `<tr class="clickable-row" onclick="openPage('${p.id}')">
-        <td>
-          <div class="page-cell">
-            <img class="page-avatar" src="${esc(p.profile_picture || "")}" loading="lazy" onerror="this.style.display='none'">
-            <div class="page-cell-body">
-              <div class="page-name">${esc(p.page_name || "Unnamed page")}${p.platform && p.platform !== "facebook" ? `<span class="src-badge">${esc(p.platform.toUpperCase())}</span>` : ""}${p.source_type === "group" ? '<span class="src-badge">GROUP</span>' : ""}${p.verified ? '<span class="verified-badge" title="Verified">✓</span>' : ""}</div>
-              <a class="page-link" href="${esc(p.facebook_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">open ${p.platform && p.platform !== "facebook" ? "on " + esc(p.platform.charAt(0).toUpperCase() + p.platform.slice(1)) : "on Facebook"} ↗</a>
+      const avatar = p.profile_picture
+        ? `<img class="pc-avatar" src="${esc(p.profile_picture)}" loading="lazy" onerror="this.style.display='none'">`
+        : `<span class="pc-avatar pc-avatar-fallback">${esc((p.page_name || "?").charAt(0).toUpperCase())}</span>`;
+
+      return `<article class="page-card clickable-card" onclick="openPage('${p.id}')">
+        <div class="pc-head">
+          ${avatar}
+          <div class="pc-body">
+            <div class="pc-name">${esc(p.page_name || "Unnamed page")}
+              ${p.platform && p.platform !== "facebook" ? `<span class="src-badge">${esc(p.platform.toUpperCase())}</span>` : ""}
+              ${p.source_type === "group" ? '<span class="src-badge">GROUP</span>' : ""}
+              ${p.verified ? '<span class="verified-badge" title="Verified">✓ Verified</span>' : ""}
             </div>
+            <a class="pc-link" href="${esc(p.facebook_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">open ${p.platform && p.platform !== "facebook" ? "on " + esc(p.platform.charAt(0).toUpperCase() + p.platform.slice(1)) : "on Facebook"} ↗</a>
+            ${p.category ? `<span class="pc-cat">${esc(p.category)}</span>` : ""}
           </div>
-        </td>
-        <td>${esc(p.category || "—")}</td>
-        <td class="num">${fmt(p.followers)}</td>
-        <td class="num">${fmt(p.likes)}</td>
-        <td>${esc(p.phone || "—")}</td>
-        <td>${esc(p.email || "—")}</td>
-        <td>${p.website ? `<a class="page-link" href="${esc(p.website)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">visit ↗</a>` : "—"}</td>
-        <td class="cell-truncate" title="${esc(p.address || "")}">${esc(p.address || "—")}</td>
-        <td class="num">${postsCell}</td>
-        <td class="num">${commentsCell}</td>
-        <td>${activityCell}</td>
-        <td class="num">${actionCell}</td>
-      </tr>`;
+        </div>
+        <div class="pc-stats">
+          <div class="pc-stat"><div class="pc-stat-value">${fmt(p.followers)}</div><div class="pc-stat-label">Followers</div></div>
+          <div class="pc-stat"><div class="pc-stat-value">${fmt(p.likes)}</div><div class="pc-stat-label">Likes</div></div>
+          <div class="pc-stat"><div class="pc-stat-value">${postsCell}</div><div class="pc-stat-label">Posts</div></div>
+          <div class="pc-stat"><div class="pc-stat-value">${commentsCell}</div><div class="pc-stat-label">Comments</div></div>
+          <div class="pc-stat"><div class="pc-stat-value">${activityCell}</div><div class="pc-stat-label">Activity</div></div>
+        </div>
+        <div class="pc-contact">
+          ${p.phone ? `<span class="pc-chip">📞 ${esc(p.phone)}</span>` : ""}
+          ${p.email ? `<span class="pc-chip">✉️ ${esc(p.email)}</span>` : ""}
+          ${p.website ? `<span class="pc-chip pc-chip-link"><a href="${esc(p.website)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">🌐 ${esc(p.website)}</a></span>` : ""}
+          ${p.address ? `<span class="pc-chip pc-chip-addr" title="${esc(p.address)}">📍 ${esc(p.address)}</span>` : ""}
+          ${!p.phone && !p.email && !p.website && !p.address ? `<span class="muted">No contact info collected</span>` : ""}
+        </div>
+        <div class="pc-foot">${actionCell}</div>
+      </article>`;
     }).join("");
 
     if (anyRunning) {
@@ -552,25 +616,24 @@ async function renderPostsScreen() {
           : `<span class="muted">—</span>`;
 
       const thumb = post.images && post.images.length
-        ? `<img class="post-thumb" src="${esc(post.images[0])}" loading="lazy" onerror="this.style.display='none'">`
-        : (post.videos && post.videos.length ? `<span class="post-thumb">🎬</span>` : "");
+        ? `<img class="pt-thumb" src="${esc(post.images[0])}" loading="lazy" onerror="this.style.display='none'">`
+        : (post.videos && post.videos.length ? `<span class="pt-thumb pt-thumb-video">🎬</span>` : `<span class="pt-thumb pt-thumb-fallback">📝</span>`);
 
-      return `<tr class="clickable-row" onclick="openPost('${post.id}')">
-        <td>
-          <div class="post-cell">
-            ${thumb}
-            <div class="post-cell-body">
-              <div class="post-text cell-truncate" title="${esc(post.caption || "")}">${esc(post.caption || "No caption")}</div>
-            </div>
+      return `<article class="post-tile clickable-card" onclick="openPost('${post.id}')">
+        <div class="pt-main">
+          ${thumb}
+          <div class="pt-body">
+            <div class="pt-caption cell-truncate" title="${esc(post.caption || "")}">${esc(post.caption || "No caption")}</div>
+            <div class="pt-meta">📅 ${esc(post.published_date || "—")} · ${relBadge}</div>
           </div>
-        </td>
-        <td>${esc(post.published_date || "—")}</td>
-        <td class="num">${fmt(post.likes_count)}</td>
-        <td class="num">${fmt(total)}</td>
-        <td class="num">${fmt(post.shares_count)}</td>
-        <td>${relBadge}</td>
-        <td class="num">${actionCell}</td>
-      </tr>`;
+        </div>
+        <div class="pt-stats">
+          <div class="pc-stat"><div class="pc-stat-value">${fmt(post.likes_count)}</div><div class="pc-stat-label">Likes</div></div>
+          <div class="pc-stat"><div class="pc-stat-value">${fmt(total)}</div><div class="pc-stat-label">Comments</div></div>
+          <div class="pc-stat"><div class="pc-stat-value">${fmt(post.shares_count)}</div><div class="pc-stat-label">Shares</div></div>
+        </div>
+        <div class="pt-foot">${actionCell}</div>
+      </article>`;
     }).join("");
 
     if (anyRunning || page.posts_status === "running") {
@@ -691,23 +754,31 @@ async function renderCommentsScreen() {
       const contactBadge = c.has_contact
         ? `<span class="badge badge-lead" title="Has phone or email">📞 contact</span>`
         : "";
-      return `<tr class="clickable-row${c.has_contact ? " row-lead" : ""}" onclick="openLeadDetail('${c.id}')">
-        <td>
-          <div class="commenter-cell">
-            <div class="commenter-name">${esc(c.commenter_name || "Unknown")} ${contactBadge}</div>
-            ${c.comment_url ? `<a class="page-link" href="${esc(c.comment_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">view on Facebook ↗</a>` : ""}
+      return `<article class="lead-card clickable-card${c.has_contact ? " lead-card-highlight" : ""}" onclick="openLeadDetail('${c.id}')">
+        <div class="lc-head">
+          <span class="lc-avatar">${esc((c.commenter_name || "?").trim().charAt(0).toUpperCase())}</span>
+          <div class="lc-body">
+            <div class="lc-name">${esc(c.commenter_name || "Unknown")} ${contactBadge}
+              ${c.comment_url ? `<a class="page-link" href="${esc(c.comment_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">view on Facebook ↗</a>` : ""}
+            </div>
+            <div class="lc-text cell-truncate" title="${esc(c.comment_text || "")}">${esc(c.comment_text || "—")}</div>
+            ${c.published_date ? `<div class="lc-meta">🕒 ${esc(formatDate(c.published_date))}</div>` : ""}
           </div>
-        </td>
-        <td class="cell-truncate comment-text" title="${esc(c.comment_text || "")}">${esc(c.comment_text || "—")}</td>
-        <td>${esc(c.phone || "—")}</td>
-        <td>${esc(c.email || "—")}</td>
-        <td>${esc(c.whatsapp || "—")}</td>
-        <td class="cell-truncate" title="${esc([c.budget, c.requirement].filter(Boolean).join(" · ") || "")}">${esc(c.budget || c.requirement || "—")}</td>
-        <td>${esc(c.location || "—")}</td>
-        <td>${esc(intent)}</td>
-        <td><span class="badge ${priorityClass}">${esc(c.priority)}</span></td>
-        <td class="num"><span class="score-pill" title="${esc(c.reason || "")}">${c.lead_score || 0}</span></td>
-      </tr>`;
+          <div class="lc-right">
+            <span class="score-pill" title="${esc(c.reason || "")}">${c.lead_score || 0}</span>
+            ${c.priority ? `<span class="badge ${priorityClass}">${esc(c.priority)}</span>` : ""}
+          </div>
+        </div>
+        <div class="lc-chips">
+          ${c.phone ? `<span class="lc-chip">📞 ${esc(c.phone)}</span>` : ""}
+          ${c.email ? `<span class="lc-chip">✉️ ${esc(c.email)}</span>` : ""}
+          ${c.whatsapp ? `<span class="lc-chip">💬 ${esc(c.whatsapp)}</span>` : ""}
+          ${c.budget || c.requirement ? `<span class="lc-chip">💰 ${esc(c.budget || c.requirement)}</span>` : ""}
+          ${c.location ? `<span class="lc-chip">📍 ${esc(c.location)}</span>` : ""}
+          ${intent !== "—" ? `<span class="lc-chip lc-chip-intent">🎯 ${esc(intent)}</span>` : ""}
+          ${!c.phone && !c.email && !c.whatsapp && !c.budget && !c.requirement && !c.location && intent === "—" ? `<span class="muted">No details extracted</span>` : ""}
+        </div>
+      </article>`;
     }).join("");
   } catch (err) {
     toast("Could not load comments: " + err.message, "error");
@@ -793,9 +864,17 @@ function closeLeadDetails() {
 
 // ── Boot ─────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-  const saved = memory.provider || localStorage.getItem("leadai_provider") || "apify";
-  const checked = document.querySelector(`input[name="provider"][value="${saved}"]`);
-  if (checked) checked.checked = true;
+  const input = $("urlSearchInput");
+  if (input) {
+    input.addEventListener("input", () => {
+      const hint = $("urlDetectionHint");
+      if (hint) {
+        hint.textContent = input.value.trim()
+          ? "Ready to analyze — platform auto-detected"
+          : "Waiting for URL…";
+      }
+    });
+  }
   renderRecentSearches();
   navigateToView("search");
 });

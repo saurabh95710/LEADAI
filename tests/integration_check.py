@@ -1,7 +1,7 @@
 """
 End-to-end pipeline check (no Apify cost): runs the REAL collect_page_posts /
-collect_post_comments / collect_run_posts against a scratch Mongo DB with a
-stubbed connector, then verifies the spec's business rules end-to-end.
+collect_post_comments against a scratch Mongo DB with a stubbed connector,
+then verifies the spec's business rules end-to-end.
 """
 import os
 import sys
@@ -69,17 +69,19 @@ def fake_comments(*args, **kwargs):
 
 
 class StubConnector:
-    def scrape_facebook_posts(self, urls, posts_per_page=20):
+    def scrape_facebook_posts(self, urls, posts_per_page=20, should_abort=None):
         return fake_posts()
 
-    def scrape_facebook_comments(self, urls, comments_per_post=200):
+    def scrape_facebook_comments(self, urls, comments_per_post=200, should_abort=None):
         return fake_comments()
 
 
-agent.get_connector = lambda provider=None: StubConnector()
+from app.connectors.apify_connector import ApifyConnector  # noqa: E402
+ApifyConnector.scrape_facebook_posts = lambda self, urls, posts_per_page=20, should_abort=None: fake_posts()
+ApifyConnector.scrape_facebook_comments = lambda self, urls, comments_per_post=200, should_abort=None: fake_comments()
 
 # the AI analysis step is a separate pipeline; stub it for this pipeline test
-import app.pipeline.comment_ai as comment_ai
+import app.pipeline.comment_ai as comment_ai  # noqa: E402
 comment_ai.analyze_comments_for_post = lambda post_id: None
 
 
@@ -126,16 +128,6 @@ low_after = db.facebook_posts.find_one({"_id": low_post["_id"]})
 check("skipped persisted", low_after["comments_status"] == "skipped")
 check("no comments stored for skipped post",
       db.facebook_comments.count_documents({"post_ref": str(low_post["_id"])}) == 0)
-
-# collect_run_posts auto-comments: only qualifying posts get scraped (the
-# manually-scraped post occupies one slot; completed posts are skipped)
-before = {p["_id"] for p in db.facebook_posts.find({"page_ref": page_id, "scraped_comment_count": {"$gt": 0}})}
-r4 = agent.collect_run_posts("qual_run_1", max_posts=30, auto_comments=3)
-scraped_posts = list(db.facebook_posts.find({"page_ref": page_id, "scraped_comment_count": {"$gt": 0}}))
-newly = [p for p in scraped_posts if p["_id"] not in before]
-check("auto-comments ran on exactly 2 new posts", len(newly) == 2)
-check("scraped posts are qualifying", all(p["is_qualifying"] for p in scraped_posts))
-check("run finished", r4["status"] == "completed")
 
 db.facebook_pages.delete_many({})
 db.facebook_posts.delete_many({})

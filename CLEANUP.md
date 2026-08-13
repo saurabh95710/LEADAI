@@ -1,6 +1,20 @@
-# CLEANUP.md — LeadAI v2 refactor (2026-08-05)
+# CLEANUP.md — LeadAI refactor log
 
 Pre-refactor snapshot: `C:\Users\saura\AppData\Local\Temp\opencode\leadai_backup` (app/ + scratch/ + .env + requirements.txt, 169 files).
+
+## Keyword-search removal (2026-08-12, v2.1)
+
+URL search is now the only entry point; keyword search and the Bright Data connector are gone.
+
+- Deleted modules: `app/agent/intent.py` (keyword intent parsing), `app/connectors/brightdata_connector.py` (Bright Data API scraping).
+- Removed from `app/agent/search.py`: `run_search`, `get_connector`, `_PROVIDERS`, `merge_page_details`, `collect_run_posts`, `parse_query` import, Bright Data exception handling. `collect_page_posts`/`collect_post_comments` now build `ApifyConnector()` directly.
+- Removed from `app/connectors/apify_connector.py`: `scrape_facebook_pages` + `_keyword_variants` (keyword path); 3 FB actors remain.
+- Removed routes: `POST /api/search` (keyword) and `POST /api/search/{run_id}/collect`.
+- Removed config/env: `business_domain`, `BRIGHTDATA_API_KEY`, `BRIGHTDATA_DATASET_PAGES/POSTS/COMMENTS`. Added to `.env.example`: `INSTAGRAM_ACTOR_ID` (clockworks/instagram-scraper), `YOUTUBE_ACTOR_ID` (streamers/youtube-scraper), `LINKEDIN_ACTOR_ID` (curious_coder/linkedin-data-scraper).
+- Frontend: keyword form, provider toggle, intent chips removed; URL search is the primary panel; `handleSearch`/`renderIntentChips` gone from `app.js`.
+- `README.md` rewritten as URL-only product.
+- Verified: pytest 34 passed, ruff clean, mypy 77 (baseline 85), integration check passed.
+- Security: real `APIFY_API_TOKEN` had leaked into tracked `.env.example`; reverted to placeholder + `.gitignore` entry added. Rotate token if repo was shared.
 
 ## Deleted modules (dead code)
 
@@ -39,9 +53,9 @@ Also purged: all `__pycache__`, 34 legacy scratch tests (old flows/tools).
 - `APIFY_ACTOR_FOLLOWING`, `FB_FOLLOWING_PROFILE_URL`, `FB_COOKIES` — following engine removed
 - `GEMINI_*` temperature/max_tokens etc. — fixed in `comment_ai.py`
 - `MIN_LEAD_SCORE` — lead filtering is now `is_lead` boolean from signals
-- `BUSINESS_DOMAIN` kept (used for relevance hints)
+- `BUSINESS_DOMAIN` — kept at v2, removed 2026-08-12 with keyword search
 
-Remaining env keys (`.env`): `GEMINI_API_KEY`, `GEMINI_MODEL`, `BUSINESS_DOMAIN`, `MONGO_URI`, `MONGO_DB_NAME`, `APIFY_API_TOKEN`, `BRIGHTDATA_API_KEY` (+ optional `BRIGHTDATA_DATASET_PAGES/POSTS/COMMENTS`).
+Remaining env keys (`.env`): `GEMINI_API_KEY`, `GEMINI_MODEL`, `MONGO_URI`, `MONGO_DB_NAME`, `APIFY_API_TOKEN`.
 
 ## Removed deps (requirements.txt)
 

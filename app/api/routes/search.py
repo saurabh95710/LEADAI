@@ -1,17 +1,19 @@
 """
 LeadAI Agent API — the whole product surface.
 
-  POST /api/search?query=&limit=          start an agent search (Apify)
-  GET  /api/search/history                recent searches
-  GET  /api/search/{run_id}               search run status + pages
-  GET  /api/pages                         list pages (filter/paginate)
-  GET  /api/pages/{id}                    one page
-  POST /api/pages/{id}/posts              collect posts of THAT page (Apify)
-  GET  /api/pages/{id}/posts              cached posts + collection status
-  GET  /api/posts/{id}                    one post
-  POST /api/posts/{id}/comments           collect comments of THAT post + AI analysis
-  GET  /api/posts/{id}/comments           analyzed comments (leads only by default)
-  GET  /api/comments/{id}                 lead detail (comment + AI + context)
+  POST /api/url/search                  start a URL-based search (Apify)
+  GET  /api/url/search/{run_id}/report  full report bundle for a URL run
+  GET  /api/search/history              recent runs
+  GET  /api/search/{run_id}             run status + pages
+  POST /api/search/{run_id}/cancel      cancel a running search
+  GET  /api/pages                       list pages (filter/paginate)
+  GET  /api/pages/{id}                  one page
+  POST /api/pages/{id}/posts            collect posts of THAT page (Apify)
+  GET  /api/pages/{id}/posts            cached posts + collection status
+  GET  /api/posts/{id}                  one post
+  POST /api/posts/{id}/comments         collect comments of THAT post + AI analysis
+  GET  /api/posts/{id}/comments         analyzed comments (leads only by default)
+  GET  /api/comments/{id}               lead detail (comment + AI + context)
   GET  /api/export/{pages|posts|comments}.csv
 
 Real-time: every collect runs in a background task; the GET endpoints
@@ -88,69 +90,12 @@ def _start(key: str, fn, *args) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SEARCH
+# SEARCH RUNS — status, history, cancellation (URL search writes these docs)
 # ─────────────────────────────────────────────────────────────────────────────
-
-@router.post("/search")
-async def start_search(
-    query: str = Query(..., min_length=1, max_length=200, description="e.g. 'property dealers in jaipur'"),
-    limit: int = Query(10, ge=1, le=100, description="max pages to find"),
-    provider: str = Query("apify", pattern="^(apify|brightdata)$",
-                          description="data provider: apify or brightdata"),
-):
-    """Start an agent search run. Returns immediately; poll GET /api/search/{run_id}."""
-    from app.agent.intent import parse_query
-    from app.agent.search import run_search
-    from app.config import get_settings
-    from app.db.models import utcnow
-
-    if provider == "brightdata" and not get_settings().brightdata_api_key:
-        raise HTTPException(status_code=400, detail=(
-            "Bright Data is not configured — add BRIGHTDATA_API_KEY to .env "
-            "(https://brightdata.com/cp/setting/users) and restart"))
-
-    db = get_async_db()
-    if db is None:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-
-    intent = parse_query(query, limit)
-    run_id = f"{datetime.now().strftime('%Y%m%d%H%M%S')}{len(query) % 97:02d}{len(_tasks) % 89:02d}"
-    await db.search_history.insert_one({
-        "run_id": run_id, "query": query, "intent": intent, "limit": limit,
-        "provider": provider,
-        "status": "running", "phase": "queued", "message": "Starting...",
-        "pages_found": 0, "pages_stored": 0,
-        "created_at": utcnow(), "completed_at": None,
-    })
-    _start(f"search:{run_id}", run_search, run_id, query, limit, provider)
-    return {"run_id": run_id, "status": "running", "intent": intent, "provider": provider}
-
-
-@router.post("/search/{run_id}/collect")
-async def auto_collect_run(
-    run_id: str,
-    max_posts: int = Query(20, ge=1, le=100),
-    auto_comments: int = Query(3, ge=0, le=10),
-):
-    """Automatically collect posts for every page of the run, then comments
-    (with AI analysis) for the top posts of each page. No clicks needed."""
-    from app.agent.search import collect_run_posts
-
-    db = get_async_db()
-    if db is None:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-    run = await db.search_history.find_one({"run_id": run_id})
-    if not run:
-        raise HTTPException(status_code=404, detail="Search run not found")
-    started = _start(f"collect:{run_id}", collect_run_posts, run_id, max_posts, auto_comments)
-    if not started:
-        return {"status": "running", "message": "Auto-collection already in progress"}
-    return {"status": "running", "message": "Auto-collection started"}
-
 
 @router.post("/search/{run_id}/cancel")
 async def cancel_search_run(run_id: str):
-    """Request cancellation of a running search (keyword or URL-based).
+    """Request cancellation of a running URL-based search.
     The background worker picks up `cancel_requested` at its next checkpoint
     and aborts the in-flight Apify run. Poll GET /api/search/{run_id} to see
     the final status (`cancelled`)."""
@@ -605,7 +550,7 @@ PAGES_CSV = ["page_name", "facebook_url", "page_id", "category", "source_type",
 POSTS_CSV = ["post_id", "page_name", "post_url", "caption", "published_date",
              "likes_count", "total_comment_count", "scraped_comment_count",
              "shares_count", "is_relevant", "is_qualifying", "images"]
-COMMENTS_CSV = ["commenter_name", "comment_text", "phone", "email", "whatsapp", "website",
+COMMENTS_CSV = ["commenter_name", "comment_text", "published_date", "phone", "email", "whatsapp", "website",
                 "budget", "requirement", "location", "intent", "urgency", "priority",
                 "lead_quality", "confidence", "lead_score"]
 
@@ -656,6 +601,19 @@ async def export_csv(
         if only_leads:
             query["is_lead"] = True
         rows = [doc async for doc in db.ai_comments.find(query).sort("lead_score", -1)]
+        # ai_comments does not store the scrape date — back-fill it from the
+        # raw comment doc so the CSV always carries date + time
+        if rows:
+            refs = [r["comment_ref"] for r in rows if r.get("comment_ref")]
+            raw_dates = {}
+            if refs:
+                async for raw in db.facebook_comments.find(
+                        {"_id": {"$in": [ObjectId(r) for r in refs]}},
+                        {"published_date": 1}):
+                    raw_dates[str(raw["_id"])] = raw.get("published_date")
+            for r in rows:
+                if not r.get("published_date"):
+                    r["published_date"] = raw_dates.get(r.get("comment_ref"))
         return _csv_response(rows, COMMENTS_CSV, f"leads_{datetime.now().strftime('%Y%m%d')}.csv")
 
     raise HTTPException(status_code=404, detail="scope must be pages, posts or comments")

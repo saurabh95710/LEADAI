@@ -15,7 +15,6 @@ from app.agent.search import (
     _is_qualifying_post,
     _lead_score,
     _parse_iso,
-    _post_relevant,
     _relevance_tokens,
     map_page_item,
     map_post_item,
@@ -81,8 +80,9 @@ def test_qualification_rule_matches_old_threshold_boundary():
 def test_page_stats_aggregation():
     posts = []
     for i in range(30):  # 30 posts found
-        caption = "Kota property listing #%d" % i
-        comments = 20 if i < 5 else (12 if 5 <= i < 10 else 4)  # 10 relevant, 5 qualifying
+        # 10 relevant posts; only 5 of them have >= MIN_COMMENTS (20) so they qualify
+        caption = "Kota property listing #%d" % i if i < 10 else "Happy Diwali wishes"
+        comments = 20 if i < 5 else 4
         p = post(f"https://fb.com/x/{i}", caption, comments)
         assert p is not None
         p["_id"] = "post%d" % i

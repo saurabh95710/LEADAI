@@ -3,168 +3,172 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LeadAI — Facebook AI Lead Intelligence Platform</title>
-  <meta name="description" content="AI-orchestrated Facebook lead intelligence — the agent searches real pages via Apify, you drill into posts, comments and AI-analyzed leads.">
+  <title>LeadAI — AI Lead Intelligence Platform</title>
+  <meta name="description" content="AI-powered social lead intelligence — paste a Facebook, Instagram, YouTube or LinkedIn URL and uncover high-intent prospects through real Apify data.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=2">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
 </head>
 <body>
   <div class="app-shell">
 
-    <!-- ── Animated Background ── -->
-    <div class="bg-orbs">
+    <!-- ── Ambient background (subtle) ── -->
+    <div class="bg-orbs" aria-hidden="true">
       <div class="orb orb-1"></div>
       <div class="orb orb-2"></div>
       <div class="orb orb-3"></div>
+      <div class="bg-grid"></div>
     </div>
 
     <!-- ── Header ── -->
     <header class="topbar">
       <div class="topbar-left">
-        <div class="brand-logo">
-          <span class="logo-icon">🎯</span>
-          <div>
-            <div class="brand-name">LeadAI</div>
-            <div class="brand-sub">Facebook AI Lead Intelligence</div>
-          </div>
-        </div>
+        <a class="brand-logo" href="/" aria-label="LeadAI home">
+          <span class="logo-icon" aria-hidden="true">🎯</span>
+          <span class="brand-text">
+            <span class="brand-name">LeadAI</span>
+            <span class="brand-sub">AI Lead Intelligence</span>
+          </span>
+        </a>
       </div>
       <div class="topbar-right">
-        <div id="pipelineStatusBadge" class="status-badge status-idle">⬤ Idle</div>
-        <a href="/docs" target="_blank" class="docs-link">API Docs ↗</a>
+        <span id="pipelineStatusBadge" class="status-badge status-idle" role="status">⬤ Idle</span>
+        <a href="/docs" target="_blank" rel="noopener" class="docs-link">API Docs <span aria-hidden="true">↗</span></a>
       </div>
     </header>
 
-    <!-- ── Workflow Breadcrumb ── -->
-    <nav class="workflow-breadcrumb" id="workflowBreadcrumb" aria-label="Workflow navigation">
-      <button type="button" class="breadcrumb-item active" data-view="search" onclick="navigateToView('search')">🔍 Search</button>
-      <span class="breadcrumb-sep">›</span>
-      <button type="button" class="breadcrumb-item" data-view="pages" onclick="navigateToView('pages')" disabled>📇 Pages</button>
-      <span class="breadcrumb-sep">›</span>
-      <button type="button" class="breadcrumb-item" data-view="posts" onclick="navigateToView('posts')" disabled>📝 Posts</button>
-      <span class="breadcrumb-sep">›</span>
-      <button type="button" class="breadcrumb-item" data-view="comments" onclick="navigateToView('comments')" disabled>💬 Comments</button>
+    <!-- ── Workflow navigation (Search → Pages → Posts → Comments) ── -->
+    <nav class="workflow-breadcrumb" id="workflowBreadcrumb" aria-label="Lead workflow">
+      <div class="steps-track">
+        <button type="button" class="breadcrumb-item active" data-view="search" onclick="navigateToView('search')">
+          <span class="step-index" aria-hidden="true">1</span>
+          <span class="step-label">Search</span>
+        </button>
+        <span class="step-line" aria-hidden="true"></span>
+        <button type="button" class="breadcrumb-item" data-view="pages" onclick="navigateToView('pages')" disabled>
+          <span class="step-index" aria-hidden="true">2</span>
+          <span class="step-label">Pages</span>
+        </button>
+        <span class="step-line" aria-hidden="true"></span>
+        <button type="button" class="breadcrumb-item" data-view="posts" onclick="navigateToView('posts')" disabled>
+          <span class="step-index" aria-hidden="true">3</span>
+          <span class="step-label">Posts</span>
+        </button>
+        <span class="step-line" aria-hidden="true"></span>
+        <button type="button" class="breadcrumb-item" data-view="comments" onclick="navigateToView('comments')" disabled>
+          <span class="step-index" aria-hidden="true">4</span>
+          <span class="step-label">Comments</span>
+        </button>
+      </div>
     </nav>
 
     <main class="main-content">
 
-      <!-- ── VIEW 1: SEARCH ── -->
-      <section id="view-search" class="workflow-view search-panel glass-card">
-        <div class="panel-head">
-          <h1 class="panel-title">
-            <span class="title-icon">🔍</span>
-            Find Facebook Leads
-          </h1>
-          <p class="panel-subtitle">Tell the agent what you're looking for — e.g. <strong>"property dealers in jaipur"</strong> or <strong>"car dealers kota rajasthan"</strong>. Pick a provider, the agent searches real Facebook pages, and you drill down: pages → posts → comments → AI-analyzed leads.</p>
+      <!-- ══════════ VIEW 1: SEARCH + HERO ══════════ -->
+      <section id="view-search" class="workflow-view">
+
+        <div class="hero">
+          <div class="hero-badge"><span class="hero-badge-star" aria-hidden="true">✦</span> AI-powered lead intelligence</div>
+          <h1 class="hero-title">Find your next <span class="grad-text">high-intent leads</span></h1>
+          <p class="hero-sub">Analyze a social profile, page, or channel — and uncover valuable conversations, prospects, and buying signals with AI.</p>
         </div>
 
-        <form id="searchForm" class="search-form" onsubmit="handleSearch(event)">
-          <div class="form-row">
-            <div class="form-group grow">
-              <label class="form-label" for="searchQuery">Search Query</label>
-              <div class="input-wrapper">
-                <span class="input-icon">🔎</span>
-                <input type="text" id="searchQuery" class="form-input" placeholder="e.g. property dealers in jaipur" required>
+        <!-- ── Premium search card ── -->
+        <div class="search-card glass-card" id="searchCard">
+          <div class="search-card-glow" aria-hidden="true"></div>
+          <form id="urlSearchForm" class="search-form" onsubmit="handleUrlSearch(event)">
+            <div class="search-field">
+              <label class="field-label" for="urlSearchInput">Social Profile URL</label>
+              <div class="input-shell">
+                <span class="input-icon" aria-hidden="true">🔗</span>
+                <input type="url" id="urlSearchInput" class="form-input" placeholder="https://www.facebook.com/yourpage" autocomplete="off" spellcheck="false" required>
+                <span id="urlDetectionHint" class="detect-hint" role="status">Waiting for URL…</span>
               </div>
+              <div id="urlPlatformChip" class="detect-result hidden" role="status"></div>
             </div>
-            <div class="form-group narrow">
-              <label class="form-label" for="searchLimit">Pages to Find</label>
-              <input type="number" id="searchLimit" class="form-input" min="1" max="100" value="10">
-            </div>
-            <div class="form-group provider-group">
-              <label class="form-label">Provider</label>
-              <div class="provider-toggle" id="providerToggle">
-                <label class="provider-opt">
-                  <input type="radio" name="provider" value="apify" checked>
-                  <span>Apify</span>
-                </label>
-                <label class="provider-opt">
-                  <input type="radio" name="provider" value="brightdata">
-                  <span>Bright&nbsp;Data</span>
-                </label>
-              </div>
-            </div>
-          </div>
-          <div id="intentChips" class="intent-chips hidden"></div>
-          <div class="form-actions">
-            <button type="submit" id="searchBtn" class="btn-primary">
-              <span class="btn-icon">🔍</span>
-              <span class="btn-text">Search Real Facebook Pages</span>
-              <span class="btn-shine"></span>
-            </button>
-            <div id="searchProgress" class="pipeline-progress hidden">
-              <div class="progress-bar">
-                <div class="progress-fill" id="searchProgressFill"></div>
-              </div>
-              <div class="progress-label" id="searchProgressLabel">Searching Facebook Pages...</div>
-              <div class="progress-cancel-row">
-                <button type="button" id="searchCancelBtn" class="btn-cancel hidden" onclick="cancelCurrentSearch()">✕ Cancel Search</button>
-              </div>
-            </div>
-          </div>
-        </form>
 
-        <div class="panel-head" style="margin-top:28px">
-          <h2 class="panel-title" style="font-size:1rem">
-            <span class="title-icon">🗂️</span>
-            Recent Searches
-          </h2>
-        </div>
-        <div id="recentSearches" class="recent-searches">
-          <div class="empty-state" id="recentSearchesEmpty">
-            <div class="empty-icon">🕘</div>
-            <div class="empty-title">No Searches Yet</div>
-            <div class="empty-sub">Your past searches will appear here — click one to reopen it</div>
-          </div>
-          <div id="recentSearchesList" class="recent-searches-list"></div>
-        </div>
-
-        <div class="panel-head" style="margin-top:28px">
-          <h2 class="panel-title" style="font-size:1rem">
-            <span class="title-icon">🔗</span>
-            Find Leads From a Social URL
-          </h2>
-          <p class="panel-subtitle">Know the page already? Paste a <strong>Facebook page</strong>, <strong>Instagram profile</strong>, <strong>YouTube channel</strong> or <strong>LinkedIn company</strong> URL — the platform is detected automatically and its page, posts and comments (when available) are collected.</p>
-        </div>
-
-        <form id="urlSearchForm" class="search-form" onsubmit="handleUrlSearch(event)">
-          <div class="form-row">
-            <div class="form-group grow">
-              <label class="form-label" for="urlSearchInput">Page / Profile URL</label>
-              <div class="input-wrapper">
-                <span class="input-icon">🔗</span>
-                <input type="url" id="urlSearchInput" class="form-input" placeholder="https://www.facebook.com/yourpage or https://www.instagram.com/username" required>
+            <div class="search-actions-row">
+              <div class="maxposts-field">
+                <label class="field-label" for="urlSearchLimit">Max Posts</label>
+                <input type="number" id="urlSearchLimit" class="form-input" min="1" max="100" value="20">
               </div>
+              <button type="submit" id="urlSearchBtn" class="btn-primary btn-analyze">
+                <span class="btn-icon" aria-hidden="true">✦</span>
+                <span class="btn-text">Analyze Profile</span>
+                <span class="btn-arrow" aria-hidden="true">→</span>
+              </button>
             </div>
-            <div class="form-group narrow">
-              <label class="form-label" for="urlSearchLimit">Max Posts</label>
-              <input type="number" id="urlSearchLimit" class="form-input" min="1" max="100" value="20">
-            </div>
-          </div>
-          <div id="urlPlatformChip" class="intent-chips hidden"></div>
-          <div class="form-actions">
-            <button type="submit" id="urlSearchBtn" class="btn-primary">
-              <span class="btn-icon">🔗</span>
-              <span class="btn-text">Search This Profile</span>
-              <span class="btn-shine"></span>
-            </button>
+
+            <!-- Real-time processing state (phases come from the backend run) -->
             <div id="urlSearchProgress" class="pipeline-progress hidden">
-              <div class="progress-bar">
-                <div class="progress-fill" id="urlSearchProgressFill"></div>
-              </div>
-              <div class="progress-label" id="urlSearchProgressLabel">Starting URL search...</div>
-              <div class="progress-cancel-row">
-                <button type="button" id="urlSearchCancelBtn" class="btn-cancel hidden" onclick="cancelCurrentSearch()">✕ Cancel Search</button>
+              <div class="processing-card">
+                <div class="processing-head">
+                  <span class="mini-spinner" aria-hidden="true"></span>
+                  <span id="urlSearchProgressLabel">Analyzing profile…</span>
+                </div>
+                <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="urlSearchProgressBar">
+                  <div class="progress-fill" id="urlSearchProgressFill"></div>
+                </div>
+                <ol class="progress-steps" id="urlSearchSteps" aria-label="Analysis steps">
+                  <li data-step="validate">URL validated</li>
+                  <li data-step="platform">Platform detected</li>
+                  <li data-step="page">Fetching page details</li>
+                  <li data-step="posts">Collecting posts</li>
+                  <li data-step="comments">Comments &amp; AI leads</li>
+                </ol>
+                <div class="progress-cancel-row">
+                  <button type="button" id="urlSearchCancelBtn" class="btn-cancel hidden" onclick="cancelCurrentSearch()">✕ Cancel Search</button>
+                </div>
               </div>
             </div>
+          </form>
+        </div>
+
+        <!-- ── Session stats (aggregated from the real search history) ── -->
+        <div id="sessionStats" class="stats-strip hidden" aria-label="Session summary">
+          <div class="stat-tile">
+            <div class="stat-tile-value" id="statSearches">0</div>
+            <div class="stat-tile-label">Searches</div>
           </div>
-        </form>
+          <div class="stat-tile">
+            <div class="stat-tile-value" id="statCompleted">0</div>
+            <div class="stat-tile-label">Completed</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-tile-value" id="statPosts">0</div>
+            <div class="stat-tile-label">Posts collected</div>
+          </div>
+        </div>
+
+        <!-- ── Recent searches ── -->
+        <section class="recent-section" aria-label="Recent searches">
+          <div class="recent-head">
+            <h2 class="section-title">Recent Searches</h2>
+            <div class="recent-filters" id="recentFilters" role="group" aria-label="Filter by platform">
+              <button type="button" class="filter-chip active" data-f="all" onclick="setRecentFilter(this)">All</button>
+              <button type="button" class="filter-chip" data-f="facebook" onclick="setRecentFilter(this)">Facebook</button>
+              <button type="button" class="filter-chip" data-f="instagram" onclick="setRecentFilter(this)">Instagram</button>
+              <button type="button" class="filter-chip" data-f="youtube" onclick="setRecentFilter(this)">YouTube</button>
+              <button type="button" class="filter-chip" data-f="linkedin" onclick="setRecentFilter(this)">LinkedIn</button>
+            </div>
+            <button type="button" class="btn-ghost" id="recentViewAll" onclick="recentViewAll()" title="Load more history">View all →</button>
+          </div>
+
+          <div class="recent-table glass-card">
+            <div class="empty-state" id="recentSearchesEmpty">
+              <div class="empty-icon" aria-hidden="true">✦</div>
+              <div class="empty-title">No searches yet</div>
+              <div class="empty-sub">Paste a social URL above to start discovering high-intent leads.</div>
+              <button type="button" class="btn-primary btn-mini-cta" onclick="document.getElementById('urlSearchInput').focus()">Analyze a Profile</button>
+            </div>
+            <div id="recentSearchesList" class="recent-rows"></div>
+          </div>
+        </section>
       </section>
 
-      <!-- ── VIEW 2: PAGES ── -->
+      <!-- ══════════ VIEW 2: PAGES ══════════ -->
       <section class="workflow-view leads-panel glass-card hidden" id="view-pages">
         <div class="leads-header">
           <div class="leads-tabs">
@@ -172,7 +176,7 @@
           </div>
           <div class="leads-controls">
             <span class="filter-label">Category:</span>
-            <select id="pagesCategoryFilter" class="form-input filter-select" onchange="renderPagesScreen()">
+            <select id="pagesCategoryFilter" class="form-input filter-select" onchange="renderPagesScreen()" aria-label="Filter pages by category">
               <option value="">All</option>
             </select>
             <label class="filter-check">
@@ -183,41 +187,19 @@
           </div>
         </div>
 
-        <p class="workflow-hint">Pages are ranked by post statistics: only pages with at least one <b>qualifying post</b> (relevant + ≥10 Facebook comments) are shown as results. Click a page to see its post analysis.</p>
+        <p class="workflow-hint">This page was collected from your pasted URL. Qualifying posts (relevant + ≥10 comments) get the expensive comment scrape; low-engagement posts are skipped.</p>
 
         <div id="pagesScreenStatus" class="page-search-summary hidden"></div>
 
-        <div id="pagesListContainer" class="leads-container">
-          <div class="empty-state" id="pagesListEmpty">
-            <div class="empty-icon">📇</div>
-            <div class="empty-title">No Pages Found</div>
-            <div class="empty-sub">Run a search on the Search screen first</div>
-          </div>
-          <div class="table-scroll">
-            <table class="data-table pages-table">
-              <thead>
-                <tr>
-                  <th>Page</th>
-                  <th>Category</th>
-                  <th class="num">Followers</th>
-                  <th class="num">Likes</th>
-                  <th>Phone</th>
-                  <th>Email</th>
-                  <th>Website</th>
-                  <th>Address</th>
-                  <th class="num">Posts</th>
-                  <th class="num">Comments</th>
-                  <th>Activity</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody id="pagesGrid"></tbody>
-            </table>
-          </div>
+        <div class="empty-state" id="pagesListEmpty">
+          <div class="empty-icon">📇</div>
+          <div class="empty-title">No Pages Found</div>
+          <div class="empty-sub">Run a search on the Search screen first</div>
         </div>
+        <div id="pagesGrid" class="page-card-grid"></div>
       </section>
 
-      <!-- ── VIEW 3: POSTS ── -->
+      <!-- ══════════ VIEW 3: POSTS ══════════ -->
       <section class="workflow-view leads-panel glass-card hidden" id="view-posts">
         <div class="leads-header">
           <div class="leads-tabs">
@@ -229,36 +211,19 @@
           </div>
         </div>
 
-        <p class="workflow-hint">Posts are sorted with qualifying posts first. Only qualifying posts (relevant + ≥10 Facebook comments) are worth collecting comments from — the expensive comment scrape never runs on low-engagement posts.</p>
+        <p class="workflow-hint">Posts are sorted with qualifying posts first. Only qualifying posts (relevant + ≥10 comments) are worth collecting comments from.</p>
 
         <div id="postsScreenStatus" class="page-search-summary hidden"></div>
 
-        <div id="postsListContainer" class="leads-container">
-          <div class="empty-state" id="postsListEmpty">
-            <div class="empty-icon">📝</div>
-            <div class="empty-title">No Posts Yet</div>
-            <div class="empty-sub">No posts collected for this page yet</div>
-          </div>
-          <div class="table-scroll">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Post</th>
-                  <th>Date</th>
-                  <th class="num">Likes</th>
-                  <th class="num">Comments</th>
-                  <th class="num">Shares</th>
-                  <th>Relevance</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody id="postsGrid"></tbody>
-            </table>
-          </div>
+        <div class="empty-state" id="postsListEmpty">
+          <div class="empty-icon">📝</div>
+          <div class="empty-title">No Posts Yet</div>
+          <div class="empty-sub">No posts collected for this page yet</div>
         </div>
+        <div id="postsGrid" class="post-tile-grid"></div>
       </section>
 
-      <!-- ── VIEW 4: COMMENTS / LEADS ── -->
+      <!-- ══════════ VIEW 4: COMMENTS / LEADS ══════════ -->
       <section class="workflow-view leads-panel glass-card hidden" id="view-comments">
         <div class="leads-header">
           <div class="leads-tabs">
@@ -280,32 +245,12 @@
 
         <div id="commentsScreenStatus" class="page-search-summary hidden"></div>
 
-        <div id="commentsListContainer" class="leads-container">
-          <div class="empty-state" id="commentsListEmpty">
-            <div class="empty-icon">💬</div>
-            <div class="empty-title">No Leads Yet</div>
-            <div class="empty-sub">Collect comments from the Posts screen</div>
-          </div>
-          <div class="table-scroll">
-            <table class="data-table comments-table">
-              <thead>
-                <tr>
-                  <th>Commenter</th>
-                  <th>Comment</th>
-                  <th>Phone</th>
-                  <th>Email</th>
-                  <th>WhatsApp</th>
-                  <th>Budget / Requirement</th>
-                  <th>Location</th>
-                  <th>Intent</th>
-                  <th>Priority</th>
-                  <th>Score</th>
-                </tr>
-              </thead>
-              <tbody id="commentsGrid"></tbody>
-            </table>
-          </div>
+        <div class="empty-state" id="commentsListEmpty">
+          <div class="empty-icon">💬</div>
+          <div class="empty-title">No Leads Yet</div>
+          <div class="empty-sub">Collect comments from the Posts screen</div>
         </div>
+        <div id="commentsGrid" class="lead-card-grid"></div>
       </section>
 
     </main>
@@ -313,10 +258,10 @@
 
   <!-- ── Lead Details Modal ── -->
   <div id="leadDetailModal" class="modal-backdrop hidden" onclick="if(event.target===this)closeLeadDetails()">
-    <div class="modal-card lead-detail-card">
+    <div class="modal-card lead-detail-card" role="dialog" aria-modal="true" aria-labelledby="leadDetailTitle">
       <div class="modal-header">
         <h3 id="leadDetailTitle">Lead Details</h3>
-        <button class="modal-close" onclick="closeLeadDetails()">✕</button>
+        <button class="modal-close" onclick="closeLeadDetails()" aria-label="Close">✕</button>
       </div>
       <div id="leadDetailContent" class="lead-detail-content"></div>
       <div class="modal-footer">
@@ -326,8 +271,8 @@
   </div>
 
   <!-- ── Toast Container ── -->
-  <div id="toastContainer" class="toast-container"></div>
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=2"></script>
 </body>
 </html>

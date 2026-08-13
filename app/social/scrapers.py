@@ -142,8 +142,8 @@ class InstagramScraper(SocialMediaScraper):
         logger.info("[URL SEARCH] Instagram: scraping profile details")
         return self.connector.scrape_actor(
             self._actor_id,
-            {"usernameType": "link", "startUrls": [{"url": url}],
-             "resultsType": "details"},
+            {"directUrls": [url],
+             "resultsType": "details", "resultsLimit": 1},
             "instagram-profile",
             keyword=url,
             should_abort=should_abort,
@@ -154,8 +154,8 @@ class InstagramScraper(SocialMediaScraper):
         logger.info("[URL SEARCH] Instagram: scraping posts (max %s)", max_posts)
         return self.connector.scrape_actor(
             self._actor_id,
-            {"usernameType": "link", "startUrls": [{"url": url}],
-             "resultsType": "posts", "postsLimit": max_posts},
+            {"directUrls": [url],
+             "resultsType": "posts", "resultsLimit": max_posts},
             "instagram-posts",
             keyword=url,
             should_abort=should_abort,
@@ -166,8 +166,8 @@ class InstagramScraper(SocialMediaScraper):
         logger.info("[URL SEARCH] Instagram: scraping comments (max %s)", max_comments)
         return self.connector.scrape_actor(
             self._actor_id,
-            {"usernameType": "link", "postUrls": [post_url],
-             "resultsType": "comments", "commentsLimit": max_comments},
+            {"directUrls": [post_url],
+             "resultsType": "comments", "resultsLimit": max_comments},
             "instagram-comments",
             keyword=post_url,
             should_abort=should_abort,
@@ -388,20 +388,22 @@ class YouTubeScraper(SocialMediaScraper):
 
 class LinkedInScraper(SocialMediaScraper):
     platform = "linkedin"
-    comments_supported = False  # comments are not collected in URL mode
+    comments_supported = True  # harvestapi/linkedin-company-posts returns comment items
 
     @property
     def _actor_id(self) -> str:
         return settings.linkedin_actor_id
+
+    @property
+    def _posts_actor_id(self) -> str:
+        return settings.linkedin_posts_actor_id
 
     def fetch_page_details(self, url: str,
                            should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
         logger.info("[URL SEARCH] LinkedIn: scraping company details")
         return self.connector.scrape_actor(
             self._actor_id,
-            {"startUrls": [{"url": url}], "deepScrape": False,
-             "scrapeCompanyOrOrganizationInfo": True, "scrapePosts": False,
-             "maxPosts": 0},
+            {"companies": [url]},
             "linkedin-page",
             keyword=url,
             should_abort=should_abort,
@@ -411,10 +413,10 @@ class LinkedInScraper(SocialMediaScraper):
                     should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
         logger.info("[URL SEARCH] LinkedIn: scraping posts (max %s)", max_posts)
         return self.connector.scrape_actor(
-            self._actor_id,
-            {"startUrls": [{"url": url}], "deepScrape": False,
-             "scrapeCompanyOrOrganizationInfo": False, "scrapePosts": True,
-             "maxPosts": max_posts},
+            self._posts_actor_id,
+            {"targetUrls": [url], "maxPosts": max_posts,
+             "includeQuotePosts": True, "includeReposts": True,
+             "scrapeComments": False, "scrapeReactions": False},
             "linkedin-posts",
             keyword=url,
             should_abort=should_abort,
@@ -422,33 +424,54 @@ class LinkedInScraper(SocialMediaScraper):
 
     def fetch_comments(self, post_url: str, max_comments: int,
                        should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
-        return []
+        logger.info("[URL SEARCH] LinkedIn: scraping comments (max %s)", max_comments)
+        items = self.connector.scrape_actor(
+            self._posts_actor_id,
+            {"targetUrls": [post_url], "maxPosts": 1,
+             "scrapeComments": True, "maxComments": max_comments,
+             "scrapeReactions": False},
+            "linkedin-comments",
+            keyword=post_url,
+            should_abort=should_abort,
+        )
+        return [i for i in items if isinstance(i, dict) and i.get("commentary")]
 
     def normalize_page(self, item: Dict[str, Any], run_id: str, url: str) -> Optional[Dict[str, Any]]:
         if not isinstance(item, dict):
             return None
-        name = _pick(item, "name", "title", "headline")
+        name = _pick(item, "name") or _pick(item, "universalName")
         if not name:
             return None
+        loc = next((location for location in item.get("locations") or []
+                    if isinstance(location, dict) and location.get("headquarter")), None)
+        loc = loc or (item.get("locations") or [{}])[0]
+        industries = item.get("industries") or []
+        category = None
+        for ind in industries:
+            cat = str(ind.get("name") if isinstance(ind, dict) else ind).strip()
+            if cat:
+                category = cat
+                break
+        category = category or _pick(item, "companyType")
         return {
-            "page_id": str(_pick(item, "urn", "id", "memberId") or "").strip() or None,
+            "page_id": str(_pick(item, "id", "universalName") or "").strip() or None,
             "page_name": str(name).strip(),
-            "facebook_url": url,
+            "facebook_url": _pick(item, "linkedinUrl") or url,
             "platform": "linkedin",
-            "category": _pick(item, "industry"),
-            "about": _pick(item, "description", "about"),
-            "followers": _as_int(_pick(item, "followerCount", "followers")),
+            "category": category,
+            "about": _pick(item, "description", "tagline"),
+            "followers": _as_int(_pick(item, "followerCount")),
             "likes": None,
             "verified": None,
-            "phone": _pick(item, "phone", "phoneNumber"),
+            "phone": _pick(item, "phone"),
             "email": None,
             "whatsapp": None,
             "website": _pick(item, "website"),
-            "address": _pick(item, "address"),
-            "city": _pick(item, "city"),
-            "state": None,
-            "country": _pick(item, "country"),
-            "profile_picture": _pick(item, "logo", "logoUrl", "pictureUrl", "imageUrl"),
+            "address": (loc or {}).get("line1"),
+            "city": (loc or {}).get("city"),
+            "state": (loc or {}).get("geographicArea"),
+            "country": (loc or {}).get("country"),
+            "profile_picture": _pick(item, "logo") or _pick(item, "logoUrl", "pictureUrl"),
             "cover_image": _pick(item, "coverImageUrl", "backgroundUrl"),
             "source_type": "company_url",
             "source_page_url": url,
@@ -462,30 +485,27 @@ class LinkedInScraper(SocialMediaScraper):
     def normalize_post(self, item: Dict[str, Any], page_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if not isinstance(item, dict):
             return None
-        post_url = str(_pick(item, "url", "postUrl", "link") or "").strip()
-        if not post_url:
-            share_id = _pick(item, "urn", "id")
-            if share_id:
-                post_url = f"https://www.linkedin.com/feed/update/urn:li:activity:{str(share_id).split(':')[-1]}"
+        post_url = _pick(item, "linkedinUrl", "url", "postUrl")
         if not post_url:
             return None
-        text = str(_pick(item, "text", "content", "description") or "").strip() or None
+        posted_at = item.get("postedAt") if isinstance(item.get("postedAt"), dict) else {}
+        engagement = item.get("engagement") if isinstance(item.get("engagement"), dict) else {}
         return {
-            "post_id": str(_pick(item, "urn", "id") or "").strip() or None,
-            "post_url": post_url,
+            "post_id": str(_pick(item, "id", "urn") or "").strip() or None,
+            "post_url": str(post_url).strip(),
             "page_id": page_doc.get("page_id"),
             "page_name": page_doc.get("page_name"),
             "platform": "linkedin",
-            "caption": text,
+            "caption": str(_pick(item, "content", "text", "description") or "").strip() or None,
             "images": [],
             "videos": [],
             "external_links": [],
-            "published_date": str(_pick(item, "date", "publishedAt", "createdAt") or "").strip() or None,
-            "likes_count": _as_int(_pick(item, "likesCount", "likeCount")),
-            "total_comment_count": _as_int(_pick(item, "commentsCount", "commentCount")),
+            "published_date": str(posted_at.get("date") or _pick(item, "date", "createdAt") or "").strip() or None,
+            "likes_count": _as_int(engagement.get("likes")),
+            "total_comment_count": _as_int(engagement.get("comments")),
             "scraped_comment_count": None,
-            "comments_count": _as_int(_pick(item, "commentsCount", "commentCount")),
-            "shares_count": _as_int(_pick(item, "sharesCount", "shareCount")),
+            "comments_count": _as_int(engagement.get("comments")),
+            "shares_count": _as_int(engagement.get("shares")),
             "is_relevant": True,
             "is_qualifying": False,
             "page_ref": str(page_doc["_id"]),
@@ -494,7 +514,30 @@ class LinkedInScraper(SocialMediaScraper):
         }
 
     def normalize_comment(self, item: Dict[str, Any], post_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        return None
+        if not isinstance(item, dict):
+            return None
+        comment_id = str(_pick(item, "id") or "").strip()
+        if not comment_id:
+            return None
+        actor = item.get("actor") if isinstance(item.get("actor"), dict) else {}
+        post_url = post_doc.get("post_url") or str(_pick(item, "postUrl") or "")
+        comment_url = str(_pick(item, "linkedinUrl", "url") or "").strip() or (
+            post_url.split("?")[0] + f"?comment_id={comment_id}")
+        return {
+            "comment_id": comment_id,
+            "comment_url": comment_url,
+            "author_name": str(_pick(actor, "name") or "").strip() or None,
+            "author_profile_url": _pick(actor, "linkedinUrl", "profileUrl") or None,
+            "text": str(_pick(item, "commentary", "text") or "").strip() or None,
+            "published_date": str(_pick(item, "createdAt", "timestamp", "date") or "").strip() or None,
+            "reactions_count": _as_int(_pick(item, "numReactions", "likesCount")),
+            "post_id": post_doc.get("post_id") or str(post_doc.get("_id") or ""),
+            "post_url": post_url,
+            "page_id": post_doc.get("page_id"),
+            "post_ref": str(post_doc["_id"]),
+            "search_run_id": post_doc.get("search_run_id"),
+            "platform": "linkedin",
+        }
 
 
 def get_scraper(platform: str) -> SocialMediaScraper:

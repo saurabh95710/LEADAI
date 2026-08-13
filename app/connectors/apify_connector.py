@@ -1,10 +1,9 @@
 """
-Apify Connector — Facebook data source (4 actors).
+Apify Connector — Facebook data source (3 actors).
 
-  1. apify/facebook-search-scraper      → keyword search → pages
-  2. apify/facebook-pages-scraper       → page details by URL
-  3. apify/facebook-posts-scraper       → posts of a page
-  4. apify/facebook-comments-scraper    → comments of a post
+  1. apify/facebook-pages-scraper       → page details by URL
+  2. apify/facebook-posts-scraper       → posts of a page
+  3. apify/facebook-comments-scraper    → comments of a post
 
 Every actor call is wrapped so failures are CLASSIFIED, not guessed:
   - every request + response is logged (debug = raw body, info = summary)
@@ -434,94 +433,7 @@ class ApifyConnector:
         return items
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 1. FACEBOOK SEARCH SCRAPER — keyword → pages
-    # ─────────────────────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _keyword_variants(keyword: str, max_variants: int = 3) -> List[str]:
-        kws = [w for w in re.split(r"[,\s]+", (keyword or "").strip()) if w]
-        if not kws:
-            return [keyword or "facebook"]
-        variants: List[str] = []
-        for n in (len(kws), 2, 1):
-            v = " ".join(kws[-n:])
-            if v and v not in variants:
-                variants.append(v)
-            if len(variants) >= max_variants:
-                break
-        return variants[:max_variants] or [keyword]
-
-    def scrape_facebook_pages(self, keyword: str, limit: int = 10,
-                              locations: Optional[List[str]] = None,
-                              should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
-        """
-        Search Facebook pages by keyword. Tries the full query first, then
-        shorter variants. Zero results from successful runs are reported as
-        NO_RESULTS — never assumed to be a Facebook block.
-        """
-        client = self._get_client()
-        logger.info(f"[Apify] Searching pages for '{keyword}' (limit={limit})")
-
-        failures: List[ScrapeError] = []
-        for variant in self._keyword_variants(keyword):
-            if should_abort and should_abort():
-                raise ScrapeError("CANCELLED", "Search cancelled by user",
-                                  keyword=keyword,
-                                  actor_id="apify/facebook-search-scraper")
-            run = self._call_actor(
-                "apify/facebook-search-scraper",
-                {
-                    "categories": [variant],
-                    "locations": locations or [],
-                    "resultsLimit": limit,
-                },
-                "search",
-                attempts=1,
-                should_abort=should_abort,
-            )
-            hint = _blocking_hint(run)
-            if hint:
-                # only here — hard evidence from the run — is blocking named
-                raise ScrapeError(
-                    "BLOCKED",
-                    f"Facebook may have blocked the request ({hint}). "
-                    "Wait a few minutes and retry.",
-                    keyword=keyword, actor_id="apify/facebook-search-scraper",
-                    run_id=_rget(run, "id"), dataset_id=_rget(run, "defaultDatasetId"),
-                    details=hint)
-            classified = _classify_run_status(
-                run, keyword=keyword, actor_id="apify/facebook-search-scraper")
-            if classified:
-                failures.append(classified)
-                time.sleep(5)
-                continue
-            items = self._read_items(run, actor_id="apify/facebook-search-scraper",
-                                     keyword=keyword)
-            valid = self._validated(items)
-            if valid:
-                logger.info(f"[Apify] search-scraper '{variant}' → "
-                            f"{len(valid)} valid / {len(items)} raw")
-                return valid
-            failures.append(ScrapeError(
-                "NO_RESULTS", "No Facebook pages were found for this search keyword.",
-                keyword=keyword, actor_id="apify/facebook-search-scraper",
-                run_id=_rget(run, "id"), dataset_id=_rget(run, "defaultDatasetId"),
-                items_returned=len(items)))
-            time.sleep(5)
-
-        # every variant came back empty or failed — raise the most useful one
-        no_results = [f for f in failures if f.error_type == "NO_RESULTS"]
-        chosen = no_results[0] if no_results else (failures[0] if failures else None)
-        if chosen is None:
-            chosen = ScrapeError(
-                "NO_RESULTS", "No Facebook pages were found for this search keyword.",
-                keyword=keyword, actor_id="apify/facebook-search-scraper",
-                items_returned=0)
-        chosen.error["keyword"] = keyword
-        raise chosen
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # 2. FACEBOOK PAGES SCRAPER — details by URL
+    # 1. FACEBOOK PAGES SCRAPER — details by URL
     # ─────────────────────────────────────────────────────────────────────────
 
     def scrape_facebook_pages_by_urls(self, page_urls: List[str],
@@ -554,7 +466,7 @@ class ApifyConnector:
         return items
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 3. FACEBOOK POSTS SCRAPER
+    # 2. FACEBOOK POSTS SCRAPER
     # ─────────────────────────────────────────────────────────────────────────
 
     def scrape_facebook_posts(self, page_urls: List[str], posts_per_page: int = 20,
@@ -589,7 +501,7 @@ class ApifyConnector:
         return items
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 4. FACEBOOK COMMENTS SCRAPER
+    # 3. FACEBOOK COMMENTS SCRAPER
     # ─────────────────────────────────────────────────────────────────────────
 
     def scrape_facebook_comments(self, post_urls: List[str], comments_per_post: int = 50,

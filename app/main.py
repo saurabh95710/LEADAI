@@ -52,13 +52,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="LeadAI — AI-Orchestrated Facebook Lead Intelligence Platform",
+    title="LeadAI — AI-Orchestrated Social Lead Intelligence Platform",
     description=(
-        "The AI agent understands your search intent, runs the right Apify "
-        "Facebook actor, normalizes the real data and lets you drill from "
-        "pages → posts → comments → AI-analyzed leads."
+        "Paste a Facebook page, Instagram profile, YouTube channel or LinkedIn "
+        "company URL — the agent runs the right Apify actor, normalizes the "
+        "real data and you drill from page → posts → comments → AI-analyzed "
+        "leads."
     ),
-    version="2.0.0",
+    version="2.1.0",
     lifespan=lifespan,
 )
 
@@ -79,8 +80,7 @@ if os.path.exists(static_dir):
 @app.get("/health")
 async def health():
     return {"status": "ok",
-            "apify_configured": bool(settings.apify_api_token),
-            "brightdata_configured": bool(settings.brightdata_api_key)}
+            "apify_configured": bool(settings.apify_api_token)}
 
 
 @app.get("/")
@@ -93,11 +93,11 @@ async def root():
         "name": "LeadAI",
         "docs": "/docs",
         "endpoints": [
-            "POST /api/search",
-            "GET /api/search/history",
-            "GET /api/search/{run_id}",
             "POST /api/url/search",
             "GET /api/url/search/{run_id}/report",
+            "GET /api/search/history",
+            "GET /api/search/{run_id}",
+            "POST /api/search/{run_id}/cancel",
             "GET /api/pages",
             "GET /api/pages/{id}",
             "POST /api/pages/{id}/posts",

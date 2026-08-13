@@ -259,7 +259,7 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
     except Exception:
         logger.warning("[URL SEARCH] page stats computation failed", exc_info=True)
 
-    # ── 4. comments (facebook + instagram only) ────────────────────────────
+    # ── 4. comments (facebook, instagram, linkedin) ────────────────────────
     progress(phase="comments", message="Collecting comments…")
     comment_docs = 0
     if getattr(scraper, "comments_supported", True) and post_docs:
@@ -317,7 +317,7 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
                 "scraped_comment_count": stored_for_post,
                 "comments_collected_at": utcnow(), "updated_at": utcnow()}})
             # analyze each post's comments through the same AI pipeline used
-            # by the keyword search so leads get phone/email/intent/score etc.
+            # by URL search runs so leads get phone/email/intent/score etc.
             if stored_for_post:
                 try:
                     from app.pipeline.comment_ai import analyze_comments_for_post
