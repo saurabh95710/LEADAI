@@ -112,7 +112,8 @@ Status legend: ✅ Implemented · 🟡 Partially Implemented · ⬜ Planned
 | Lead detail view (comment + post + page context) | ✅ | `GET /api/comments/{id}` + modal |
 | Page filters (category / city / name / has-contact) | ✅ | `GET /api/pages` |
 | Comments filter (contact-only / leads-only) | ✅ | `GET /api/posts/{id}/comments` |
-| Authentication / user management / multi-tenancy | ⬜ | Not implemented — single-user, open API |
+| Authentication — admin email/password login (hashed, constant-time compare, brute-force throttle) | ✅ | `app/auth/` + `POST /api/auth/login` + `/login` |
+| User management / multi-tenancy | ⬜ | Not implemented — single admin account, open API after login |
 | Rate limiting (API level) | ⬜ | Not implemented (provider-side 429s are handled) |
 | Webhooks / background job queue / analytics | ⬜ | Not implemented — background tasks are in-process |
 | Export to Excel/Sheets/CRM | ⬜ | CSV only |
@@ -594,7 +595,14 @@ All settings are defined in `app/config.py` (`pydantic-settings`, `.env` file, `
 | `LINKEDIN_ACTOR_ID` | No | `harvestapi/linkedin-company` | Apify actor for LinkedIn company details (URL search) |
 | `LINKEDIN_POSTS_ACTOR_ID` | No | `harvestapi/linkedin-company-posts` | Apify actor for LinkedIn posts/comments (URL search) |
 | `MAX_COMMENTS_TO_COLLECT` | No | `100` | Global cap of comments per URL-search run (≤30 per post) |
+| `ADMIN_EMAIL` | Yes | `admin@gmail.com` | The single account allowed to sign in |
+| `ADMIN_PASSWORD_HASH` | Yes | sha256 of `Admin@2026` | sha256 hash of the login password (never stored plaintext) — generate with `python -c "import hashlib;print(hashlib.sha256(b'YourPass').hexdigest())"` |
+| `SESSION_SECRET` | No¹ | — | Secret signing the session cookie (any long random string; without it sessions reset on restart) |
+| `SESSION_TTL_DAYS` | No | `7` | Session lifetime in days |
+| `SESSION_COOKIE_SECURE` | No | `false` | Set `true` when serving over HTTPS so the cookie is only sent over TLS |
 | `API_PORT` | No | `8000` | Port used by run scripts/docker (server actually binds via uvicorn) |
+
+¹ Required for stable sessions across restarts.
 
 ¹ Required only for Gemini enrichment; ² required for all scraping to work.
 
@@ -639,6 +647,21 @@ MONGO_DB_NAME=LeadAI
 APIFY_API_TOKEN=apify_api_your_token_here
 MIN_COMMENTS=10
 ```
+
+### Admin sign-in (defaults are ready to use)
+
+The app is locked behind an admin login. Default credentials: **`admin@gmail.com` / `Admin@2026`** (already set in `.env.example`). The password is stored as a sha256 hash, never plaintext.
+
+To change the password, generate a new hash and put it in `.env`:
+
+```bash
+python -c "import hashlib;print(hashlib.sha256(b'YourNewPassword').hexdigest())"
+# ADMIN_EMAIL=admin@gmail.com
+# ADMIN_PASSWORD_HASH=<hash from the command above>
+# SESSION_SECRET=<long random string, e.g. `python -c "import secrets;print(secrets.token_urlsafe(48))"`>
+```
+
+Security features: constant-time password comparison (timing-safe), httpOnly + SameSite session cookie, and a per-IP brute-force throttle (5 failed attempts → 60s lockout). Without a valid session every `/api/*` call returns `401` and `/` / `/dashboard` redirect to `/login`.
 
 ### Database setup
 

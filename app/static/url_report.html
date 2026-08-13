@@ -129,6 +129,7 @@
     }
     try {
       const res = await fetch(`/api/url/search/${encodeURIComponent(RUN_ID)}/report`);
+      if (res.status === 401) { location.href = "/login"; return; }
       if (!res.ok) throw new Error("Report not found");
       const d = await res.json();
       $("reportLoading").classList.add("hidden");

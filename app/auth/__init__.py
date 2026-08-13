@@ -1,0 +1,1 @@
+"""Admin sign-in (email/password) — token verification + session cookies."""

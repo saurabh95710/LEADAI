@@ -862,6 +862,29 @@ function closeLeadDetails() {
   $("leadDetailModal").classList.add("hidden");
 }
 
+// ── Sign-in (admin) ──────────────────────────────────────────────────────
+// The backend enforces a session for every /api call; signed-out visitors
+// get 401 → send them to /login.
+async function checkAuth() {
+  try {
+    const res = await fetch("/api/auth/me");
+    if (res.status === 401) { location.href = "/login"; return; }
+    const data = await res.json();
+    if (!data.user) { location.href = "/login"; return; }
+    const avatar = $("userAvatar");
+    if (avatar) avatar.textContent = (data.user.name || data.user.email || "?").charAt(0).toUpperCase();
+    const name = $("userName");
+    if (name) name.textContent = data.user.email;
+    const chip = $("userChip");
+    if (chip) chip.classList.remove("hidden");
+  } catch (err) { /* backend offline — leave the dashboard alone */ }
+}
+
+async function logout() {
+  try { await fetch("/api/auth/logout", { method: "POST" }); } catch (err) {}
+  location.href = "/login";
+}
+
 // ── Boot ─────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   const input = $("urlSearchInput");
@@ -877,4 +900,5 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   renderRecentSearches();
   navigateToView("search");
+  checkAuth();
 });

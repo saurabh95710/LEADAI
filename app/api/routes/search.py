@@ -550,7 +550,7 @@ PAGES_CSV = ["page_name", "facebook_url", "page_id", "category", "source_type",
 POSTS_CSV = ["post_id", "page_name", "post_url", "caption", "published_date",
              "likes_count", "total_comment_count", "scraped_comment_count",
              "shares_count", "is_relevant", "is_qualifying", "images"]
-COMMENTS_CSV = ["commenter_name", "comment_text", "published_date", "phone", "email", "whatsapp", "website",
+COMMENTS_CSV = ["commenter_name", "commenter_url", "comment_text", "published_date", "phone", "email", "whatsapp", "website",
                 "budget", "requirement", "location", "intent", "urgency", "priority",
                 "lead_quality", "confidence", "lead_score"]
 
@@ -601,19 +601,24 @@ async def export_csv(
         if only_leads:
             query["is_lead"] = True
         rows = [doc async for doc in db.ai_comments.find(query).sort("lead_score", -1)]
-        # ai_comments does not store the scrape date — back-fill it from the
-        # raw comment doc so the CSV always carries date + time
+        # ai_comments does not store the scrape date or the commenter's
+        # profile URL — back-fill both from the raw comment doc so the CSV
+        # always carries date/time and a clickable profile link
         if rows:
             refs = [r["comment_ref"] for r in rows if r.get("comment_ref")]
-            raw_dates = {}
+            raw_fields = {}
             if refs:
                 async for raw in db.facebook_comments.find(
                         {"_id": {"$in": [ObjectId(r) for r in refs]}},
-                        {"published_date": 1}):
-                    raw_dates[str(raw["_id"])] = raw.get("published_date")
+                        {"published_date": 1, "author_profile_url": 1}):
+                    raw_fields[str(raw["_id"])] = raw
             for r in rows:
+                raw = raw_fields.get(r.get("comment_ref"), {})
                 if not r.get("published_date"):
-                    r["published_date"] = raw_dates.get(r.get("comment_ref"))
+                    r["published_date"] = raw.get("published_date")
+                url = raw.get("author_profile_url") or ""
+                r["commenter_url"] = (
+                    f'=HYPERLINK("{url}","Open profile")' if url.strip() else "")
         return _csv_response(rows, COMMENTS_CSV, f"leads_{datetime.now().strftime('%Y%m%d')}.csv")
 
     raise HTTPException(status_code=404, detail="scope must be pages, posts or comments")

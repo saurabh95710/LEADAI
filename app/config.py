@@ -25,6 +25,19 @@ class Settings(BaseSettings):
     # Apify — the Facebook data source
     apify_api_token: str = ""
 
+    # Admin sign-in — the only account. The password is stored as a sha256
+    # hash, never as plaintext. Generate a new hash for a custom password:
+    #   python -c "import hashlib;print(hashlib.sha256(b'YourPass').hexdigest())"
+    admin_email: str = "admin@gmail.com"
+    admin_password_hash: str = "a36aef5a11c4073fbe60314fc9df530a9d5f986533594d1f5190742ff9e0e408"
+    # Secret signing the session cookie (any long random string; without it a
+    # per-process random secret is used and sessions reset on restart)
+    session_secret: str = ""
+    # Session lifetime in days
+    session_ttl_days: int = 7
+    # Set true when serving over HTTPS so the cookie is only sent over TLS
+    session_cookie_secure: bool = False
+
     # URL-based social search — Apify actor IDs for non-Facebook platforms.
     # Change these if you have your own actors (or a cheaper/more updated one).
     # Leave one empty to disable that platform's URL search.

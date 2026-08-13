@@ -1,12 +1,14 @@
 import logging
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from app.db.mongo import ensure_indexes
 from app.api.routes.search import router as search_router
+from app.api.routes.auth import router as auth_router
+from app.auth.service import session_user
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -59,7 +61,7 @@ app = FastAPI(
         "real data and you drill from page → posts → comments → AI-analyzed "
         "leads."
     ),
-    version="2.1.0",
+    version="2.3.0",
     lifespan=lifespan,
 )
 
@@ -71,16 +73,51 @@ app.add_middleware(
 )
 
 app.include_router(search_router)
+app.include_router(auth_router)
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
+# Pages that stay reachable without a session
+_OPEN_PAGES = {"/health", "/login", "/docs", "/redoc", "/openapi.json"}
+
+
+@app.middleware("http")
+async def auth_gate(request: Request, call_next):
+    """Require a valid session for every /api call and HTML page. Static
+    assets and the auth endpoints stay open (the /api/auth endpoints check
+    the session themselves where needed)."""
+    path = request.url.path
+    if path.startswith(("/static", "/api/auth")) or path in _OPEN_PAGES:
+        return await call_next(request)
+    user = session_user(request)
+    if path.startswith("/api/"):
+        if user is None:
+            return JSONResponse(
+                {"success": False, "error": "unauthorized",
+                 "message": "Sign in required"},
+                status_code=401)
+    elif user is None:
+        return RedirectResponse("/login", status_code=303)
+    request.state.user = user
+    return await call_next(request)
+
+
+@app.get("/login")
+async def login_page():
+    login_path = os.path.join(static_dir, "login.html")
+    if os.path.exists(login_path):
+        return FileResponse(login_path)
+    return RedirectResponse("/", status_code=303)
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok",
-            "apify_configured": bool(settings.apify_api_token)}
+            "apify_configured": bool(settings.apify_api_token),
+            "auth_enabled": True}
 
 
 @app.get("/")
