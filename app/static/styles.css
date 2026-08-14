@@ -474,6 +474,13 @@ button { font-family: inherit; }
 
 .maxposts-field { width: 150px; }
 
+.field-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: var(--text-3);
+}
+
 .btn-primary {
   position: relative;
   display: inline-flex;
@@ -562,6 +569,16 @@ button { font-family: inherit; }
   background: var(--grad);
   transition: width 0.5s var(--ease);
   box-shadow: 0 0 12px rgba(79, 140, 255, 0.6);
+}
+
+.progress-fill.indeterminate {
+  width: 30% !important;
+  animation: indet 1.2s var(--ease) infinite;
+}
+
+@keyframes indet {
+  0%   { margin-left: -30%; }
+  100% { margin-left: 100%; }
 }
 
 .progress-steps {
@@ -842,6 +859,28 @@ button { font-family: inherit; }
 
 .rs-row:hover .rs-open { opacity: 1; transform: none; }
 
+.rs-del {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  font-size: 0.72rem;
+  line-height: 1;
+  color: var(--text-3);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.2s var(--ease), background 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+
+.rs-del:hover {
+  color: var(--red);
+  background: rgba(248, 113, 113, 0.1);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
 /* ── Empty states ──────────────────────────────────────────────────── */
 .empty-state {
   padding: 56px 24px;
@@ -931,6 +970,20 @@ button { font-family: inherit; }
 }
 
 .filter-check input { accent-color: var(--blue); width: 15px; height: 15px; cursor: pointer; }
+
+.count-field { gap: 8px; color: var(--text-3); font-size: 0.82rem; font-weight: 500; }
+
+.count-input {
+  width: 64px;
+  padding: 5px 8px;
+  font-size: 0.85rem;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.count-input:focus { border-color: var(--blue); outline: none; }
 
 .btn-export, .btn-refresh {
   background: var(--surface);

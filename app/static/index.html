@@ -98,6 +98,12 @@
               <div class="maxposts-field">
                 <label class="field-label" for="urlSearchLimit">Max Posts</label>
                 <input type="number" id="urlSearchLimit" class="form-input" min="1" max="100" value="20">
+                <span class="field-hint">1 – 100</span>
+              </div>
+              <div class="maxposts-field">
+                <label class="field-label" for="urlSearchCommentsPerPost">Comments / Post</label>
+                <input type="number" id="urlSearchCommentsPerPost" class="form-input" min="1" max="500" value="30">
+                <span class="field-hint" title="Whole run is also capped by the MAX_COMMENTS_TO_COLLECT env setting (default 100)">1 – 500</span>
               </div>
               <button type="submit" id="urlSearchBtn" class="btn-primary btn-analyze">
                 <span class="btn-icon" aria-hidden="true">✦</span>
@@ -235,6 +241,10 @@
             <button class="tab-btn active" id="tabComments">💬 Comments on <span id="commentsPostName">this post</span></button>
           </div>
           <div class="leads-controls">
+            <label class="filter-check count-field" title="Comments scraped per post when collecting comments">
+              Comments / Post
+              <input type="number" id="commentsPerPostInput" class="count-input" min="1" max="500" value="20" onchange="setCommentsPerPost(this)">
+            </label>
             <label class="filter-check">
               <input type="checkbox" id="commentsContactOnly" checked onchange="renderCommentsScreen()"> Contact only
             </label>
@@ -249,6 +259,18 @@
         <p class="workflow-hint">Only valuable comments are shown by default — the AI ignores "nice", "awesome", emoji-only and spam. Click a row for the full AI lead card.</p>
 
         <div id="commentsScreenStatus" class="page-search-summary hidden"></div>
+
+        <div id="commentsScrapeProgress" class="pipeline-progress hidden">
+          <div class="processing-card">
+            <div class="processing-head">
+              <span class="mini-spinner" aria-hidden="true"></span>
+              <span id="commentsScrapeLabel">Scraping comments…</span>
+            </div>
+            <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="commentsScrapeBar">
+              <div class="progress-fill" id="commentsScrapeFill"></div>
+            </div>
+          </div>
+        </div>
 
         <div class="empty-state" id="commentsListEmpty">
           <div class="empty-icon">💬</div>

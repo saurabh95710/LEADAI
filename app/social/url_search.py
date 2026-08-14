@@ -80,7 +80,8 @@ def _url_derived_page(platform: str, url: str, run_id: str,
     }
 
 
-def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[str, Any]:
+def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
+                   max_comments_per_post: int = 30) -> Dict[str, Any]:
     """Execute one URL search. Returns a bundle with page/posts/comments counts."""
     db = get_sync_db()
     if db is None:
@@ -265,7 +266,7 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
     if getattr(scraper, "comments_supported", True) and post_docs:
         from app.pipeline.comment_ai import has_contact_info
         cap = int(getattr(settings, "max_comments_to_collect", 100) or 100)
-        per_post = max(1, min(cap, 30))
+        per_post = max(1, min(max_comments_per_post, cap))
         for post in post_docs:
             if should_abort():
                 progress(status="cancelled", phase="cancelled",
@@ -273,6 +274,10 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
                 return cancelled()
             if comment_docs >= cap:
                 break
+            db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
+                "comments_status": "running", "comments_error": None,
+                "scraped_comment_count": 0, "comments_started_at": utcnow(),
+                "updated_at": utcnow()}})
             try:
                 raw_comments = scraper.fetch_comments(post["post_url"], per_post,
                                                       should_abort=should_abort)
@@ -308,6 +313,8 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
                     stored_for_post += 1
                 except DuplicateKeyError:
                     continue
+                db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
+                    "scraped_comment_count": stored_for_post, "updated_at": utcnow()}})
                 if comment_docs >= cap:
                     break
             # mark the post completed as soon as comments are stored so the
@@ -366,15 +373,18 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20) -> Dict[s
 class UrlSearchThread(threading.Thread):
     """Background worker for the URL search route."""
 
-    def __init__(self, run_id: str, url: str, max_posts: int):
+    def __init__(self, run_id: str, url: str, max_posts: int,
+                 max_comments_per_post: int = 30):
         super().__init__(daemon=True)
         self.run_id = run_id
         self.url = url
         self.max_posts = max_posts
+        self.max_comments_per_post = max_comments_per_post
 
     def run(self):
         try:
-            run_url_search(self.run_id, self.url, self.max_posts)
+            run_url_search(self.run_id, self.url, self.max_posts,
+                           self.max_comments_per_post)
         except Exception as e:
             logger.exception("[URL SEARCH] background run crashed")
             db = get_sync_db()

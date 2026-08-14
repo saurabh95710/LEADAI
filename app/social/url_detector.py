@@ -57,6 +57,27 @@ def _platform_of_host(host: str) -> str | None:
     return None
 
 
+def platform_from_url(url: str) -> str | None:
+    """Return the normalized platform of any URL: facebook|instagram|
+    linkedin|youtube — or None when it cannot be determined.
+
+    Single source of truth for platform lookup; used by the scrapers,
+    normalizers and the API so the platform is never guessed from context.
+    """
+    raw = (url or "").strip()
+    if not raw:
+        return None
+    if not re.match(r"^[a-z][a-z0-9+.-]*://", raw, re.IGNORECASE):
+        raw = "https://" + raw
+    try:
+        parts = urlsplit(raw)
+    except ValueError:
+        return None
+    if parts.scheme.lower() not in ("http", "https"):
+        return None
+    return _platform_of_host(parts.netloc)
+
+
 def _canonical(platform: str, path: str, query: str = "") -> str:
     path = "/" + path.lstrip("/") if path else "/"
     path = path.rstrip("/") or "/"

@@ -617,6 +617,7 @@ def analyze_comments_for_post(post_ref: str, max_comments: int = 500) -> Dict[st
             "comment_id": doc.get("comment_id"),
             "comment_text": doc.get("text"),
             "commenter_name": doc.get("author_name"),
+            "platform": post_doc.get("platform") or "unknown",
             "post_ref": post_ref,
             "post_id": post_doc.get("post_id"),
             "post_url": post_doc.get("post_url"),

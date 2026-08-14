@@ -9,6 +9,7 @@ const memory = {
   runId: localStorage.getItem("leadai_run_id") || "",
   pageId: localStorage.getItem("leadai_page_id") || "",
   postId: localStorage.getItem("leadai_post_id") || "",
+  commentsPerPost: parseInt(localStorage.getItem("leadai_commentsPerPost") || "20", 10) || 20,
 };
 const saveMemory = (key, value) => {
   memory[key] = value;
@@ -91,6 +92,16 @@ const URL_LABELS = {
   facebook: ["Facebook", "🏠"], instagram: ["Instagram", "📸"],
   youtube: ["YouTube", "▶️"], linkedin: ["LinkedIn", "💼"],
 };
+
+// platform display names for every screen — "unknown" renders as a plain
+// link with no platform name, never as Facebook
+const PLATFORMS = {
+  facebook: "Facebook", instagram: "Instagram",
+  youtube: "YouTube", linkedin: "LinkedIn",
+};
+function platformInfo(p) {
+  return { name: PLATFORMS[p] || null, icon: (URL_LABELS[p] || [])[1] || null };
+}
 
 // replaced with the real handler by handleUrlSearch while a run is active —
 // exists so the inline onclick never throws
@@ -227,7 +238,7 @@ function renderRecentRows() {
     const [cls, mark, stLabel] = RECENT_STATUS[s.status] || ["warn", "–", s.status || "—"];
     const count = s.pages_stored || 0;
     return `
-      <button class="rs-row" onclick="reopenSearch('${s.run_id}')" aria-label="Open search for ${esc(s.query)}">
+      <div class="rs-row" role="button" tabindex="0" onclick="reopenSearch('${s.run_id}')" onkeydown="if(event.key==='Enter')reopenSearch('${s.run_id}')" aria-label="Open search for ${esc(s.query)}">
         <span class="rs-icon" aria-hidden="true">${icon}</span>
         <span class="rs-main">
           <span class="rs-title">${esc(s.query)}</span>
@@ -236,10 +247,26 @@ function renderRecentRows() {
         <span class="rs-right">
           <span class="rs-badge ${cls}">${mark} ${stLabel}</span>
           <span class="rs-time">${relativeTime(s.created_at)}</span>
+          <button class="rs-del" type="button" title="Delete this search and its data" onclick="deleteSearch('${s.run_id}', event)">✕</button>
           <span class="rs-open">Open →</span>
         </span>
-      </button>`;
+      </div>`;
   }).join("");
+}
+
+async function deleteSearch(runId, ev) {
+  ev.stopPropagation();
+  if (!confirm("Delete this search and all its pages, posts and leads? This cannot be undone.")) return;
+  try {
+    const res = await fetch(`/api/search/${encodeURIComponent(runId)}`, { method: "DELETE" });
+    if (!res.ok) throw new Error((await res.json()).detail || "Delete failed");
+    toast("Search deleted", "success");
+    await fetchRecentSearches();
+    renderRecentRows();
+    renderSessionStats();
+  } catch (err) {
+    toast("Could not delete search: " + err.message, "error");
+  }
 }
 
 function renderSessionStats() {
@@ -297,6 +324,7 @@ async function handleUrlSearch(event) {
   event.preventDefault();
   const url = $("urlSearchInput").value.trim();
   const maxPosts = parseInt($("urlSearchLimit").value, 10) || 20;
+  const maxCommentsPerPost = parseInt($("urlSearchCommentsPerPost").value, 10) || 30;
   if (!url) return;
 
   const btn = $("urlSearchBtn");
@@ -310,7 +338,7 @@ async function handleUrlSearch(event) {
   setBadge("URL search", "status-running");
 
   try {
-    const res = await fetch(`/api/url/search?url=${encodeURIComponent(url)}&max_posts=${maxPosts}`, { method: "POST" });
+    const res = await fetch(`/api/url/search?url=${encodeURIComponent(url)}&max_posts=${maxPosts}&max_comments_per_post=${maxCommentsPerPost}`, { method: "POST" });
     if (!res.ok) {
       const err = await res.json();
       throw new Error((err.detail && (err.detail.message || err.detail)) || "URL search failed");
@@ -464,16 +492,18 @@ async function renderPagesScreen() {
         ? `<img class="pc-avatar" src="${esc(p.profile_picture)}" loading="lazy" onerror="this.style.display='none'">`
         : `<span class="pc-avatar pc-avatar-fallback">${esc((p.page_name || "?").charAt(0).toUpperCase())}</span>`;
 
+      const pageInfo = platformInfo(p.platform);
+
       return `<article class="page-card clickable-card" onclick="openPage('${p.id}')">
         <div class="pc-head">
           ${avatar}
           <div class="pc-body">
             <div class="pc-name">${esc(p.page_name || "Unnamed page")}
-              ${p.platform && p.platform !== "facebook" ? `<span class="src-badge">${esc(p.platform.toUpperCase())}</span>` : ""}
+              ${pageInfo.icon ? `<span class="src-badge">${esc(pageInfo.name.toUpperCase())}</span>` : ""}
               ${p.source_type === "group" ? '<span class="src-badge">GROUP</span>' : ""}
               ${p.verified ? '<span class="verified-badge" title="Verified">✓ Verified</span>' : ""}
             </div>
-            <a class="pc-link" href="${esc(p.facebook_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">open ${p.platform && p.platform !== "facebook" ? "on " + esc(p.platform.charAt(0).toUpperCase() + p.platform.slice(1)) : "on Facebook"} ↗</a>
+            <a class="pc-link" href="${esc(p.facebook_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">open ${pageInfo.name ? "on " + esc(pageInfo.name) : ""} ↗</a>
             ${p.category ? `<span class="pc-cat">${esc(p.category)}</span>` : ""}
           </div>
         </div>
@@ -558,6 +588,7 @@ async function renderPostsScreen() {
 
     const statusBox = $("postsScreenStatus");
     const page = data.page;
+    const pageInfo = platformInfo(data.platform || page.platform);
     if (page.posts_status === "running") {
       statusBox.innerHTML = `<div class="summary-line status-running-text"><span class="mini-spinner"></span> Analyzing posts... ${data.posts_count || 0} found so far</div>`;
       statusBox.classList.remove("hidden");
@@ -569,7 +600,7 @@ async function renderPostsScreen() {
       const qual = data.qualifyingPosts || 0;
       const min = data.minComments || 10;
       const note = qual > 0
-        ? `<span class="status-success-text">${qual} qualifying post(s) — relevant & ≥ ${min} Facebook comments</span>`
+        ? `<span class="status-success-text">${qual} qualifying post(s) — relevant & ≥ ${min} ${pageInfo.name ? esc(pageInfo.name) + " " : ""}comments</span>`
         : `<span class="muted">No qualifying posts — nothing above the ${min}-comment threshold</span>`;
       statusBox.innerHTML = `<div class="summary-line">Posts found: <b>${data.totalPosts}</b> · Relevant: <b>${data.relevantPosts}</b> · Qualifying: <b>${qual}</b> · Comments on qualifying posts: <b>${fmt(data.commentsOnQualifying)}</b> · Latest post: ${esc(data.latestPostDate || "N/A")}<br>${note}</div>`;
       statusBox.classList.remove("hidden");
@@ -669,7 +700,7 @@ async function openPost(postId, event) {
       return;
     }
     toast("Collecting real comments + AI analysis...", "info");
-    const postRes = await fetch(`/api/posts/${postId}/comments?max_comments=100`, { method: "POST" });
+    const postRes = await fetch(`/api/posts/${postId}/comments?max_comments=${memory.commentsPerPost}`, { method: "POST" });
     if (!postRes.ok) throw new Error((await postRes.json()).detail || "Collection failed");
     const started = await postRes.json();
     if (started.status === "skipped") {
@@ -693,18 +724,52 @@ async function waitForComments(postId) {
   }
 }
 
+function showCommentsScrapeProgress(scraped, total, indeterminate = false) {
+  const el = $("commentsScrapeProgress");
+  const label = $("commentsScrapeLabel");
+  const fill = $("commentsScrapeFill");
+  const bar = $("commentsScrapeBar");
+  el.classList.remove("hidden");
+  if (indeterminate || !(total > 0)) {
+    fill.classList.add("indeterminate");
+    fill.style.width = "30%";
+    bar.setAttribute("aria-valuenow", 0);
+    label.textContent = "Loading comments…";
+  } else {
+    fill.classList.remove("indeterminate");
+    const pct = Math.min(100, Math.round((scraped / total) * 100));
+    fill.style.width = pct + "%";
+    bar.setAttribute("aria-valuenow", pct);
+    label.textContent = `Scraping comments… ${scraped} of ${total} (${pct}%)`;
+  }
+}
+
 function exportPostsCsv() {
   if (!memory.pageId) return;
   window.open(`/api/export/posts.csv?page_id=${encodeURIComponent(memory.pageId)}`, "_blank");
 }
 
 // ── COMMENTS / LEADS ─────────────────────────────────────────────────────
+
+// shared "comments per post" setting — used by post comment collection and
+// kept in sync with the URL search form
+function setCommentsPerPost(el) {
+  const n = Math.min(500, Math.max(1, parseInt(el.value, 10) || 20));
+  el.value = n;
+  saveMemory("commentsPerPost", n);
+  const other = el.id === "commentsPerPostInput" ? "urlSearchCommentsPerPost" : "commentsPerPostInput";
+  const otherEl = $(other);
+  if (otherEl) otherEl.value = n;
+}
+
 async function renderCommentsScreen() {
   if (!memory.postId) { $("commentsGrid").innerHTML = ""; $("commentsListEmpty").classList.remove("hidden"); return; }
+  // show the loading bar immediately — the comments fetch itself can be slow
+  showCommentsScrapeProgress(0, 0, true);
   const onlyLeads = $("commentsLeadsOnly").checked;
   const contactOnly = $("commentsContactOnly").checked;
   try {
-    const res = await fetch(`/api/posts/${memory.postId}/comments?only_leads=${onlyLeads}&contact_only=${contactOnly}`);
+    const res = await fetch(`/api/posts/${memory.postId}/comments?only_leads=${onlyLeads}&contact_only=${contactOnly}&limit=${memory.commentsPerPost}`);
     const data = await res.json();
     $("commentsPostName").textContent = (data.post && data.post.caption ? data.post.caption.slice(0, 60) : "this post") || "this post";
 
@@ -712,6 +777,12 @@ async function renderCommentsScreen() {
     const total = data.total_comment_count || 0;
     const scraped = data.scraped_comment_count || 0;
     const hasComments = data.comments && data.comments.length;
+    const scrapeProgress = $("commentsScrapeProgress");
+    if (data.comments_status === "running") {
+      showCommentsScrapeProgress(scraped, total);
+    } else {
+      scrapeProgress.classList.add("hidden");
+    }
     if (data.comments_status === "running" && !hasComments) {
       statusBox.innerHTML = `<div class="summary-line status-running-text"><span class="mini-spinner"></span> Collecting comments and running AI analysis...</div>`;
       statusBox.classList.remove("hidden");
@@ -754,12 +825,13 @@ async function renderCommentsScreen() {
       const contactBadge = c.has_contact
         ? `<span class="badge badge-lead" title="Has phone or email">📞 contact</span>`
         : "";
+      const commentInfo = platformInfo(c.platform);
       return `<article class="lead-card clickable-card${c.has_contact ? " lead-card-highlight" : ""}" onclick="openLeadDetail('${c.id}')">
         <div class="lc-head">
           <span class="lc-avatar">${esc((c.commenter_name || "?").trim().charAt(0).toUpperCase())}</span>
           <div class="lc-body">
             <div class="lc-name">${esc(c.commenter_name || "Unknown")} ${contactBadge}
-              ${c.comment_url ? `<a class="page-link" href="${esc(c.comment_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">view on Facebook ↗</a>` : ""}
+              ${c.comment_url ? `<a class="page-link" href="${esc(c.comment_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${commentInfo.name ? `view on ${esc(commentInfo.name)}` : "view"} ↗</a>` : ""}
             </div>
             <div class="lc-text cell-truncate" title="${esc(c.comment_text || "")}">${esc(c.comment_text || "—")}</div>
             ${c.published_date ? `<div class="lc-meta">🕒 ${esc(formatDate(c.published_date))}</div>` : ""}
@@ -781,6 +853,7 @@ async function renderCommentsScreen() {
       </article>`;
     }).join("");
   } catch (err) {
+    $("commentsScrapeProgress").classList.add("hidden");
     toast("Could not load comments: " + err.message, "error");
   }
 }
@@ -803,12 +876,13 @@ async function openLeadDetail(commentId) {
     const intent = d.intent ? d.intent.replace("_", " ") : "—";
 
     $("leadDetailTitle").textContent = "Lead Details — " + (d.commenter_name || "Unknown commenter");
+    const detailInfo = platformInfo(d.platform);
     $("leadDetailContent").innerHTML = `
       <div class="lead-detail-grid">
         <div class="detail-block detail-block-wide">
           <div class="detail-label">Comment</div>
           <div class="detail-value">${esc(d.comment_text || "—")}</div>
-          ${d.comment_url ? `<a class="page-link" href="${esc(d.comment_url)}" target="_blank" rel="noopener">View on Facebook ↗</a>` : ""}
+          ${d.comment_url ? `<a class="page-link" href="${esc(d.comment_url)}" target="_blank" rel="noopener">${detailInfo.name ? `View on ${esc(detailInfo.name)}` : "View"} ↗</a>` : ""}
           ${d.reason ? `<div class="detail-reason">AI: ${esc(d.reason)} (${esc(d.analyzed_by)})</div>` : ""}
         </div>
         <div class="detail-block">
@@ -834,6 +908,8 @@ async function openLeadDetail(commentId) {
           <div class="detail-value">${esc(d.urgency || "—")}</div>
         </div>
         <div class="detail-block">
+          <div class="detail-label">Platform</div>
+          <div class="detail-value">${detailInfo.icon ? detailInfo.icon + " " : ""}${esc(detailInfo.name || "—")}</div>
           <div class="detail-label">Priority</div>
           <div class="detail-value">${esc(d.priority || "—")}</div>
           <div class="detail-label">Lead Quality</div>
@@ -897,6 +973,14 @@ document.addEventListener("DOMContentLoaded", () => {
           : "Waiting for URL…";
       }
     });
+  }
+  // one shared "comments per post" number across the comment section and URL search
+  const cpp = $("commentsPerPostInput");
+  if (cpp) cpp.value = memory.commentsPerPost;
+  const urlCpp = $("urlSearchCommentsPerPost");
+  if (urlCpp && !urlCpp.dataset.synced) {
+    urlCpp.value = memory.commentsPerPost;
+    urlCpp.addEventListener("change", () => setCommentsPerPost(urlCpp));
   }
   renderRecentSearches();
   navigateToView("search");

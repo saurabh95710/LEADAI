@@ -33,7 +33,7 @@ from fastapi.responses import Response
 
 from app.db.mongo import get_async_db
 from app.db.models import utcnow
-from app.agent.search import _MIN_COMMENTS
+from app.agent.search import _MIN_COMMENTS, _parse_iso
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["agent"])
@@ -62,6 +62,39 @@ def _oid(value: str):
         return ObjectId(value)
     except Exception:
         raise HTTPException(status_code=400, detail=f"Invalid id: {value}")
+
+
+def _resolve_platform(doc: dict, parent: Optional[dict] = None) -> str:
+    """Platform for any doc — never guessed, never defaulted to Facebook.
+
+    Order: explicit `platform` field → the doc's own URL → parent doc's
+    platform/URL → "unknown". A mismatch between an explicit platform and
+    the doc's URL is logged and corrected from the URL (the original source).
+    """
+    from app.social.url_detector import platform_from_url
+
+    def url_of(d: dict) -> Optional[str]:
+        for key in ("post_url", "comment_url", "facebook_url", "url"):
+            v = d.get(key)
+            if v:
+                return v
+        return None
+
+    p = doc.get("platform")
+    url = url_of(doc)
+    if url:
+        derived = platform_from_url(url)
+        if derived:
+            if p and derived != p:
+                logger.warning(
+                    "[platform] mismatch: doc says %r but %s=%s — correcting to %r",
+                    p, url, derived, derived)
+            return derived
+    if p:
+        return p
+    if parent:
+        return _resolve_platform(parent)
+    return "unknown"
 
 
 async def _doc_or_404(db, collection: str, oid: ObjectId):
@@ -125,6 +158,45 @@ async def search_history(limit: int = Query(20, ge=1, le=100)):
     return {"searches": docs, "count": len(docs)}
 
 
+@router.delete("/search/{run_id}")
+async def delete_search_run(run_id: str):
+    """Delete a search run and everything it produced: the run doc, its
+    pages, their posts, and all raw + AI-analyzed comments (leads)."""
+    db = get_async_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    run = await db.search_history.find_one({"run_id": run_id})
+    if not run:
+        raise HTTPException(status_code=404, detail="Search run not found")
+    if run.get("status") == "running":
+        # best-effort: the background worker aborts at its next checkpoint
+        await db.search_history.update_one({"run_id": run_id}, {"$set": {
+            "cancel_requested": True}})
+
+    page_ids = [str(p["_id"]) async for p in
+                db.facebook_pages.find({"search_run_id": run_id}, {"_id": 1})]
+    post_ids = []
+    if page_ids:
+        post_ids = [str(p["_id"]) async for p in
+                    db.facebook_posts.find({"page_ref": {"$in": page_ids}}, {"_id": 1})]
+
+    counts = {"pages": len(page_ids), "posts": len(post_ids),
+              "comments": 0, "leads": 0}
+    if post_ids:
+        counts["comments"] = (await db.facebook_comments.delete_many(
+            {"post_ref": {"$in": post_ids}})).deleted_count
+        counts["leads"] = (await db.ai_comments.delete_many(
+            {"$or": [{"post_ref": {"$in": post_ids}},
+                     {"page_ref": {"$in": page_ids}}]})).deleted_count
+        await db.facebook_posts.delete_many({"page_ref": {"$in": page_ids}})
+    if page_ids:
+        await db.facebook_pages.delete_many({"search_run_id": run_id})
+    await db.search_history.delete_one({"run_id": run_id})
+
+    return {"run_id": run_id, "deleted": counts,
+            "message": "Search deleted"}
+
+
 @router.get("/search/{run_id}")
 async def get_search_run(run_id: str):
     db = get_async_db()
@@ -158,6 +230,8 @@ async def start_url_search(
     url: str = Query(..., min_length=4, max_length=300,
                      description="Facebook page, Instagram profile, YouTube channel or LinkedIn company URL"),
     max_posts: int = Query(20, ge=1, le=100),
+    max_comments_per_post: int = Query(30, ge=1, le=500,
+                                       description="Comments to scrape per post (capped by MAX_COMMENTS_TO_COLLECT)"),
 ):
     """Start a URL-based social lead search. Poll GET /api/search/{run_id}."""
     from app.social.url_detector import detect_social_url, UrlError
@@ -180,13 +254,16 @@ async def start_url_search(
     await db.search_history.insert_one({
         "run_id": run_id, "query": url, "intent": {
             "keyword": url, "type": "url", "platform": platform,
-            "canonical_url": canonical, "limit": max_posts},
+            "canonical_url": canonical, "limit": max_posts,
+            "max_comments_per_post": max_comments_per_post},
         "limit": max_posts, "provider": "apify", "url_search": True,
         "status": "running", "phase": "queued", "message": "Starting URL search...",
         "pages_found": 0, "pages_stored": 0,
         "created_at": utcnow(), "completed_at": None,
     })
-    _start(f"url_search:{run_id}", UrlSearchThread(run_id, canonical, max_posts).run)
+    _start(f"url_search:{run_id}",
+           UrlSearchThread(run_id, canonical, max_posts,
+                           max_comments_per_post).run)
     return {
         "run_id": run_id, "status": "running", "platform": platform,
         "canonical_url": canonical,
@@ -218,11 +295,13 @@ async def url_search_report(run_id: str):
 
     page = pages[0]
     page_id = page["id"]
+    page["platform"] = _resolve_platform(page)
     posts = []
     async for p in db.facebook_posts.find({"page_ref": page_id}).sort("published_date", -1).limit(30):
         doc = _serialize(p)
         doc["total_comment_count"] = doc.get("total_comment_count") or doc.get("comments_count")
         doc.setdefault("scraped_comment_count", None)
+        doc["platform"] = _resolve_platform(doc, page)
         posts.append(doc)
 
     post_ids = [p["id"] for p in posts]
@@ -231,6 +310,7 @@ async def url_search_report(run_id: str):
         async for c in db.facebook_comments.find({"post_ref": {"$in": post_ids}}).sort("published_date", -1).limit(100):
             comments.append(_serialize(c))
     for c in comments:
+        c["platform"] = _resolve_platform(c)
         c["commenter_name"] = c.get("author_name")
         c["comment_text"] = c.get("text")
         # enrich raw comments with AI analysis (phone, email, intent, lead score…)
@@ -249,7 +329,7 @@ async def url_search_report(run_id: str):
         "run_id": run_id,
         "status": run.get("status"),
         "message": run.get("message"),
-        "platform": page.get("platform") or "facebook",
+        "platform": page.get("platform") or _resolve_platform(page),
         "search_url": (run.get("intent") or {}).get("canonical_url") or run.get("query"),
         "page": page,
         "posts": posts,
@@ -288,7 +368,9 @@ async def list_pages(
     async for p in (db.facebook_pages.find(query)
                     .sort([("lead_score", -1), ("followers", -1)])
                     .skip(offset).limit(limit)):
-        docs.append(_serialize(p))
+        doc = _serialize(p)
+        doc["platform"] = _resolve_platform(doc)
+        docs.append(doc)
     total = await db.facebook_pages.count_documents(query)
     return {"pages": docs, "total": total, "offset": offset, "limit": limit}
 
@@ -336,6 +418,7 @@ async def list_page_posts(page_id: str, offset: int = Query(0, ge=0), limit: int
         doc.setdefault("scraped_comment_count", None)
         doc.setdefault("is_relevant", None)
         doc.setdefault("is_qualifying", False)
+        doc["platform"] = _resolve_platform(doc, page)
         docs.append(doc)
     # qualifying posts first, then by Facebook-reported comment count
     docs.sort(key=lambda p: (
@@ -354,6 +437,7 @@ async def list_page_posts(page_id: str, offset: int = Query(0, ge=0), limit: int
         p["thumbnail"] = (p.get("images") or [None])[0]
     return {
         "page": _serialize(page),
+        "platform": _resolve_platform(page),
         "posts": posts,
         "total": total,
         "totalPosts": page.get("total_posts_found", page.get("posts_count", 0)),
@@ -439,6 +523,7 @@ async def list_post_comments(
             c["published_date"] = c.get("published_date") or raw.get("published_date")
             c["comment_url"] = raw.get("comment_url")
             c["reactions_count"] = raw.get("reactions_count")
+            c["platform"] = _resolve_platform(c)
         total = await db.ai_comments.count_documents(query)
     else:
         # ALL raw comments for the post, contact-bearing ones first; by
@@ -448,6 +533,7 @@ async def list_post_comments(
         all_docs = []
         async for raw in db.facebook_comments.find(query):
             c = _serialize(raw)
+            c["platform"] = _resolve_platform(c)
             c["commenter_name"] = raw.get("author_name")
             c["comment_text"] = raw.get("text")
             quick = extract_contact_quick(raw.get("text"))
@@ -479,6 +565,7 @@ async def list_post_comments(
         docs = all_docs[offset:offset + limit]
     return {
         "post": _serialize(post),
+        "platform": _resolve_platform(post),
         "comments": docs,
         "total": total,
         "all_count": all_docs_len if not only_leads else total,
@@ -513,6 +600,7 @@ async def get_lead_detail(comment_id: str):
             raw = await db.facebook_comments.find_one({"_id": ObjectId(analysis["comment_ref"])})
         post = await db.facebook_posts.find_one({"_id": ObjectId(analysis.get("post_ref"))}) if analysis.get("post_ref") else None
         page = await db.facebook_pages.find_one({"_id": ObjectId(analysis.get("page_ref"))}) if analysis.get("page_ref") else None
+        result["platform"] = _resolve_platform(result, post)
         result["comment"] = _serialize(raw) if raw else None
         result["post"] = _serialize(post) if post else None
         result["page"] = _serialize(page) if page else None
@@ -526,6 +614,7 @@ async def get_lead_detail(comment_id: str):
     post = await db.facebook_posts.find_one({"_id": ObjectId(raw.get("post_ref"))}) if raw.get("post_ref") else None
     page = await db.facebook_pages.find_one({"_id": ObjectId(post.get("page_ref"))}) if post and post.get("page_ref") else None
     result = _serialize(raw)
+    result["platform"] = _resolve_platform(result, post)
     result["commenter_name"] = raw.get("author_name")
     result["comment_text"] = raw.get("text")
     result["comment"] = result
@@ -541,18 +630,38 @@ async def get_lead_detail(comment_id: str):
 # EXPORT — CSV
 # ─────────────────────────────────────────────────────────────────────────────
 
-PAGES_CSV = ["page_name", "facebook_url", "page_id", "category", "source_type",
+PAGES_CSV = ["platform", "page_name", "facebook_url", "page_id", "category", "source_type",
              "followers", "likes", "phone", "email", "whatsapp", "website",
              "address", "city", "state", "verified", "about",
              "total_posts_found", "relevant_posts_count", "qualifying_posts_count",
              "total_comments_on_qualifying_posts", "latest_post_date",
              "activity_status", "lead_score"]
-POSTS_CSV = ["post_id", "page_name", "post_url", "caption", "published_date",
+POSTS_CSV = ["platform", "post_id", "page_name", "post_url", "caption", "published_date",
              "likes_count", "total_comment_count", "scraped_comment_count",
              "shares_count", "is_relevant", "is_qualifying", "images"]
-COMMENTS_CSV = ["commenter_name", "commenter_url", "comment_text", "published_date", "phone", "email", "whatsapp", "website",
+COMMENTS_CSV = ["platform", "commenter_name", "commenter_url", "comment_text",
+                "comment_date", "comment_time", "phone", "email", "whatsapp", "website",
                 "budget", "requirement", "location", "intent", "urgency", "priority",
                 "lead_quality", "confidence", "lead_score"]
+
+
+def _split_date_time(value) -> tuple:
+    """Tolerant actor date string → (comment_date, comment_time) in LOCAL time.
+
+    The scrapers store dates exactly as the actor returns them (ISO with a T
+    and Z, or a bare date), so the CSV splits them into separate, human
+    readable date and time columns. Empty strings when the source has no date
+    or no time component.
+    """
+    if not value:
+        return "", ""
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", str(value).strip()):
+        return str(value).strip(), ""
+    parsed = _parse_iso(value)
+    if parsed is None:
+        return str(value).strip(), ""
+    local = parsed.astimezone()
+    return local.strftime("%Y-%m-%d"), local.strftime("%H:%M:%S")
 
 
 def _csv_response(rows: list, columns: list, filename: str) -> Response:
@@ -583,6 +692,8 @@ async def export_csv(
     if scope == "pages":
         query = {"search_run_id": run_id} if run_id else {}
         rows = [doc async for doc in db.facebook_pages.find(query).sort("followers", -1)]
+        for row in rows:
+            row["platform"] = _resolve_platform(row)
         return _csv_response(rows, PAGES_CSV, f"pages_{datetime.now().strftime('%Y%m%d')}.csv")
 
     if scope == "posts":
@@ -592,6 +703,7 @@ async def export_csv(
         for row in rows:
             if row.get("total_comment_count") is None:
                 row["total_comment_count"] = row.get("comments_count")
+            row["platform"] = _resolve_platform(row)
         return _csv_response(rows, POSTS_CSV, f"posts_{datetime.now().strftime('%Y%m%d')}.csv")
 
     if scope == "comments":
@@ -614,8 +726,8 @@ async def export_csv(
                     raw_fields[str(raw["_id"])] = raw
             for r in rows:
                 raw = raw_fields.get(r.get("comment_ref"), {})
-                if not r.get("published_date"):
-                    r["published_date"] = raw.get("published_date")
+                published = r.get("published_date") or raw.get("published_date")
+                r["comment_date"], r["comment_time"] = _split_date_time(published)
                 url = raw.get("author_profile_url") or ""
                 r["commenter_url"] = (
                     f'=HYPERLINK("{url}","Open profile")' if url.strip() else "")

@@ -369,6 +369,7 @@ def _compute_page_stats(posts: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def map_page_item(item: Dict[str, Any], run_id: str, keyword: str) -> Optional[Dict[str, Any]]:
     """Raw search-scraper / pages-scraper item → facebook_pages doc."""
+    from app.social.url_detector import platform_from_url
     if not isinstance(item, dict) or item.get("error"):
         return None
     url = _item_url(item)
@@ -380,6 +381,7 @@ def map_page_item(item: Dict[str, Any], run_id: str, keyword: str) -> Optional[D
         "page_id": str(item.get("pageId") or "").strip() or _extract_page_id(url),
         "page_name": name or None,
         "facebook_url": url,
+        "platform": platform_from_url(url) or "unknown",
         "category": _item_category(item),
         "about": _item_about(item),
         "followers": _as_int(item.get("followers")) or _as_int(item.get("followerCount")),
@@ -446,6 +448,7 @@ def map_post_item(item: Dict[str, Any], page_doc: Dict[str, Any],
     return {
         "post_id": str(item.get("id") or item.get("postId") or "").strip() or None,
         "post_url": post_url,
+        "platform": page_doc.get("platform") or "unknown",
         "page_id": page_doc.get("page_id"),
         "page_name": page_doc.get("page_name"),
         "caption": caption,
@@ -486,6 +489,7 @@ def map_comment_item(item: Dict[str, Any], post_doc: Dict[str, Any]) -> Optional
     return {
         "comment_id": comment_id,
         "comment_url": comment_url,
+        "platform": post_doc.get("platform") or "unknown",
         "author_name": str(_first(item.get("profileName"),
                                   item.get("authorName"), author.get("name")) or "").strip() or None,
         "author_profile_url": str(_first(item.get("profileUrl"),

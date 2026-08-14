@@ -146,7 +146,7 @@
       }
 
       document.title = `LeadAI — ${page.page_name || "URL Report"}`;
-      const platform = d.platform || "facebook";
+      const platform = d.platform || "unknown";
       const icon = PLATFORM_ICON[platform] || "🔗";
       $("rTitle").textContent = `${icon} ${esc(page.page_name || "Unnamed")}`;
       $("rUrl").textContent = esc(d.search_url || page.facebook_url || "");
