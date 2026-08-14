@@ -7,9 +7,11 @@ Paste **`https://www.facebook.com/somepage`** (or an Instagram / YouTube / Linke
 1. Detects + canonicalizes the URL (`app/social/url_detector.py`),
 2. Fetches the page details via the platform's Apify actor,
 3. Collects the latest posts and auto-analyzes each post for relevance,
-4. Collects comments (Facebook & Instagram only) from posts that qualify,
+4. Collects comments (Facebook, Instagram & LinkedIn) from posts that qualify,
 5. AI-analyzes each comment for phone, email, WhatsApp, budget, requirement, urgency and intent (buying / selling / rent / investment / other),
 6. Scores leads 0–100 with a deterministic rank, and lets you export pages, posts and leads as CSV.
+
+The detected platform (facebook / instagram / youtube / linkedin) is propagated end-to-end — storage, API responses, UI labels, report page and CSV exports — so an Instagram search always looks like Instagram and is **never** mislabeled as Facebook.
 
 > **Stack:** FastAPI · MongoDB (Motor + PyMongo) · Apify actors · Google Gemini (optional — rule-based fallback) · Vanilla JS UI · Docker
 
@@ -92,7 +94,11 @@ Status legend: ✅ Implemented · 🟡 Partially Implemented · ⬜ Planned
 | Facebook page detail extraction (followers, likes, category, about, phone, email, website, address, photos, verified) | ✅ | `apify/facebook-pages-scraper` + `map_page_item` |
 | Facebook post collection (caption, images, videos, links, likes, comments, shares, date) | ✅ | `apify/facebook-posts-scraper` |
 | Facebook comment collection (text, author, profile URL, date, reactions) | ✅ | `apify/facebook-comments-scraper` |
-| Comments for Instagram too; YouTube/LinkedIn skip comments | ✅ | `app/social/scrapers.py` (`comments_supported`) |
+| Comments for Facebook, Instagram and LinkedIn; YouTube skips comments | ✅ | `app/social/scrapers.py` (`comments_supported`) |
+| Platform propagation end-to-end (never mislabeled as Facebook) | ✅ | `platform_from_url` / `_resolve_platform` + `platform` field on every doc and response |
+| Configurable "Comments / Post" (scrape + show n per post, 1–500) | ✅ | UI setting synced with URL search (`memory.commentsPerPost`) |
+| Comments loading progress bar (determinate + indeterminate) | ✅ | `showCommentsScrapeProgress` in `app.js` |
+| Manual deletion of an individual search (run + all its data) | ✅ | `DELETE /api/search/{run_id}` + ✕ button in the recent-searches list |
 | Contact-info flagging (10-digit phone / email in comment) | ✅ | `has_contact_info` in `app/pipeline/comment_ai.py` |
 | Rule-based comment screening (spam / filler / emoji / link-only) | ✅ | Stage 1 of `comment_ai.py` |
 | Gemini comment analysis (contacts, budget, requirement, intent, urgency, quality) | ✅ (needs `GEMINI_API_KEY`) | Stage 2 of `comment_ai.py` |
@@ -102,7 +108,7 @@ Status legend: ✅ Implemented · 🟡 Partially Implemented · ⬜ Planned
 | Page lead ranking (qualifying posts, comments, activity) | ✅ | `_lead_score` in `app/agent/search.py` |
 | Post qualification (relevant + ≥ MIN_COMMENTS) | ✅ | `_is_qualifying_post` |
 | Duplicate removal (unique URLs per run, unique comment analysis) | ✅ | Mongo unique indexes |
-| CSV export (pages / posts / leads) | ✅ | `GET /api/export/*.csv` |
+| CSV export (pages / posts / leads — comments CSV has separate `comment_date` + `comment_time` columns in local time) | ✅ | `GET /api/export/*.csv` |
 | MongoDB persistence (5 collections) | ✅ | `app/db/` |
 | Search history (URL runs stored with live status) | ✅ | `GET /api/search/history` |
 | Run cancellation (aborts in-flight Apify run) | ✅ | `POST /api/search/{run_id}/cancel` |
@@ -133,7 +139,7 @@ Status legend: ✅ Implemented · 🟡 Partially Implemented · ⬜ Planned
 | Scraping | Apify (official `apify-client`) — 3 Facebook actors + configurable IG/YT/LinkedIn actors | All social data collection |
 | Database | MongoDB (`mongo:7` in Docker) — Motor (async) for API handlers, PyMongo (sync) for background threads | Persistence of pages/posts/comments/analysis/history |
 | API | REST (FastAPI), docs at `/docs` (Swagger UI) | All product surface |
-| Authentication | None (not implemented) | — |
+| Authentication | FastAPI session-cookie auth (admin email/password, sha256-hashed, constant-time compare, brute-force throttle, `/login`) | All `/api/*` behind a session |
 | Configuration | `pydantic-settings` reading `.env` | All settings |
 | Deployment | Docker + docker-compose (API + Mongo) | Containerized run |
 | Code quality | Ruff (lint) + mypy (type checks) | Dev workflow (caches in repo) |
@@ -181,8 +187,8 @@ flowchart TD
 - **`app/api/routes/search.py`** — the entire REST surface. All long-running operations (`collect_page_posts`, `collect_post_comments`, URL search) run as **in-process background tasks** (`asyncio.create_task` + `asyncio.to_thread` / a daemon thread); GET endpoints expose live status fields for polling. A `_tasks` registry prevents duplicate jobs for the same page/post/run.
 - **`app/social/url_search.py`** — the URL-search orchestrator ("the only brain between the user and social media"). Runs in a daemon thread, writes live status to `search_history`, and drives page → posts → comments → AI analysis.
 - **`app/social/url_detector.py`** — platform detection + canonicalization for FB/IG/YT/LinkedIn, with classified `UrlError` (invalid / unsupported).
-- **`app/social/scrapers.py`** — one `SocialMediaScraper` subclass per platform over `ApifyConnector`; normalizes platform-specific actor items into the shared document shapes (`map_*_item` from `app/agent/search.py`).
-- **`app/agent/search.py`** — the shared lead-collection engine (used by both the dashboard drill-down and URL search): `collect_page_posts`, `collect_post_comments`, normalizers (`map_page_item`, `map_post_item`, `map_comment_item`), relevance/qualification logic, page scoring (`_compute_page_stats`, `_lead_score`, `_activity_status`), and cancellation helpers.
+- **`app/social/scrapers.py`** — one `SocialMediaScraper` subclass per platform over `ApifyConnector`; normalizes platform-specific actor items into the shared document shapes (`map_*_item` from `app/agent/search.py`). Also the router used by the drill-down collectors (`get_scraper(platform)`).
+- **`app/agent/search.py`** — the shared lead-collection engine (used by both the dashboard drill-down and URL search): `collect_page_posts`, `collect_post_comments` (both route by the doc's `platform` — Facebook keeps the classic actors, Instagram/YouTube/LinkedIn use their own scrapers), normalizers (`map_page_item`, `map_post_item`, `map_comment_item`), relevance/qualification logic, page scoring (`_compute_page_stats`, `_lead_score`, `_activity_status`), `_parse_iso` (tolerant date parsing), and cancellation helpers.
 - **`app/connectors/apify_connector.py`** — thin wrapper over `apify-client` with classified error objects (`ScrapeError`), run timeouts, cancellation polling (`actor.start()` + `run.get()/abort()`), and request/response logging.
 - **`app/pipeline/comment_ai.py`** — the lead-analysis brain: Stage 1 rule filtering + regex extraction, Stage 2 Gemini structured JSON extraction, `comment_lead_score` (0–100), `extract_display_signals` / `is_lead`, and persistence into `ai_comments`.
 - **`app/db/`** — `mongo.py` (Motor + PyMongo clients, DNS override, index creation) and `models.py` (Pydantic models for all five collections).
@@ -221,6 +227,7 @@ lead_apify/
 ├── tests/
 │   ├── test_qualification.py    # lead-qualification acceptance tests
 │   ├── test_url_search.py       # URL detection/canonicalization + error classification tests
+│   ├── test_auth.py             # admin login, hashing, throttle, sessions
 │   └── integration_check.py     # end-to-end pipeline check against a scratch Mongo DB
 ├── scratch/                     # dev-only diagnostic scripts (gitignored)
 ├── logs/                        # app.log (file logging, gitignored)
@@ -254,7 +261,7 @@ The dashboard's single search form accepts a **Facebook page, Instagram profile,
 
 ### Step 2 — Request reaches the backend
 
-`POST /api/url/search?url=&max_posts=` — `url` 4–300 chars; detected and canonicalized by `detect_social_url()`; invalid/unsupported URLs return 422 with an `errorType` (`invalid` | `unsupported`). The endpoint immediately persists a `search_history` document (`status: running`, `phase: queued`), generates a `run_id` (prefixed `URL`), registers the background pipeline, and returns immediately. No request ever blocks the API.
+`POST /api/url/search?url=&max_posts=&max_comments_per_post=` — `url` 4–300 chars; detected and canonicalized by `detect_social_url()`; invalid/unsupported URLs return 422 with an `errorType` (`invalid` | `unsupported`). The endpoint immediately persists a `search_history` document (`status: running`, `phase: queued`), generates a `run_id` (prefixed `URL`), registers the background pipeline, and returns immediately. No request ever blocks the API.
 
 ### Step 3 — URL validation and platform detection
 
@@ -268,9 +275,9 @@ The platform scraper fetches the profile via its Apify actor (`apify/facebook-pa
 
 Fetched (default 20, capped 1–100) and stored with per-page dedupe; live counts update on the page doc. Every post is flagged `is_relevant` (caption mentions the target context) and `is_qualifying` (relevant **and** Facebook-reported total comments ≥ `MIN_COMMENTS`).
 
-### Step 6 — Comments (Facebook & Instagram only)
+### Step 6 — Comments (Facebook, Instagram & LinkedIn)
 
-Only posts with `total_comment_count >= MIN_COMMENTS` are scraped — low-engagement posts are skipped (`comments_status: "skipped"`), saving Apify cost. Collected comments are deduped, flagged `has_contact` (10-digit phone or email), and each post's comments run through `analyze_comments_for_post` for the full AI treatment.
+Only posts with `total_comment_count >= MIN_COMMENTS` are scraped — low-engagement posts are skipped (`comments_status: "skipped"`), saving Apify cost. The number of comments scraped per post is controlled by the **"Comments / Post"** setting in the UI (default 20, 1–500 — also the `max_comments_per_post` / `max_comments` API params), and the comments view shows at most that many per post. Collected comments are deduped, flagged `has_contact` (10-digit phone or email), and each post's comments run through `analyze_comments_for_post` for the full AI treatment. YouTube posts are never comment-scraped.
 
 ### Step 7 — Page scoring
 
@@ -299,7 +306,7 @@ Scraping via the platform's Apify actor (scrapers.py)
         ↓
 Posts
         ↓
-Comments (Facebook & Instagram only)
+Comments (Facebook, Instagram & LinkedIn)
         ↓
 Lead extraction (rule + Gemini pipeline)
         ↓
@@ -317,7 +324,7 @@ Qualified leads → report page / CSV / dashboard
 
 Canonicalization **only drops tracking params and trailing slashes** — the identifying path is never rewritten. Missing scheme (`instagram.com/x`) is auto-prefixed with `https://`.
 
-**Comment support per platform**: Facebook ✅ (top comments, `RANKED_UNFILTERED` with nested comments), Instagram ✅, YouTube ❌ (video comments not collected), LinkedIn ❌. `MAX_COMMENTS_TO_COLLECT` (default 100) caps the whole run; at most 30 comments per post.
+**Comment support per platform**: Facebook ✅ (top comments, `RANKED_UNFILTERED` with nested comments), Instagram ✅, YouTube ❌ (video comments not collected), LinkedIn ✅. `MAX_COMMENTS_TO_COLLECT` (default 100) caps the whole run; per-post caps are controlled by the **"Comments / Post"** UI setting (default 20, 1–500) which feeds `max_comments_per_post` in URL searches and `max_comments` in post drill-downs.
 
 ---
 
@@ -381,6 +388,7 @@ Five MongoDB collections, all documents stored from **real actor output only** (
 | Field | Type | Description | Source |
 | --- | --- | --- | --- |
 | `comment_ref`, `comment_id`, `comment_text`, `commenter_name` | str | Comment identity | raw comment doc |
+| `platform` | str | Platform of the parent post (`facebook` \| `instagram` \| `youtube` \| `linkedin`) | post doc |
 | `post_ref`, `post_id`, `post_url`, `page_ref`, `page_name` | str | Parent context | agent |
 | `phone`, `email`, `whatsapp`, `website` | str | Extracted contacts | rules/Gemini (`None` when unknown) |
 | `budget`, `requirement`, `location` | str | Buyer signals | rules/Gemini |
@@ -419,11 +427,12 @@ Interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs) (Swag
 | Method | Endpoint | Purpose | Request | Response |
 | --- | --- | --- | --- | --- |
 | GET | `/health` | App + provider config status | — | `{status, apify_configured}` |
-| POST | `/api/url/search` | Start URL-based search | `url` (4–300), `max_posts` (1–100) | `{run_id, status, platform, canonical_url}` |
+| POST | `/api/url/search` | Start URL-based search | `url` (4–300), `max_posts` (1–100), `max_comments_per_post` (1–500) | `{run_id, status, platform, canonical_url}` |
 | GET | `/api/url/search/{run_id}/report` | Full report bundle (page+posts+comments+AI) | — | `{page, posts, comments, status, message, platform, search_url}` |
 | GET | `/api/search/history` | Recent runs | `limit` (1–100) | `{searches, count}` |
 | GET | `/api/search/{run_id}` | Run status + pages of the run | — | `{success, items, count, scrape_info, search, pages}` |
 | POST | `/api/search/{run_id}/cancel` | Cancel a running search (aborts Apify run) | — | `{run_id, status}` |
+| DELETE | `/api/search/{run_id}` | Delete a search run + everything it produced (pages, posts, raw comments, AI leads) | — | `{run_id, deleted: {pages, posts, comments, leads}}` |
 | GET | `/api/pages` | List/filter pages | `run_id`, `q` (name), `category`, `city`, `contact` (bool), `offset`, `limit` | `{pages, total, offset, limit}` |
 | GET | `/api/pages/{id}` | One page | — | page doc |
 | POST | `/api/pages/{id}/posts` | Collect posts of the page (background) | `max_posts` (1–100) | `{status: running}` |
@@ -434,7 +443,7 @@ Interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs) (Swag
 | GET | `/api/comments/{id}` | Lead detail (analysis + comment + post + page) | — | merged doc |
 | GET | `/api/export/pages.csv` | CSV of pages | `run_id` (optional) | CSV file |
 | GET | `/api/export/posts.csv` | CSV of posts | `page_id` (required) | CSV file |
-| GET | `/api/export/comments.csv` | CSV of analyzed comments/leads | `post_id` (required), `only_leads` (default true) | CSV file |
+| GET | `/api/export/comments.csv` | CSV of analyzed comments/leads (separate `comment_date` / `comment_time` columns in local time) | `post_id` (required), `only_leads` (default true) | CSV file |
 
 **Important endpoints in detail:**
 
@@ -443,8 +452,9 @@ Interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs) (Swag
 - **`GET /api/url/search/{run_id}/report`** — bundles the run's page + up to 30 posts + up to 100 comments (enriched with AI fields) for the standalone report page.
 - **`GET /api/pages`** — stable sort by `lead_score` desc, then `followers`; supports name regex (`q`), exact `category`/`city` and a `contact` filter (`$or` on email/phone not-null). Returns `total` for pagination.
 - **`GET /api/pages/{id}/posts`** — returns cached posts; adds legacy aliases (`total_comment_count` fallback to `comments_count`, `postId`, `postUrl`, `postText`, `commentCount`, `reactionsCount`, `sharesCount`, `createdTime`, `thumbnail`) for frontend compatibility; includes the full page stat bundle and `minComments`.
-- **`GET /api/posts/{id}/comments`** — two modes: `only_leads=true` queries `ai_comments` (`is_lead: true`, sorted by `lead_score` desc) enriched with raw comment fields; otherwise all raw comments are enriched with quick regex contacts and any stored AI analysis, filtered by `contact_only` (default true), newest first with contact comments pinned on top.
-- **`GET /api/export/{scope}.csv`** — server-side CSV generation (`csv` stdlib) with fixed column sets; comments export uses `ai_comments` rows (phone/email/whatsapp/website/budget/requirement/location/intent/urgency/priority/lead_quality/confidence/lead_score) so it is effectively a **leads export**.
+- **`GET /api/posts/{id}/comments`** — two modes: `only_leads=true` queries `ai_comments` (`is_lead: true`, sorted by `lead_score` desc) enriched with raw comment fields; otherwise all raw comments are enriched with quick regex contacts and any stored AI analysis, filtered by `contact_only` (default true), newest first with contact comments pinned on top. `limit` defaults to the "Comments / Post" count (max 100 per page). Every comment and the top-level response carry the resolved `platform`.
+- **`DELETE /api/search/{run_id}`** — deletes the run doc and cascades through its pages → posts → raw comments → `ai_comments` leads (best-effort `cancel_requested` is set first if the run is still running). Triggered by the ✕ button on each recent-search row.
+- **`GET /api/export/{scope}.csv`** — server-side CSV generation (`csv` stdlib) with fixed column sets; comments export uses `ai_comments` rows (phone/email/whatsapp/website/budget/requirement/location/intent/urgency/priority/lead_quality/confidence/lead_score + `platform` + separate `comment_date`/`comment_time` in local time) so it is effectively a **leads export**.
 
 ---
 
@@ -594,7 +604,7 @@ All settings are defined in `app/config.py` (`pydantic-settings`, `.env` file, `
 | `YOUTUBE_ACTOR_ID` | No | `streamers/youtube-scraper` | Apify actor for YouTube URL search |
 | `LINKEDIN_ACTOR_ID` | No | `harvestapi/linkedin-company` | Apify actor for LinkedIn company details (URL search) |
 | `LINKEDIN_POSTS_ACTOR_ID` | No | `harvestapi/linkedin-company-posts` | Apify actor for LinkedIn posts/comments (URL search) |
-| `MAX_COMMENTS_TO_COLLECT` | No | `100` | Global cap of comments per URL-search run (≤30 per post) |
+| `MAX_COMMENTS_TO_COLLECT` | No | `100` | Global cap of comments per URL-search run (per-post cap set by the UI's "Comments / Post", default 20) |
 | `ADMIN_EMAIL` | Yes | `admin@gmail.com` | The single account allowed to sign in |
 | `ADMIN_PASSWORD_HASH` | Yes | sha256 of `Admin@2026` | sha256 hash of the login password (never stored plaintext) — generate with `python -c "import hashlib;print(hashlib.sha256(b'YourPass').hexdigest())"` |
 | `SESSION_SECRET` | No¹ | — | Secret signing the session cookie (any long random string; without it sessions reset on restart) |
@@ -778,6 +788,7 @@ Check the providers' current pricing pages (Apify console, Google AI Studio) bef
 
 ### Implemented
 
+- **Admin authentication** — session-cookie login (`/login`, `POST /api/auth/login`): password stored as a sha256 hash (never plaintext), constant-time comparison, per-IP brute-force throttle (5 failed attempts → 60s lockout), httpOnly + SameSite cookie; every `/api/*` call returns 401 without a session and `/` / `/dashboard` redirect to `/login`.
 - **Secrets in environment variables only** — all tokens/keys come from `.env` via `pydantic-settings`; `.env` and `.env.example` are gitignored; values in `.env.example` are placeholders.
 - **No API keys in client code** — the browser only calls the backend; the Apify token never reaches the frontend.
 - **Input validation** — FastAPI query constraints (lengths, ranges), URL validation + canonicalization (`url_detector.py`), ObjectId validation (400 on malformed ids).
@@ -789,7 +800,7 @@ Check the providers' current pricing pages (Apify console, Google AI Studio) bef
 
 ### Not implemented (recommended before production)
 
-- **Authentication / authorization** — none; the API is open. Multi-user access control is not implemented.
+- **Multi-user access control** — single admin account only; no per-user workspaces or roles.
 - **CORS hardening** — `*` origins; restrict to your own domain for production.
 - **API rate limiting** — not implemented at the API level (provider 429s are handled, but a local abuse limit is absent).
 - **Secret rotation / managed secret storage** — keys are plain env vars, not a vault.
@@ -806,7 +817,7 @@ Techniques present in the code:
 - **Background jobs with live status** — no Celery/Redis; in-process tasks keyed by run/page/post prevent duplicate work (`_tasks`).
 - **Dedicated DB indexes** — `ensure_indexes()` creates unique + lookup indexes on all five collections (see [Section 15](#15-installation)).
 - **Provider-side timeouts** — 8-minute Apify run timeout; httpx timeouts (60 s Gemini).
-- **Scrape limits** — `resultsLimit` on every actor; posts capped at `max_posts` (default 20), comments capped at `MAX_COMMENTS_TO_COLLECT` (default 100/run, ≤30 per post).
+- **Scrape limits** — `resultsLimit` on every actor; posts capped at `max_posts` (default 20), comments capped per post by the **"Comments / Post"** setting (default 20) and globally by `MAX_COMMENTS_TO_COLLECT` (default 100/run).
 - **Cost-aware gating** — only qualifying posts are comment-scraped; `MIN_COMMENTS` threshold skips low-value posts (`comments_status: skipped`).
 - **Caching of results** — pages/posts/comments are stored once and served from Mongo ("Refresh (data is cached)" in the UI); re-runs upsert rather than re-scrape.
 - **Frontend polling** — status polling every 1.5 s during a run, 2–4 s while background jobs work; auto-refresh stops when jobs finish.
@@ -856,9 +867,10 @@ Coverage:
 
 - `tests/test_qualification.py` — qualification rules (relevance, MIN_COMMENTS boundary, qualifying aggregation, page stats, activity boundaries, lead-score ordering, comment-count non-overwrite, contact detection, cancel-helper truth-testing regression).
 - `tests/test_url_search.py` — URL detection/canonicalization for all four platforms, rejection of non-profile URLs, error classification (403/429 never claimed as Facebook blocks), URL-derived fallback page doc.
+- `tests/test_auth.py` — admin login: hashed-password verification, constant-time comparison, brute-force throttle and session behavior.
 - `tests/integration_check.py` — full pipeline: 30 fake posts → qualifying stats → comment collection → skip logic, verified against a scratch database.
 
-No frontend tests and no CI pipeline are configured.
+Current status: **43 tests passing**. No frontend tests and no CI pipeline are configured.
 
 ---
 
@@ -915,15 +927,19 @@ No frontend tests and no CI pipeline are configured.
 | Gemini comment analysis | ✅ Implemented | With rule-based fallback and 429 circuit breaker |
 | Page details (FB/IG/YT/LinkedIn) | ✅ Implemented | Best-effort, with graceful fallback page doc |
 | Posts | ✅ Implemented | Relevance + qualifying analysis |
-| Comments | ✅ Implemented | With has_contact flagging and skip-under-threshold |
+| Comments | ✅ Implemented | Facebook, Instagram & LinkedIn; `has_contact` flagging, skip-under-threshold, per-post "Comments / Post" cap, loading progress bar |
 | Lead qualification | ✅ Implemented | Deterministic scoring (page + comment) |
 | Deduplication | ✅ Implemented | Per-run unique indexes |
 | Database | ✅ Implemented | MongoDB, 5 collections, auto indexes |
-| CSV export | ✅ Implemented | pages / posts / leads |
+| CSV export | ✅ Implemented | pages / posts / leads — comments CSV with separate date + time columns |
 | Search history | ✅ Implemented | `search_history` + UI list |
+| Search deletion | ✅ Implemented | `DELETE /api/search/{run_id}` + ✕ button per row |
 | Run cancellation | ✅ Implemented | Aborts in-flight Apify runs |
 | Report page | ✅ Implemented | `/static/url_report.html` per run |
-| Authentication / user management | ⬜ Planned | Not implemented |
+| Platform propagation | ✅ Implemented | `platform` field end-to-end (DB → API → UI → CSV); never defaults to Facebook |
+| LinkedIn posts + comments | ✅ Implemented | Drill-down and URL search both route by platform (`get_scraper`) |
+| Authentication | ✅ Implemented | Admin session login, hashed password, throttle |
+| User management / multi-user | ⬜ Planned | Single admin account only |
 | API rate limiting | ⬜ Planned | Not implemented |
 | Job queue / Celery | ⬜ Planned | Not implemented (in-process tasks) |
 | Analytics / dashboards beyond tables | ⬜ Planned | Not implemented |
@@ -942,7 +958,7 @@ Ideas that fit the current architecture (none implemented yet):
 - **Caching** — Redis for pages/posts responses to cut repeated Mongo reads.
 - **Analytics** — run-level metrics (cost, yield: comments → leads ratio, hot-lead count).
 - **Export improvements** — Excel, JSON, selected-lead export.
-- **Auth + multi-user** — JWT auth and per-user runs/workspaces before production deployment.
+- **Multi-user workspaces** — per-user runs, roles and tenancy on top of the existing admin auth.
 - **Monitoring** — Sentry error tracking and Prometheus metrics.
 - **AI batching** — analyze comments in batches to cut Gemini cost/latency.
 

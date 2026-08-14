@@ -21,7 +21,7 @@ def test_correct_credentials():
     user = service.verify_admin_login("admin@gmail.com", "Admin@2026")
     assert user is not None
     assert user["email"] == "admin@gmail.com"
-    assert user["role"] == "admin"
+    assert user["role"] == "super_admin"  # env account is the recovery super-admin
 
 
 def test_email_case_insensitive():

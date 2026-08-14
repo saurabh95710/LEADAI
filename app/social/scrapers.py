@@ -135,7 +135,8 @@ class InstagramScraper(SocialMediaScraper):
 
     @property
     def _actor_id(self) -> str:
-        return settings.instagram_actor_id
+        from app.admin.settings import get_actor_id
+        return get_actor_id("instagram", "main")
 
     def fetch_page_details(self, url: str,
                            should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
@@ -281,7 +282,8 @@ class YouTubeScraper(SocialMediaScraper):
 
     @property
     def _actor_id(self) -> str:
-        return settings.youtube_actor_id
+        from app.admin.settings import get_actor_id
+        return get_actor_id("youtube", "main")
 
     def fetch_page_details(self, url: str,
                            should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
@@ -392,11 +394,13 @@ class LinkedInScraper(SocialMediaScraper):
 
     @property
     def _actor_id(self) -> str:
-        return settings.linkedin_actor_id
+        from app.admin.settings import get_actor_id
+        return get_actor_id("linkedin", "company")
 
     @property
     def _posts_actor_id(self) -> str:
-        return settings.linkedin_posts_actor_id
+        from app.admin.settings import get_actor_id
+        return get_actor_id("linkedin", "posts")
 
     def fetch_page_details(self, url: str,
                            should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:

@@ -133,6 +133,13 @@ def ensure_indexes():
 
         db.search_history.create_index([("run_id", ASCENDING)], unique=True)
         db.search_history.create_index([("created_at", ASCENDING)])
+        db.search_history.create_index([("status", ASCENDING)])
+        db.search_history.create_index([("platform", ASCENDING)])
+
+        # Admin panel collections (_id index is implicit; unique keys enforced below)
+        db.admin_users.create_index([("email", ASCENDING)], unique=True)
+        db.audit_logs.create_index([("at", ASCENDING)])
+        db.audit_logs.create_index([("category", ASCENDING)])
 
         logger.info("MongoDB indexes verified successfully.")
     except Exception as e:

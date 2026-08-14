@@ -135,11 +135,15 @@ def strip_emoji(text: str) -> str:
 
 def has_contact_info(text: Optional[str]) -> bool:
     """True when the text contains a 10-digit phone number OR an email
-    address (incl. bare provider domains like gmail.com)."""
+    address (incl. bare provider domains like gmail.com). Each signal can
+    be switched off by the admin (Comment Intelligence settings)."""
     if not text:
         return False
-    return bool(_PHONE_RE.search(text) or _EMAIL_RE.search(text)
-                or _BARE_EMAIL_DOMAIN_RE.search(text))
+    from app.admin.settings import get_bool_cached
+    phone = get_bool_cached("ci.detect_phone") and bool(_PHONE_RE.search(text))
+    email = get_bool_cached("ci.detect_email") and bool(
+        _EMAIL_RE.search(text) or _BARE_EMAIL_DOMAIN_RE.search(text))
+    return bool(phone or email)
 
 
 def extract_contact_quick(text: Optional[str]) -> Dict[str, Optional[str]]:
@@ -191,18 +195,24 @@ def rule_based_classify(text: Optional[str], author_name: str = "") -> Dict[str,
     raw = text.strip()
     lower = raw.lower()
 
-    if is_emoji_only(raw):
+    from app.admin.settings import get_bool_cached
+    ignore_emoji = get_bool_cached("ci.ignore_emoji_only")
+    ignore_spam = get_bool_cached("ci.ignore_spam")
+    ignore_low_value = get_bool_cached("ci.ignore_low_value")
+
+    if ignore_emoji and is_emoji_only(raw):
         return {**empty, "is_useful": False, "reason": "Emoji-only comment",
                 "sentiment": "positive", "spam_score": 0.4}
-    if _URL_ONLY_RE.match(raw) and len(raw) > 8:
+    if ignore_spam and _URL_ONLY_RE.match(raw) and len(raw) > 8:
         return {**empty, "is_useful": False, "reason": "Link-only comment", "spam_score": 0.9}
-    for pattern in SPAM_PATTERNS:
-        if pattern.search(lower):
-            return {**empty, "is_useful": False, "reason": "Spam pattern detected", "spam_score": 1.0}
-    if len(_ALNUM_RE.findall(raw)) < 3:
+    if ignore_spam:
+        for pattern in SPAM_PATTERNS:
+            if pattern.search(lower):
+                return {**empty, "is_useful": False, "reason": "Spam pattern detected", "spam_score": 1.0}
+    if ignore_low_value and len(_ALNUM_RE.findall(raw)) < 3:
         return {**empty, "is_useful": False, "reason": "Too short to be meaningful", "spam_score": 0.3}
     tokens = [t for t in _TOKEN_SPLIT_RE.split(lower) if t]
-    if tokens and all(t in GRATITUDE_WORDS for t in tokens):
+    if ignore_low_value and tokens and all(t in GRATITUDE_WORDS for t in tokens):
         return {**empty, "is_useful": False, "reason": "Gracious filler comment",
                 "sentiment": "positive"}
 
@@ -308,15 +318,17 @@ _SENTIMENT_VALUES = {"excited", "positive", "neutral", "negative"}
 _GEMINI_DISABLED_UNTIL = 0.0  # circuit breaker: skip Gemini while rate-limited
 
 
-def _call_gemini(system_prompt: str, user_content: str, temperature: float = 0.1, retries: int = 1) -> dict:
+def _call_gemini(system_prompt: str, user_content: str, temperature: float = 0.1,
+                 model: Optional[str] = None, retries: int = 1) -> dict:
     """Gemini API call with 429 backoff + circuit breaker. Raises when it
     finally fails — callers fall back to rule-based analysis."""
     global _GEMINI_DISABLED_UNTIL
     if time.time() < _GEMINI_DISABLED_UNTIL:
         raise RuntimeError("Gemini rate-limited — circuit open, using rules")
+    model = model or settings.gemini_model or "gemini-2.5-flash"
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{settings.gemini_model}:generateContent?key={settings.gemini_api_key}"
+        f"{model}:generateContent?key={settings.gemini_api_key}"
     )
     payload = {
         "system_instruction": {"parts": [{"text": system_prompt}]},
@@ -436,10 +448,20 @@ def _parse_gemini_result(raw: Any) -> Dict[str, Any]:
 
 def analyze_comment_ai(comment_text: Optional[str], author_name: str = "",
                        post_caption: str = "") -> Dict[str, Any]:
-    """Two-stage analysis for one comment. Never raises."""
+    """Two-stage analysis for one comment. Never raises.
+
+    Behavior is admin-configurable: ``ai.enabled`` turns the Gemini stage on
+    or off, ``ai.rule_fallback`` decides whether rule analysis is used when
+    Gemini fails, and ``ai.temperature``/``ai.model`` tune the call."""
+    from app.admin.settings import get_bool_cached, get_int_cached, get_setting_cached
+    ai_enabled = get_bool_cached("ai.enabled")
+    rule_fallback = get_bool_cached("ai.rule_fallback")
     rule = rule_based_classify(comment_text, author_name)
     if not rule["is_useful"]:
         return {**rule, "analyzed_by": "rules"}
+    if not ai_enabled:
+        return {**rule, "analyzed_by": "rules",
+                "reason": rule["reason"] + " (AI disabled — rule-based pass)"}
     if not settings.gemini_api_key:
         return {**rule, "analyzed_by": "rules",
                 "reason": rule["reason"] + " (no AI key — rule-based pass)"}
@@ -449,40 +471,94 @@ def analyze_comment_ai(comment_text: Optional[str], author_name: str = "",
             "post_caption": post_caption or "",
             "comment_text": comment_text or "",
         }, ensure_ascii=False)
-        raw = _call_gemini(COMMENT_SYSTEM_PROMPT, user_content)
+        model = get_setting_cached("ai.model") or settings.gemini_model
+        temperature = float(get_setting_cached("ai.temperature") or 0.1)
+        raw = _call_gemini(COMMENT_SYSTEM_PROMPT, user_content,
+                           temperature=temperature, model=model)
         parsed = _parse_gemini_result(raw)
         return {**parsed, "analyzed_by": "gemini"}
     except Exception as e:
         logger.warning(f"[CommentAI] Gemini analysis failed: {e}")
+        if not rule_fallback:
+            return {**rule, "analyzed_by": "rules",
+                    "reason": rule["reason"] + " (AI failed)"}
         return {**rule, "analyzed_by": "rules",
                 "reason": rule["reason"] + " (AI failed, rule-based pass)"}
 
 
 def comment_lead_score(ai_analysis: Optional[Dict[str, Any]] = None) -> int:
-    """Deterministic 0-100 lead score: confidence (×50) + priority (≤20) +
-    lead quality (≤20) + contact completeness (≤10) − spam penalty (≤20)."""
+    """Deterministic 0-100 lead score: confidence (×weight) + priority
+    (≤weight) + lead quality (≤weight) + contact completeness (≤weight) −
+    spam penalty (≤weight). The weights are admin-configurable (Scoring
+    page) with the original values as defaults."""
+    from app.admin.settings import get_int_cached
+    w_confidence = get_int_cached("scoring.confidence_weight", 50)
+    w_priority = get_int_cached("scoring.priority_weight", 20)
+    w_quality = get_int_cached("scoring.quality_weight", 20)
+    w_phone = get_int_cached("scoring.contact_phone", 6)
+    w_email = get_int_cached("scoring.contact_email", 4)
+    w_spam = get_int_cached("scoring.spam_penalty", 20)
     ai = ai_analysis or {}
     if not ai.get("is_useful"):
         return 0
     score = 0.0
     try:
-        score += float(ai.get("confidence_score") or 0) * 50.0
+        score += float(ai.get("confidence_score") or 0) * w_confidence
     except (TypeError, ValueError):
         pass
     priority = str(ai.get("priority") or "").lower()
     quality = str(ai.get("lead_quality") or "").lower()
-    score += {"high": 20, "medium": 10, "low": 0}.get(priority, 0)
-    score += {"hot": 20, "warm": 10, "cold": 0}.get(quality, 0)
+    score += {"high": w_priority, "medium": w_priority // 2, "low": 0}.get(priority, 0)
+    score += {"hot": w_quality, "warm": w_quality // 2, "cold": 0}.get(quality, 0)
     contact = ai.get("contact") if isinstance(ai.get("contact"), dict) else {}
     if contact.get("phone") or contact.get("mobile") or contact.get("whatsapp"):
-        score += 6
+        score += w_phone
     if contact.get("email") or contact.get("telegram") or contact.get("website"):
-        score += 4
+        score += w_email
     try:
-        score -= float(ai.get("spam_score") or 0) * 20.0
+        score -= float(ai.get("spam_score") or 0) * w_spam
     except (TypeError, ValueError):
         pass
     return max(0, min(100, int(round(score))))
+
+
+def signal_lead_score(ai_analysis: Optional[Dict[str, Any]] = None,
+                      text: Optional[str] = None) -> int:
+    """Additive 0-100 signal score from the admin-weighted signals: phone,
+    email, budget, urgency, location and buying intent. Only signals that
+    actually appear in the comment/AI extraction count."""
+    from app.admin.settings import get_int_cached
+    ai = ai_analysis or {}
+    if not ai.get("is_useful"):
+        return 0
+    signals = set(extract_display_signals(text, ai))
+    score = 0
+    if "phone" in signals or "whatsapp" in signals:
+        score += get_int_cached("scoring.phone", 20)
+    if "email" in signals:
+        score += get_int_cached("scoring.email", 15)
+    if "budget" in signals:
+        score += get_int_cached("scoring.budget", 20)
+    if "urgency" in signals:
+        score += get_int_cached("scoring.urgency", 15)
+    if "location" in signals:
+        score += get_int_cached("scoring.location", 10)
+    if "buying_intent" in signals:
+        score += get_int_cached("scoring.buying_intent", 20)
+    return max(0, min(100, score))
+
+
+def derive_quality_from_score(score: int) -> Optional[str]:
+    """Map a signal score to hot/warm/cold using the admin thresholds.
+    Returns None when the thresholds don't apply (score below warm)."""
+    from app.admin.settings import get_int_cached
+    hot_min = get_int_cached("scoring.hot_min", 80)
+    warm_min = get_int_cached("scoring.warm_min", 50)
+    if score >= hot_min:
+        return "hot"
+    if score >= warm_min:
+        return "warm"
+    return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -490,6 +566,17 @@ def comment_lead_score(ai_analysis: Optional[Dict[str, Any]] = None) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def extract_display_signals(text: Optional[str], ai_analysis: Optional[Dict[str, Any]] = None) -> List[str]:
+    """Lead signals present in the comment. Each signal can be toggled from
+    the admin Comment Intelligence settings (default: all on)."""
+    from app.admin.settings import get_bool_cached
+    detect = {
+        "phone": get_bool_cached("ci.detect_phone"),
+        "email": get_bool_cached("ci.detect_email"),
+        "budget": get_bool_cached("ci.detect_budget"),
+        "location": get_bool_cached("ci.detect_location"),
+        "urgency": get_bool_cached("ci.detect_urgency"),
+        "buying_intent": get_bool_cached("ci.detect_buying_intent"),
+    }
     text = text or ""
     lower = text.lower()
     ai = ai_analysis or {}
@@ -505,25 +592,30 @@ def extract_display_signals(text: Optional[str], ai_analysis: Optional[Dict[str,
         if name not in signals:
             signals.append(name)
 
-    if contact.get("phone") or contact.get("mobile") or _PHONE_RE.search(text):
+    if detect["phone"] and (contact.get("phone") or contact.get("mobile")
+                            or _PHONE_RE.search(text)):
         add("phone")
-    if contact.get("email") or _EMAIL_RE.search(text):
+    if detect["email"] and (contact.get("email") or _EMAIL_RE.search(text)):
         add("email")
-    if contact.get("whatsapp") or _WHATSAPP_WITH_NUM_RE.search(lower) or (
+    if detect["phone"] and (contact.get("whatsapp") or _WHATSAPP_WITH_NUM_RE.search(lower) or (
         _WHATSAPP_RE.search(lower) and _PHONE_RE.search(text)
-    ):
+    )):
         add("whatsapp")
-    if contact.get("website") or _URL_RE.search(text):
+    if detect["email"] and (contact.get("website") or _URL_RE.search(text)):
         add("website")
-    if intent == "buying" or lead_type == "buyer":
+    if detect["buying_intent"] and (intent == "buying" or lead_type == "buyer"):
         add("buying_intent")
-    if buyer.get("budget") or _BUDGET_RE.search(lower):
+    if get_bool_cached("ci.detect_selling_intent") and (
+            intent == "selling" or lead_type == "seller"):
+        add("selling_intent")
+    if detect["budget"] and (buyer.get("budget") or _BUDGET_RE.search(lower)):
         add("budget")
-    if buyer.get("requirement") or any(w in lower for w in _REQUIREMENT_WORDS):
+    if detect["budget"] and (buyer.get("requirement") or any(w in lower for w in _REQUIREMENT_WORDS)):
         add("requirement")
-    if buyer.get("preferred_location") or person.get("city") or any(c in lower for c in _CITY_WORDS):
+    if detect["location"] and (buyer.get("preferred_location") or person.get("city")
+                               or any(c in lower for c in _CITY_WORDS)):
         add("location")
-    if buyer.get("urgency") or any(w in lower for w in _URGENCY_WORDS):
+    if detect["urgency"] and (buyer.get("urgency") or any(w in lower for w in _URGENCY_WORDS)):
         add("urgency")
     if "?" in text or any(w in lower for w in _INQUIRY_WORDS):
         add("inquiry")
@@ -543,10 +635,18 @@ def should_display_comment(text: Optional[str], ai_analysis: Optional[Dict[str, 
 
 def _flat_extract(analysis: Dict[str, Any], text: Optional[str] = None) -> Dict[str, Any]:
     """Nested AI extraction → flat, display-ready fields."""
+    from app.admin.settings import get_bool_cached, get_int_cached
     contact = analysis.get("contact") if isinstance(analysis.get("contact"), dict) else {}
     person = analysis.get("person") if isinstance(analysis.get("person"), dict) else {}
     buyer = analysis.get("buyer") if isinstance(analysis.get("buyer"), dict) else {}
     phone = contact.get("phone") or contact.get("mobile")
+    signals = extract_display_signals(text, analysis)
+    score = comment_lead_score(analysis)
+    signal_score = signal_lead_score(analysis, text)
+    quality = analysis.get("lead_quality")
+    if get_bool_cached("scoring.derive_quality") and not quality and signal_score > 0:
+        quality = derive_quality_from_score(signal_score) or quality
+    min_lead_score = get_int_cached("ci.min_lead_score", 0)
     return {
         "phone": phone,
         "email": contact.get("email"),
@@ -559,10 +659,11 @@ def _flat_extract(analysis: Dict[str, Any], text: Optional[str] = None) -> Dict[
         "intent": buyer.get("intent"),
         "urgency": buyer.get("urgency"),
         "priority": analysis.get("priority") or "low",
-        "lead_quality": analysis.get("lead_quality"),
+        "lead_quality": quality,
         "confidence": analysis.get("confidence_score") or 0.0,
-        "lead_score": comment_lead_score(analysis),
-        "is_lead": bool(extract_display_signals(text, analysis)),
+        "lead_score": score,
+        "signal_score": signal_score,
+        "is_lead": bool(signals) and score >= min_lead_score,
         "reason": analysis.get("reason"),
     }
 

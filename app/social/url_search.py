@@ -118,7 +118,15 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
                  message="Search cancelled by user", completed_at=utcnow())
         return cancelled()
 
-    if not settings.apify_api_token:
+    from app.admin.settings import get_apify_token, is_platform_enabled
+    if not is_platform_enabled(platform):
+        msg = (f"Searching {platform} is currently disabled by the "
+               "administrator.")
+        progress(status="error", error=msg, phase="platform_disabled")
+        return {"status": "error", "error": msg, "success": False,
+                "page_id": None}
+
+    if not get_apify_token():
         msg = ("APIFY_API_TOKEN is not set in .env — add it and restart. "
                "Get a free token at https://apify.com/account/integrations")
         progress(status="error", error=msg)
@@ -265,8 +273,11 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
     comment_docs = 0
     if getattr(scraper, "comments_supported", True) and post_docs:
         from app.pipeline.comment_ai import has_contact_info
-        cap = int(getattr(settings, "max_comments_to_collect", 100) or 100)
-        per_post = max(1, min(max_comments_per_post, cap))
+        from app.admin.settings import effective_limits
+        lim = effective_limits()
+        cap = lim["global_max_comments"]
+        per_post = max(1, min(max_comments_per_post,
+                              lim["max_comments_per_post_cap"], cap))
         for post in post_docs:
             if should_abort():
                 progress(status="cancelled", phase="cancelled",
@@ -358,6 +369,13 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
              completed_at=utcnow())
     logger.info(f"[URL SEARCH] run {run_id} completed: platform={platform} "
                 f"posts={len(post_docs)} comments={comment_docs}")
+    # persist the last Apify call metadata (actor/run/usage) for the admin
+    # Usage page — real figures only
+    try:
+        from app.agent.search import persist_scrape_info
+        persist_scrape_info(db, run_id, getattr(scraper, "connector", None))
+    except Exception:
+        pass
     return {
         "status": "completed",
         "success": True,

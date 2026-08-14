@@ -236,13 +236,13 @@ def _explain_error(exc: Exception) -> Optional[str]:
 
 class ApifyConnector:
     def __init__(self):
-        self.token = (
-            os.environ.get("APIFY_API_TOKEN", "").strip()
-            or settings.apify_api_token
-        )
+        # Effective token: admin-panel override first, then .env. Read fresh
+        # so a token update in the admin panel applies to the next scrape.
+        from app.admin.settings import get_apify_token
+        self.token = get_apify_token()
         self._client: Optional[Any] = None
         # metadata of the most recent actor call (for API diagnostics):
-        # {"actorId", "runId", "datasetId", "status", "itemsReturned"}
+        # {"actorId", "runId", "datasetId", "status", "usageUsd", "itemsReturned"}
         self.last_call: Dict[str, Any] = {}
 
     def has_token(self) -> bool:
@@ -312,6 +312,7 @@ class ApifyConnector:
                 "runId": _rget(run, "id"),
                 "datasetId": _rget(run, "defaultDatasetId"),
                 "status": _rget(run, "status"),
+                "usageUsd": _rget(run, "usageUsd"),
             }
             return run
         assert last_error is not None
@@ -440,10 +441,12 @@ class ApifyConnector:
                                       should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
         if not page_urls:
             return []
+        from app.admin.settings import get_actor_id
+        actor_id = get_actor_id("facebook", "pages")
         self._get_client()
         logger.info(f"[Apify] Scraping details for {len(page_urls)} page URLs")
         run = self._call_actor(
-            "apify/facebook-pages-scraper",
+            actor_id,
             {
                 "startUrls": [{"url": u} for u in page_urls],
             },
@@ -455,13 +458,13 @@ class ApifyConnector:
         if hint:
             raise ScrapeError(
                 "BLOCKED", f"Facebook may have blocked the request ({hint}).",
-                actor_id="apify/facebook-pages-scraper",
+                actor_id=actor_id,
                 run_id=_rget(run, "id"), dataset_id=_rget(run, "defaultDatasetId"),
                 details=hint)
-        classified = _classify_run_status(run, actor_id="apify/facebook-pages-scraper")
+        classified = _classify_run_status(run, actor_id=actor_id)
         if classified:
             raise classified
-        items = self._read_items(run, actor_id="apify/facebook-pages-scraper")
+        items = self._read_items(run, actor_id=actor_id)
         logger.info(f"[Apify] pages-scraper → {len(items)} detail items")
         return items
 
@@ -473,10 +476,12 @@ class ApifyConnector:
                               should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
         if not page_urls:
             return []
+        from app.admin.settings import get_actor_id
+        actor_id = get_actor_id("facebook", "posts")
         self._get_client()
         logger.info(f"[Apify] Scraping posts from {len(page_urls)} pages (max {posts_per_page} each)")
         run = self._call_actor(
-            "apify/facebook-posts-scraper",
+            actor_id,
             {
                 "startUrls": [{"url": u} for u in page_urls],
                 "resultsLimit": max(posts_per_page, 1),
@@ -490,13 +495,13 @@ class ApifyConnector:
         if hint:
             raise ScrapeError(
                 "BLOCKED", f"Facebook may have blocked the request ({hint}).",
-                actor_id="apify/facebook-posts-scraper",
+                actor_id=actor_id,
                 run_id=_rget(run, "id"), dataset_id=_rget(run, "defaultDatasetId"),
                 details=hint)
-        classified = _classify_run_status(run, actor_id="apify/facebook-posts-scraper")
+        classified = _classify_run_status(run, actor_id=actor_id)
         if classified:
             raise classified
-        items = self._read_items(run, actor_id="apify/facebook-posts-scraper")
+        items = self._read_items(run, actor_id=actor_id)
         logger.info(f"[Apify] posts-scraper → {len(items)} posts")
         return items
 
@@ -508,10 +513,12 @@ class ApifyConnector:
                                  should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
         if not post_urls:
             return []
+        from app.admin.settings import get_actor_id
+        actor_id = get_actor_id("facebook", "comments")
         self._get_client()
         logger.info(f"[Apify] Scraping comments from {len(post_urls)} posts (max {comments_per_post} each)")
         run = self._call_actor(
-            "apify/facebook-comments-scraper",
+            actor_id,
             {
                 "startUrls": [{"url": u} for u in post_urls],
                 "resultsLimit": max(comments_per_post, 1),
@@ -526,12 +533,12 @@ class ApifyConnector:
         if hint:
             raise ScrapeError(
                 "BLOCKED", f"Facebook may have blocked the request ({hint}).",
-                actor_id="apify/facebook-comments-scraper",
+                actor_id=actor_id,
                 run_id=_rget(run, "id"), dataset_id=_rget(run, "defaultDatasetId"),
                 details=hint)
-        classified = _classify_run_status(run, actor_id="apify/facebook-comments-scraper")
+        classified = _classify_run_status(run, actor_id=actor_id)
         if classified:
             raise classified
-        items = self._read_items(run, actor_id="apify/facebook-comments-scraper")
+        items = self._read_items(run, actor_id=actor_id)
         logger.info(f"[Apify] comments-scraper → {len(items)} comments")
         return items

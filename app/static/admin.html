@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LeadAI Admin — Control Center</title>
+<link rel="stylesheet" href="/static/admin.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎛️</text></svg>">
+</head>
+<body class="admin-body">
+  <div class="adm-shell">
+    <aside class="adm-sidebar" id="sidebar">
+      <div class="adm-brand">
+        <div class="adm-brand-mark">◆</div>
+        <div>
+          <div class="adm-brand-name">LeadAI</div>
+          <div class="adm-brand-sub">Admin Control Center</div>
+        </div>
+      </div>
+      <nav class="adm-nav" id="nav">
+        <a class="adm-nav-item" data-view="dashboard" href="#/dashboard">
+          <span class="adm-nav-ico">▤</span>Dashboard</a>
+        <a class="adm-nav-item" data-view="jobs" href="#/jobs">
+          <span class="adm-nav-ico">⇶</span>Jobs</a>
+        <a class="adm-nav-item" data-view="failed" href="#/failed">
+          <span class="adm-nav-ico">✕</span>Failed Jobs</a>
+        <a class="adm-nav-item" data-view="leads" href="#/leads">
+          <span class="adm-nav-ico">◎</span>Leads</a>
+        <a class="adm-nav-item" data-view="analytics" href="#/analytics">
+          <span class="adm-nav-ico">◔</span>Analytics</a>
+        <div class="adm-nav-sep">Platforms &amp; Data Sources</div>
+        <a class="adm-nav-item" data-view="platforms" href="#/platforms">
+          <span class="adm-nav-ico">⬡</span>Platforms</a>
+        <a class="adm-nav-item" data-view="apify" href="#/apify">
+          <span class="adm-nav-ico">⬢</span>Apify</a>
+        <a class="adm-nav-item" data-view="actors" href="#/actors">
+          <span class="adm-nav-ico">⚙</span>Actors</a>
+        <a class="adm-nav-item" data-view="usage" href="#/usage">
+          <span class="adm-nav-ico">¥</span>Usage &amp; Cost</a>
+        <div class="adm-nav-sep">AI &amp; Lead Engine</div>
+        <a class="adm-nav-item" data-view="ai" href="#/ai">
+          <span class="adm-nav-ico">✦</span>AI / Gemini</a>
+        <a class="adm-nav-item" data-view="scoring" href="#/scoring">
+          <span class="adm-nav-ico">≈</span>Lead Scoring</a>
+        <a class="adm-nav-item" data-view="ci" href="#/ci">
+          <span class="adm-nav-ico">♜</span>Comment Intelligence</a>
+        <div class="adm-nav-sep">Operations</div>
+        <a class="adm-nav-item" data-view="limits" href="#/limits">
+          <span class="adm-nav-ico">⇕</span>Scraping &amp; Global Limits</a>
+        <a class="adm-nav-item" data-view="database" href="#/database">
+          <span class="adm-nav-ico">▥</span>Database</a>
+        <a class="adm-nav-item" data-view="logs" href="#/logs">
+          <span class="adm-nav-ico">≣</span>Logs</a>
+        <a class="adm-nav-item" data-view="health" href="#/health">
+          <span class="adm-nav-ico">♥</span>Health</a>
+        <a class="adm-nav-item" data-view="exports" href="#/exports">
+          <span class="adm-nav-ico">⇩</span>Exports</a>
+        <div class="adm-nav-sep">Administration</div>
+        <a class="adm-nav-item" data-view="users" href="#/users">
+          <span class="adm-nav-ico">👤</span>Users</a>
+        <a class="adm-nav-item" data-view="security" href="#/security">
+          <span class="adm-nav-ico">🔒</span>Security</a>
+        <a class="adm-nav-item" data-view="features" href="#/features">
+          <span class="adm-nav-ico">⚑</span>Features</a>
+        <a class="adm-nav-item" data-view="maintenance" href="#/maintenance">
+          <span class="adm-nav-ico">☄</span>Maintenance</a>
+        <a class="adm-nav-item" data-view="audit" href="#/audit">
+          <span class="adm-nav-ico">◈</span>Audit Log</a>
+      </nav>
+      <div class="adm-sidebar-foot">
+        <a class="adm-nav-item" href="/" target="_blank">
+          <span class="adm-nav-ico">↗</span>Open App</a>
+        <button class="adm-nav-item adm-nav-btn" id="logoutBtn">
+          <span class="adm-nav-ico">⏻</span>Sign Out</button>
+      </div>
+    </aside>
+
+    <div class="adm-main">
+      <header class="adm-topbar">
+        <button class="adm-burger" id="burger" aria-label="Toggle menu">☰</button>
+        <div class="adm-crumb" id="crumb">Admin</div>
+        <div class="adm-top-right">
+          <div class="adm-user" id="admUser">—</div>
+          <a class="adm-role-badge" id="admRole" href="#/users">—</a>
+        </div>
+      </header>
+      <main class="adm-content" id="view">
+        <div class="adm-skeleton-block"></div>
+        <div class="adm-skeleton-block"></div>
+        <div class="adm-skeleton-block"></div>
+      </main>
+    </div>
+  </div>
+
+  <div class="adm-toasts" id="toasts"></div>
+  <div class="adm-modal-backdrop" id="modalBackdrop" hidden>
+    <div class="adm-modal" id="modalBox"></div>
+  </div>
+
+  <script src="/static/admin.js"></script>
+</body>
+</html>

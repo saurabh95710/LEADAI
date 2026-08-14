@@ -8,8 +8,10 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from app.db.mongo import ensure_indexes
 from app.api.routes.search import router as search_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.admin import router as admin_router
 from app.auth.service import session_user
 from app.config import get_settings
+from app.admin import settings as admin_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -74,6 +76,7 @@ app.add_middleware(
 
 app.include_router(search_router)
 app.include_router(auth_router)
+app.include_router(admin_router)
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.exists(static_dir):
@@ -82,6 +85,14 @@ if os.path.exists(static_dir):
 
 # Pages that stay reachable without a session
 _OPEN_PAGES = {"/health", "/login", "/docs", "/redoc", "/openapi.json"}
+
+
+def _maintenance_enabled() -> bool:
+    """Maintenance flag read through the settings service (Mongo-backed)."""
+    try:
+        return admin_settings.is_maintenance_enabled()
+    except Exception:
+        return False
 
 
 @app.middleware("http")
@@ -105,6 +116,36 @@ async def auth_gate(request: Request, call_next):
     return await call_next(request)
 
 
+# Registered AFTER auth_gate so it runs FIRST (outermost): maintenance mode
+# gates the user app before any auth check, but never the admin panel.
+@app.middleware("http")
+async def maintenance_gate(request: Request, call_next):
+    """When maintenance mode is on, block the user app (pages and /api/*)
+    with a 503 while keeping the admin panel, sign-in, health and static
+    assets reachable. Any valid session also passes, so signed-in admins
+    are never locked out."""
+    if not _maintenance_enabled():
+        return await call_next(request)
+    path = request.url.path
+    always_open = (path.startswith(("/static", "/api/auth", "/admin", "/api/admin"))
+                   or path in ("/login", "/health"))
+    user = session_user(request)
+    if always_open or user is not None:
+        return await call_next(request)
+    message = admin_settings.maintenance_message()
+    if path.startswith("/api/"):
+        return JSONResponse(
+            {"success": False, "error": "maintenance",
+             "message": message},
+            status_code=503)
+    return FileResponse(
+        os.path.join(static_dir, "maintenance.html"),
+        status_code=503) if os.path.exists(
+            os.path.join(static_dir, "maintenance.html")) else JSONResponse(
+        {"success": False, "error": "maintenance", "message": message},
+        status_code=503)
+
+
 @app.get("/login")
 async def login_page():
     login_path = os.path.join(static_dir, "login.html")
@@ -118,6 +159,14 @@ async def health():
     return {"status": "ok",
             "apify_configured": bool(settings.apify_api_token),
             "auth_enabled": True}
+
+
+@app.get("/admin")
+async def admin_page():
+    admin_path = os.path.join(static_dir, "admin.html")
+    if os.path.exists(admin_path):
+        return FileResponse(admin_path)
+    return RedirectResponse("/login", status_code=303)
 
 
 @app.get("/")

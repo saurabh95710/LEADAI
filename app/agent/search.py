@@ -33,6 +33,41 @@ logger = logging.getLogger(__name__)
 _MIN_COMMENTS = get_settings().min_comments
 
 
+def current_min_comments() -> int:
+    """Effective min-comments threshold — admin panel override wins, env
+    value is the fallback. Read fresh so changes apply immediately."""
+    try:
+        from app.admin.settings import get_int
+        return get_int("limits.min_comments", _MIN_COMMENTS)
+    except Exception:
+        return _MIN_COMMENTS
+
+
+def platform_enabled(platform: str) -> bool:
+    """Server-side enforcement: a platform disabled by the admin cannot be
+    scraped through any entry point."""
+    try:
+        from app.admin.settings import is_platform_enabled
+        return is_platform_enabled(platform)
+    except Exception:
+        return True
+
+
+def persist_scrape_info(db, run_id: Optional[str], connector: ApifyConnector) -> None:
+    """Record the last Apify call's metadata (actor, run, dataset, usage USD)
+    on the search-history run so the admin Usage page shows real figures."""
+    if not run_id or db is None:
+        return
+    try:
+        last = getattr(connector, "last_call", None)
+        if last:
+            db.search_history.update_one(
+                {"run_id": run_id},
+                {"$set": {"scrape_info": dict(last), "updated_at": utcnow()}})
+    except Exception:
+        pass
+
+
 class NotFoundError(Exception):
     pass
 
@@ -542,6 +577,13 @@ def collect_page_posts(page_id: str, max_posts: int = 20,
     # platforms (Instagram/YouTube/LinkedIn) use their own scraper
     from app.social.scrapers import get_scraper
     platform = page.get("platform") or "facebook"
+    if not platform_enabled(platform):
+        db.facebook_pages.update_one({"_id": page["_id"]}, {"$set": {
+            "posts_status": "skipped",
+            "posts_error": (f"Scraping {platform} is currently disabled by "
+                            "the administrator."),
+            "updated_at": utcnow()}})
+        return {"status": "skipped", "message": f"{platform} is disabled"}
     scraper = get_scraper(platform) if platform != "facebook" else None
     try:
         if scraper is None:
@@ -613,6 +655,7 @@ def collect_page_posts(page_id: str, max_posts: int = 20,
         "posts_collected_at": utcnow(), "updated_at": utcnow()}})
     logger.info(f"[Agent] Posts done for page {page_id}: status={status} stored={stored} "
                 f"stats={json.dumps(stats, default=str)}")
+    persist_scrape_info(db, run_id, connector)
     return {"status": status, "posts_count": stored, **stats, "message": message}
 
 
@@ -640,13 +683,25 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
     def should_abort():
         return bool(run_id and is_run_cancelled(run_id, db))
 
-    # only posts with at least MIN_COMMENTS (Facebook-reported total) are
-    # worth the expensive comment scrape — everything else is skipped
+    from app.social.scrapers import get_scraper
+    platform = post.get("platform") or "facebook"
+    if not platform_enabled(platform):
+        message = (f"Scraping {platform} is currently disabled by the "
+                   "administrator.")
+        db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
+            "comments_status": "skipped", "comments_error": message,
+            "updated_at": utcnow()}})
+        return {"status": "skipped", "message": message}
+
+    # only posts with at least the min-comments threshold (Facebook-reported
+    # total) are worth the expensive comment scrape — everything else is
+    # skipped; the threshold is admin-configurable
+    min_comments = current_min_comments()
     total = post.get("total_comment_count")
     if total is None:
         total = post.get("comments_count")
-    if total is not None and total < _MIN_COMMENTS:
-        message = (f"Not scraped — post has {total} comments (needs ≥ {_MIN_COMMENTS})")
+    if total is not None and total < min_comments:
+        message = (f"Not scraped — post has {total} comments (needs ≥ {min_comments})")
         db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
             "comments_status": "skipped", "comments_error": message,
             "updated_at": utcnow()}})
@@ -659,8 +714,6 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
     connector = ApifyConnector()
     # route by platform: Facebook keeps the existing actor+mapping, all other
     # platforms (Instagram/YouTube/LinkedIn) use their own scraper
-    from app.social.scrapers import get_scraper
-    platform = post.get("platform") or "facebook"
     scraper = get_scraper(platform) if platform != "facebook" else None
     try:
         if scraper is None:
@@ -745,4 +798,5 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
 
     logger.info(f"[Agent] Comments done for post {post_id}: status={status} stored={stored} "
                 f"analysis_error={analysis_error}")
+    persist_scrape_info(db, run_id, connector)
     return {"status": status, "comments_count": stored, "message": message}

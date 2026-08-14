@@ -1,5 +1,5 @@
-"""
-LeadAI Agent API — the whole product surface.
+﻿"""
+LeadAI Agent API â€” the whole product surface.
 
   POST /api/url/search                  start a URL-based search (Apify)
   GET  /api/url/search/{run_id}/report  full report bundle for a URL run
@@ -33,7 +33,7 @@ from fastapi.responses import Response
 
 from app.db.mongo import get_async_db
 from app.db.models import utcnow
-from app.agent.search import _MIN_COMMENTS, _parse_iso
+from app.agent.search import _parse_iso, current_min_comments
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["agent"])
@@ -65,10 +65,10 @@ def _oid(value: str):
 
 
 def _resolve_platform(doc: dict, parent: Optional[dict] = None) -> str:
-    """Platform for any doc — never guessed, never defaulted to Facebook.
+    """Platform for any doc â€” never guessed, never defaulted to Facebook.
 
-    Order: explicit `platform` field → the doc's own URL → parent doc's
-    platform/URL → "unknown". A mismatch between an explicit platform and
+    Order: explicit `platform` field â†’ the doc's own URL â†’ parent doc's
+    platform/URL â†’ "unknown". A mismatch between an explicit platform and
     the doc's URL is logged and corrected from the URL (the original source).
     """
     from app.social.url_detector import platform_from_url
@@ -87,7 +87,7 @@ def _resolve_platform(doc: dict, parent: Optional[dict] = None) -> str:
         if derived:
             if p and derived != p:
                 logger.warning(
-                    "[platform] mismatch: doc says %r but %s=%s — correcting to %r",
+                    "[platform] mismatch: doc says %r but %s=%s â€” correcting to %r",
                     p, url, derived, derived)
             return derived
     if p:
@@ -122,9 +122,9 @@ def _start(key: str, fn, *args) -> bool:
     return True
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SEARCH RUNS — status, history, cancellation (URL search writes these docs)
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# SEARCH RUNS â€” status, history, cancellation (URL search writes these docs)
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/search/{run_id}/cancel")
 async def cancel_search_run(run_id: str):
@@ -142,10 +142,10 @@ async def cancel_search_run(run_id: str):
         return {"run_id": run_id, "status": run.get("status"),
                 "message": "This search is no longer running"}
     await db.search_history.update_one({"run_id": run_id}, {"$set": {
-        "cancel_requested": True, "message": "Cancelling search…",
+        "cancel_requested": True, "message": "Cancelling searchâ€¦",
         "updated_at": utcnow()}})
     return {"run_id": run_id, "status": "cancelling",
-            "message": "Cancellation requested — stopping soon"}
+            "message": "Cancellation requested â€” stopping soon"}
 
 
 @router.get("/search/history")
@@ -221,25 +221,33 @@ async def get_search_run(run_id: str):
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# URL-BASED SEARCH — paste a Facebook/Instagram/YouTube/LinkedIn URL
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# URL-BASED SEARCH â€” paste a Facebook/Instagram/YouTube/LinkedIn URL
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/url/search")
 async def start_url_search(
     url: str = Query(..., min_length=4, max_length=300,
                      description="Facebook page, Instagram profile, YouTube channel or LinkedIn company URL"),
-    max_posts: int = Query(20, ge=1, le=100),
-    max_comments_per_post: int = Query(30, ge=1, le=500,
-                                       description="Comments to scrape per post (capped by MAX_COMMENTS_TO_COLLECT)"),
+    max_posts: Optional[int] = Query(None, ge=1,
+                                     description="Posts to scrape (default/cap from admin limits)"),
+    max_comments_per_post: Optional[int] = Query(None, ge=1,
+                                                 description="Comments to scrape per post (admin-capped)"),
 ):
     """Start a URL-based social lead search. Poll GET /api/search/{run_id}."""
     from app.social.url_detector import detect_social_url, UrlError
     from app.social.url_search import UrlSearchThread
+    from app.admin.settings import effective_limits, is_platform_enabled, get_bool
 
     db = get_async_db()
     if db is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
+
+    if not get_bool("features.url_search.enabled"):
+        raise HTTPException(
+            status_code=403,
+            detail={"success": False, "errorType": "feature_disabled",
+                    "message": "New searches are currently disabled by the administrator."})
 
     try:
         platform, canonical = detect_social_url(url)
@@ -249,6 +257,19 @@ async def start_url_search(
     except Exception as e:
         raise HTTPException(status_code=422, detail={
             "success": False, "errorType": "invalid", "message": f"Invalid URL: {e}"})
+
+    if not is_platform_enabled(platform):
+        raise HTTPException(
+            status_code=403,
+            detail={"success": False, "errorType": "platform_disabled",
+                    "message": f"Searching {platform} is currently disabled by the administrator."})
+
+    # admin-controlled defaults + hard caps â€” enforcement lives server-side
+    lim = effective_limits()
+    max_posts = min(max_posts or lim["max_posts_default"], lim["max_posts_cap"])
+    max_comments_per_post = min(
+        max_comments_per_post or lim["max_comments_per_post_default"],
+        lim["max_comments_per_post_cap"], lim["global_max_comments"])
 
     run_id = f"URL{datetime.now().strftime('%Y%m%d%H%M%S')}{abs(hash(url)) % 1000:03d}"
     await db.search_history.insert_one({
@@ -267,7 +288,7 @@ async def start_url_search(
     return {
         "run_id": run_id, "status": "running", "platform": platform,
         "canonical_url": canonical,
-        "message": f"{platform} search started — the page appears in the results below "
+        "message": f"{platform} search started â€” the page appears in the results below "
                    "when it is fetched",
     }
 
@@ -313,7 +334,7 @@ async def url_search_report(run_id: str):
         c["platform"] = _resolve_platform(c)
         c["commenter_name"] = c.get("author_name")
         c["comment_text"] = c.get("text")
-        # enrich raw comments with AI analysis (phone, email, intent, lead score…)
+        # enrich raw comments with AI analysis (phone, email, intent, lead scoreâ€¦)
         analysis = await db.ai_comments.find_one({"comment_ref": c["id"]})
         if analysis:
             a = _serialize(analysis)
@@ -350,7 +371,7 @@ async def list_pages(
     db = get_async_db()
     if db is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    # Every scraped page of the run is a result and must stay visible — the
+    # Every scraped page of the run is a result and must stay visible â€” the
     # qualifying/lead info is displayed per-row (sorted so qualifying pages
     # rank first) instead of hiding pages that did not qualify.
     query: dict = {}
@@ -384,9 +405,10 @@ async def get_page(page_id: str):
 
 
 @router.post("/pages/{page_id}/posts")
-async def collect_posts(page_id: str, max_posts: int = Query(20, ge=1, le=100)):
-    """Collect posts of the selected page via apify/facebook-posts-scraper."""
+async def collect_posts(page_id: str, max_posts: Optional[int] = Query(None, ge=1)):
+    """Collect posts of the selected page via the platform's Apify actor."""
     from app.agent.search import collect_page_posts
+    from app.admin.settings import effective_limits
 
     db = get_async_db()
     if db is None:
@@ -394,6 +416,8 @@ async def collect_posts(page_id: str, max_posts: int = Query(20, ge=1, le=100)):
     page = await db.facebook_pages.find_one({"_id": _oid(page_id)})
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
+    lim = effective_limits()
+    max_posts = min(max_posts or lim["max_posts_default"], lim["max_posts_cap"])
     started = _start(f"posts:{page_id}", collect_page_posts, page_id, max_posts)
     if not started:
         return {"status": "running", "message": "Posts collection already in progress"}
@@ -449,7 +473,7 @@ async def list_page_posts(page_id: str, offset: int = Query(0, ge=0), limit: int
         "activityStatus": page.get("activity_status"),
         "leadScore": page.get("lead_score", 0),
         "sourceType": page.get("source_type"),
-        "minComments": _MIN_COMMENTS,
+        "minComments": current_min_comments(),
         "posts_status": page.get("posts_status"),
         "posts_count": page.get("posts_count", 0),
         "posts_error": page.get("posts_error"),
@@ -457,9 +481,9 @@ async def list_page_posts(page_id: str, offset: int = Query(0, ge=0), limit: int
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # POSTS
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/posts/{post_id}")
 async def get_post(post_id: str):
@@ -470,9 +494,10 @@ async def get_post(post_id: str):
 
 
 @router.post("/posts/{post_id}/comments")
-async def collect_comments(post_id: str, max_comments: int = Query(200, ge=1, le=500)):
+async def collect_comments(post_id: str, max_comments: Optional[int] = Query(None, ge=1)):
     """Collect comments of the selected post + run AI analysis (ai_comments)."""
     from app.agent.search import collect_post_comments
+    from app.admin.settings import effective_limits
 
     db = get_async_db()
     if db is None:
@@ -480,6 +505,9 @@ async def collect_comments(post_id: str, max_comments: int = Query(200, ge=1, le
     post = await db.facebook_posts.find_one({"_id": _oid(post_id)})
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
+    lim = effective_limits()
+    max_comments = min(max_comments or lim["max_comments_per_post_default"],
+                       lim["max_comments_per_post_cap"])
     started = _start(f"comments:{post_id}", collect_post_comments, post_id, max_comments)
     if not started:
         return {"status": "running", "message": "Comments collection already in progress"}
@@ -528,7 +556,7 @@ async def list_post_comments(
     else:
         # ALL raw comments for the post, contact-bearing ones first; by
         # default only comments with a 10-digit phone number or email are
-        # shown (contact_only) — unchecking reveals every comment
+        # shown (contact_only) â€” unchecking reveals every comment
         from app.pipeline.comment_ai import extract_contact_quick
         all_docs = []
         async for raw in db.facebook_comments.find(query):
@@ -576,15 +604,15 @@ async def list_post_comments(
         "total_comment_count": post.get("total_comment_count") or post.get("comments_count") or 0,
         "scraped_comment_count": post.get("scraped_comment_count") or 0,
         "comments_count": post.get("scraped_comment_count") or 0,
-        "minComments": _MIN_COMMENTS,
+        "minComments": current_min_comments(),
         "comments_error": post.get("comments_error"),
         "comments_error_meta": post.get("comments_error_meta"),
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # LEAD DETAIL
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/comments/{comment_id}")
 async def get_lead_detail(comment_id: str):
@@ -626,9 +654,9 @@ async def get_lead_detail(comment_id: str):
     return result
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# EXPORT — CSV
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# EXPORT â€” CSV
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 PAGES_CSV = ["platform", "page_name", "facebook_url", "page_id", "category", "source_type",
              "followers", "likes", "phone", "email", "whatsapp", "website",
@@ -646,7 +674,7 @@ COMMENTS_CSV = ["platform", "commenter_name", "commenter_url", "comment_text",
 
 
 def _split_date_time(value) -> tuple:
-    """Tolerant actor date string → (comment_date, comment_time) in LOCAL time.
+    """Tolerant actor date string â†’ (comment_date, comment_time) in LOCAL time.
 
     The scrapers store dates exactly as the actor returns them (ISO with a T
     and Z, or a bare date), so the CSV splits them into separate, human
@@ -685,6 +713,11 @@ async def export_csv(
     post_id: Optional[str] = Query(None),
     only_leads: bool = Query(True),
 ):
+    from app.admin.settings import get_bool
+    if not get_bool("features.exports.enabled"):
+        raise HTTPException(
+            status_code=403,
+            detail="CSV exports are currently disabled by the administrator.")
     db = get_async_db()
     if db is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -714,7 +747,7 @@ async def export_csv(
             query["is_lead"] = True
         rows = [doc async for doc in db.ai_comments.find(query).sort("lead_score", -1)]
         # ai_comments does not store the scrape date or the commenter's
-        # profile URL — back-fill both from the raw comment doc so the CSV
+        # profile URL â€” back-fill both from the raw comment doc so the CSV
         # always carries date/time and a clickable profile link
         if rows:
             refs = [r["comment_ref"] for r in rows if r.get("comment_ref")]
