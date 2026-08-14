@@ -331,6 +331,12 @@ table.adm-table { width: 100%; border-collapse: collapse; font-size: 13.2px; min
   padding: 20px;
 }
 
+/* The `hidden` attribute must actually hide the backdrop: the display: grid
+   rule above would otherwise override the UA's [hidden] { display: none }
+   and leave the dark overlay + empty modal box covering the page forever. */
+.adm-modal-backdrop[hidden] { display: none; }
+.adm-modal-backdrop[hidden] * { pointer-events: none; }
+
 .adm-modal {
   background: var(--bg-2);
   border: 1px solid var(--border-2);

@@ -163,6 +163,21 @@ function skeleton() {
   return `<div class="adm-skeleton-block"></div><div class="adm-skeleton-block"></div><div class="adm-skeleton-block"></div>`;
 }
 
+function errorState(message, retryFn, context = "dashboard") {
+  const root = $("#view");
+  root.innerHTML = `
+    <div class="adm-card" style="margin-top:8px">
+      <div class="adm-empty">
+        <div class="adm-empty-ico">⚠</div>
+        <div style="font-size:14px;color:var(--text);margin-bottom:6px">Unable to load ${esc(context)} data</div>
+        <div style="font-size:12.5px;margin-bottom:16px">${esc(message)}</div>
+        <button class="adm-btn primary" id="retryBtn">↻ Retry</button>
+      </div>
+    </div>`;
+  const btn = $("#retryBtn", root);
+  if (btn && retryFn) btn.onclick = retryFn;
+}
+
 function emptyState(icon, text) {
   return `<div class="adm-empty"><div class="adm-empty-ico">${icon}</div>${esc(text)}</div>`;
 }
@@ -266,22 +281,35 @@ function bindSettingsSave(root, endpoint, cb) {
 
 /* ──────────────────────────────── Auth / shell ────────────────────── */
 async function boot() {
+  let authErr = null;
   try {
     const res = await api("/api/auth/me");
     state.user = res.user;
   } catch (err) {
-    return; // 401 redirects
+    // api() redirects to /login on 401. Any other failure (server down,
+    // 500, timeout) must NOT leave a dead page: the shell renders and the
+    // content area shows a retryable error.
+    authErr = err;
   }
-  const name = state.user.name || state.user.email;
-  $("#admUser").textContent = name;
-  const roleEl = $("#admRole");
-  roleEl.textContent = state.user.role || "viewer";
   renderShell();
   window.addEventListener("hashchange", () => {
     const view = location.hash.replace("#/", "").split("?")[0] || "dashboard";
     navigate(view);
   });
-  navigate(location.hash.replace("#/", "").split("?")[0] || "dashboard");
+  if (state.user) {
+    const name = state.user.name || state.user.email;
+    $("#admUser").textContent = name;
+    const roleEl = $("#admRole");
+    roleEl.textContent = state.user.role || "viewer";
+    navigate(location.hash.replace("#/", "").split("?")[0] || "dashboard");
+  } else {
+    $("#admUser").textContent = "—";
+    $("#crumb").textContent = "Connection problem";
+    errorState(
+      authErr ? authErr.message : "Sign in required",
+      () => { $("#view").innerHTML = skeleton(); boot(); },
+      "admin");
+  }
 }
 
 function renderShell() {
@@ -330,7 +358,10 @@ function navigate(view) {
     audit: viewAudit,
   };
   renderers[view]().catch((err) => {
-    viewEl.innerHTML = `<div class="adm-card">${emptyState("⚠", err.message)}</div>`;
+    // A failed view API must never blank the page: the sidebar, topbar and
+    // the rest of the shell stay intact; only the content area shows the
+    // error with a Retry action.
+    errorState(err.message, () => navigate(state.view), labels[view]);
   });
 }
 
@@ -363,7 +394,7 @@ async function viewDashboard() {
               <tr>
                 <td>${platformBadge(p.platform)}</td>
                 <td>${p.enabled ? `<span class="adm-badge green">on</span>` : `<span class="adm-badge red">off</span>`}</td>
-                <td>${p.stats.pages}</td><td>${p.stats.posts}</td><td>${p.stats.comments}</td><td>${p.stats.leads}</td>
+                <td>${p.pages}</td><td>${p.posts}</td><td>${p.comments}</td><td>${p.leads}</td>
               </tr>`).join("")}
           </tbody>
         </table></div>
@@ -794,10 +825,10 @@ async function viewPlatforms() {
 /* ──────────────────────────────── APIFY ───────────────────────────── */
 async function viewApify() {
   const root = $("#view");
-  const [status, testResult] = await Promise.all([
-    api("/api/admin/apify"),
-    api("/api/admin/apify/test"),
-  ]);
+  // Note: /api/admin/apify/test is a POST that performs a real Apify API
+  // probe, so it must NOT run on page load (wrong method + wasted call).
+  // Load status only; the probe runs on demand via the "Run live test" button.
+  const status = await api("/api/admin/apify");
   const role = state.user.role;
   root.innerHTML = `
     ${pageHead("Apify", "Connection status, connection test and token management. Tokens are never displayed — only a masked hint.", `
@@ -809,7 +840,9 @@ async function viewApify() {
           <dt>Token</dt><dd>${status.token_configured ? `<span class="adm-badge green">${esc(status.token_hint)}</span>` : `<span class="adm-badge red">not configured</span>`}</dd>
           <dt>Source</dt><dd>${status.env_token_configured && status.token_hint ? "env override active" : status.env_token_configured ? "environment (.env)" : "—"}</dd>
           <dt>Last test</dt><dd>${status.last_test_at ? `${status.last_test_ok ? "✓ ok" : "✕ failed"} · ${fmtTime(new Date(status.last_test_at * 1000))}` : "never"}</dd>
-          <dt>Live probe</dt><dd>${testResult.ok ? `<span class="adm-badge green">actor reachable (${esc(testResult.actor)})</span>` : `<span class="adm-badge red">${esc(testResult.error || "failed")}</span>`}</dd>
+        </div>
+        <div class="adm-btn-row" style="margin-top:14px">
+          <button class="adm-btn primary" id="probeBtn" ${role === "viewer" ? "disabled" : ""}>⟳ Run live test</button>
         </div>
       </div>
       <div class="adm-card">
@@ -825,7 +858,27 @@ async function viewApify() {
             ${role === "super_admin" ? `<button class="adm-btn danger" id="clearToken">Remove override</button>` : ""}
           </div>`}
       </div>
-    </div>`;
+    </div>
+    <div class="adm-card" id="probeResult" hidden></div>`;
+  const probeBtn = $("#probeBtn");
+  if (probeBtn) probeBtn.onclick = async () => {
+    probeBtn.disabled = true;
+    probeBtn.textContent = "⟳ Testing…";
+    try {
+      const result = await api("/api/admin/apify/test", { method: "POST" });
+      const box = $("#probeResult");
+      box.hidden = false;
+      box.innerHTML = result.ok
+        ? `<span class="adm-badge green">actor reachable (${esc(result.actor)})</span>`
+        : `<span class="adm-badge red">${esc(result.error || "failed")}</span>`;
+      toast(result.ok ? "Apify connection OK" : "Apify test failed", result.ok ? "ok" : "error");
+    } catch (err) {
+      toast(err.message, "error");
+    } finally {
+      probeBtn.disabled = false;
+      probeBtn.textContent = "⟳ Run live test";
+    }
+  };
   if (role !== "viewer") {
     $("#saveToken").onclick = async () => {
       const token = $("#tokenInput").value.trim();
