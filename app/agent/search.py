@@ -538,10 +538,20 @@ def collect_page_posts(page_id: str, max_posts: int = 20,
         "posts_started_at": utcnow(), "updated_at": utcnow()}})
 
     connector = ApifyConnector()
+    # route by platform: Facebook keeps the existing actor+mapping, all other
+    # platforms (Instagram/YouTube/LinkedIn) use their own scraper
+    from app.social.scrapers import get_scraper
+    platform = page.get("platform") or "facebook"
+    scraper = get_scraper(platform) if platform != "facebook" else None
     try:
-        items = connector.scrape_facebook_posts([page["facebook_url"]],
-                                                posts_per_page=max_posts,
-                                                should_abort=should_abort)
+        if scraper is None:
+            items = connector.scrape_facebook_posts([page["facebook_url"]],
+                                                    posts_per_page=max_posts,
+                                                    should_abort=should_abort)
+        else:
+            items = scraper.fetch_posts(
+                page.get("facebook_url") or page.get("source_page_url") or "",
+                max_posts, should_abort)
     except (ScrapeError, ApifyError) as e:
         if isinstance(e, ScrapeError) and e.error_type == "CANCELLED":
             if run_id:
@@ -565,7 +575,7 @@ def collect_page_posts(page_id: str, max_posts: int = 20,
     received = len(items)
     stored = 0
     for item in items:
-        doc = map_post_item(item, page)
+        doc = scraper.normalize_post(item, page) if scraper else map_post_item(item, page)
         if not doc:
             continue
         # per-run dedup: the same post on a page found again in a later run
@@ -647,10 +657,19 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
         "comments_started_at": utcnow(), "updated_at": utcnow()}})
 
     connector = ApifyConnector()
+    # route by platform: Facebook keeps the existing actor+mapping, all other
+    # platforms (Instagram/YouTube/LinkedIn) use their own scraper
+    from app.social.scrapers import get_scraper
+    platform = post.get("platform") or "facebook"
+    scraper = get_scraper(platform) if platform != "facebook" else None
     try:
-        items = connector.scrape_facebook_comments([post["post_url"]],
-                                                   comments_per_post=max_comments,
-                                                   should_abort=should_abort)
+        if scraper is None:
+            items = connector.scrape_facebook_comments([post["post_url"]],
+                                                       comments_per_post=max_comments,
+                                                       should_abort=should_abort)
+        else:
+            items = scraper.fetch_comments(post["post_url"], max_comments,
+                                           should_abort=should_abort)
     except (ScrapeError, ApifyError) as e:
         if isinstance(e, ScrapeError) and e.error_type == "CANCELLED":
             if run_id:
@@ -675,7 +694,7 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
     contact_stored = 0
     from app.pipeline.comment_ai import has_contact_info
     for item in items:
-        doc = map_comment_item(item, post)
+        doc = scraper.normalize_comment(item, post) if scraper else map_comment_item(item, post)
         if not doc:
             continue
         # every scraped comment is kept; comments carrying a phone number or
