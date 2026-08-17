@@ -968,11 +968,28 @@ async function viewUsage() {
 }
 
 /* ──────────────────────────────── ENVIRONMENT ──────────────────────── */
-const ENV_ROLE = { secret: "super admin", other: "manager+" };
-
 async function viewEnvironment() {
   const root = $("#view");
-  const data = await api("/api/admin/env");
+  let lock;
+  try {
+    lock = await api("/api/admin/env/lock-status");
+  } catch (err) {
+    throw err;
+  }
+  if (lock.locked) {
+    renderEnvLock(root);
+    return;
+  }
+  let data;
+  try {
+    data = await api("/api/admin/env");
+  } catch (err) {
+    if (err.message.includes("locked")) {
+      renderEnvLock(root);
+      return;
+    }
+    throw err;
+  }
   const vars = data.vars;
   const canWrite = state.user.role !== "viewer";
   const groups = [...new Set(vars.map((v) => v.group))];
@@ -987,8 +1004,9 @@ async function viewEnvironment() {
     return `<span class="adm-code">${esc(raw) || "—"}</span>`;
   };
   root.innerHTML = `
-    ${pageHead("Environment", "Live environment variables. An override row wins; otherwise the real .env value applies; otherwise the documented default. Changes take effect immediately unless marked 'needs restart' — the runtime reads these values at the moment they matter.", "")}
-    <div class="adm-note">Secrets are never displayed — only a masked hint. APIFY_API_TOKEN is managed in the Apify view. Environment overrides are stored in the database and survive restarts; they do not rewrite your .env file.</div>
+    ${pageHead("Environment", "Live environment variables. An override row wins; otherwise the real .env value applies; otherwise the documented default. Changes take effect immediately unless marked 'needs restart'.", `
+      <button class="adm-btn" id="envLockBtn">🔒 Lock now</button>`)}
+    <div class="adm-note">Secrets are never displayed — only a masked hint. Every value below is editable (manager+; secrets need super admin). Overrides are stored in the database and survive restarts; they do not rewrite your .env file. The section stays open for ${lock.unlock_minutes} minutes after unlocking.</div>
     ${state.user.role === "super_admin" ? `
     <div class="adm-card" style="margin-bottom:16px">
       <div class="adm-card-title">Recovery admin password</div>
@@ -1011,8 +1029,8 @@ async function viewEnvironment() {
                   <div class="adm-cell-sub">${esc(v.description)}</div></td>
                 <td>${valueCell(v)}</td>
                 <td>${sourceBadge(v)}${v.overridden ? `<div class="adm-cell-sub">${v.updated_by || "admin"} · ${v.updated_at ? fmtTime(new Date(v.updated_at * 1000)) : ""}</div>` : ""}</td>
-                <td>${v.restart ? `<span class="adm-badge amber">needs restart</span>` : `<span class="adm-badge green">applies now</span>`}${v.secret ? `<span class="adm-badge">secret</span>` : ""}${v.managed_elsewhere ? `<span class="adm-badge cyan">Apify view</span>` : ""}</td>
-                <td>${canWrite && !v.managed_elsewhere
+                <td>${v.restart ? `<span class="adm-badge amber">needs restart</span>` : `<span class="adm-badge green">applies now</span>`}${v.secret ? `<span class="adm-badge">secret</span>` : ""}</td>
+                <td>${canWrite
                   ? `<div class="adm-btn-row" style="gap:6px">
                       <button class="adm-btn" data-env-edit="${esc(v.name)}" ${v.secret && state.user.role !== "super_admin" ? "disabled" : ""}>Edit</button>
                       ${v.overridden ? `<button class="adm-btn danger" data-env-reset="${esc(v.name)}" ${v.secret && state.user.role !== "super_admin" ? "disabled" : ""}>Reset</button>` : ""}
@@ -1022,6 +1040,12 @@ async function viewEnvironment() {
           </tbody>
         </table></div>
       </div>`).join("")}`;
+  const lockBtn = $("#envLockBtn");
+  if (lockBtn) lockBtn.onclick = async () => {
+    await api("/api/admin/env/unlock", { method: "DELETE" });
+    toast("Environment panel locked", "ok");
+    viewEnvironment();
+  };
   if (canWrite) {
     $$("[data-env-edit]", root).forEach((btn) => {
       btn.onclick = () => {
@@ -1071,6 +1095,40 @@ async function viewEnvironment() {
       } catch (err) { toast(err.message, "error"); }
     };
   }
+}
+
+function renderEnvLock(root) {
+  root.innerHTML = `
+    ${pageHead("Environment", "Environment variables are protected — unlock with the guard password to view and edit them.", "")}
+    <div class="adm-card" style="max-width:520px">
+      <div class="adm-empty">
+        <div class="adm-empty-ico">🔒</div>
+        <div style="font-size:14px;color:var(--text);margin-bottom:6px">Environment panel locked</div>
+        <div style="font-size:12.5px;margin-bottom:16px">Every environment variable is hidden until you enter the guard password. The unlock lasts 15 minutes.</div>
+        <input class="adm-input" id="envUnlockInput" type="password" placeholder="Guard password" style="max-width:280px;margin:0 auto 12px">
+        <div class="adm-btn-row" style="justify-content:center">
+          <button class="adm-btn primary" id="envUnlockBtn">Unlock</button>
+        </div>
+      </div>
+    </div>`;
+  const btn = $("#envUnlockBtn");
+  btn.onclick = async () => {
+    const password = $("#envUnlockInput").value;
+    if (!password) { toast("Enter the guard password", "error"); return; }
+    btn.disabled = true;
+    btn.textContent = "Unlocking…";
+    try {
+      await api("/api/admin/env/unlock", { method: "POST", body: { password } });
+      toast("Environment unlocked", "ok");
+      viewEnvironment();
+    } catch (err) {
+      toast(err.message, "error");
+      btn.disabled = false;
+      btn.textContent = "Unlock";
+    }
+  };
+  const enter = (e) => { if (e.key === "Enter") btn.onclick(); };
+  $("#envUnlockInput").onkeydown = enter;
 }
 
 /* ──────────────────────────────── LIMITS ──────────────────────────── */

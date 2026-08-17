@@ -12,6 +12,7 @@ effect after the process restarts — the admin panel says so explicitly.
 
 Secrets are never returned by the API — only masked hints.
 """
+import hashlib
 import logging
 import os
 import time
@@ -47,9 +48,10 @@ ENVVAR_REGISTRY: list[EnvVarDef] = [
                                    "(default of the ai.model setting)."},
     # Apify
     {"name": "APIFY_API_TOKEN", "kind": "str", "secret": True, "restart": False,
-     "settings_attr": "apify_api_token", "default": "", "managed_elsewhere": True,
-     "group": "Apify", "description": "Apify API token. Managed in the Apify view "
-                                     "(DB override vs .env fallback)."},
+     "settings_attr": "apify_api_token", "default": "",
+     "group": "Apify", "description": "Apify API token. An override stored here "
+                                     "is the same single source of truth the "
+                                     "Apify view shows."},
     # Actors
     {"name": "INSTAGRAM_ACTOR_ID", "kind": "str", "secret": False, "restart": True,
      "settings_attr": "instagram_actor_id", "default": "apify/instagram-scraper",
@@ -130,7 +132,10 @@ ENVVAR_REGISTRY: list[EnvVarDef] = [
 _REGISTRY: Dict[str, EnvVarDef] = {e["name"]: e for e in ENVVAR_REGISTRY}
 
 _SECRET_NAMES = {e["name"] for e in ENVVAR_REGISTRY if e.get("secret")}
-_MANAGED_ELSEWHERE = {e["name"] for e in ENVVAR_REGISTRY if e.get("managed_elsewhere")}
+
+# APIFY_API_TOKEN is stored under the settings key the scrapers already read,
+# so the Environment view and the Apify view stay one source of truth.
+_APIFY_TOKEN_KEY = "apify.token"
 
 # TTL cache for hot paths (login / per-request secret reads). DB lookups are
 # one read per key per TTL window at most; changes apply within 5 seconds.
@@ -202,6 +207,8 @@ def get_envvar(name: str) -> Any:
     """Effective value: DB override -> .env/process value -> default."""
     if name not in _REGISTRY:
         return None
+    if name == "APIFY_API_TOKEN":
+        return get_apify_token()
     now = time.time()
     hit = _CACHE.get(name)
     if hit is not None and now - hit[0] < _CACHE_TTL:
@@ -239,6 +246,8 @@ def set_envvar_override(name: str, value: Any, by: str = "admin") -> bool:
     """Persist a coerced override. Returns False when Mongo is down."""
     if name not in _REGISTRY:
         return False
+    if name == "APIFY_API_TOKEN":
+        return s_set_apify_token(value, by)
     coerced = _coerce(name, value)
     try:
         db = get_sync_db()
@@ -258,6 +267,8 @@ def set_envvar_override(name: str, value: Any, by: str = "admin") -> bool:
 
 
 async def aset_envvar_override(name: str, value: Any, by: str = "admin") -> bool:
+    if name == "APIFY_API_TOKEN":
+        return s_set_apify_token(value, by)
     coerced = _coerce(name, value)
     try:
         db = get_async_db()
@@ -277,6 +288,14 @@ async def aset_envvar_override(name: str, value: Any, by: str = "admin") -> bool
 
 
 def delete_envvar_override(name: str) -> bool:
+    if name == "APIFY_API_TOKEN":
+        try:
+            from app.admin.settings import delete_setting
+            ok = delete_setting(_APIFY_TOKEN_KEY)
+            _CACHE.pop(name, None)
+            return ok
+        except Exception:
+            return False
     try:
         db = get_sync_db()
         if db is None:
@@ -297,6 +316,20 @@ def _mask(value: Any) -> str:
     return "••••" + text[-4:]
 
 
+def s_set_apify_token(token: str, by: str = "admin") -> bool:
+    """Store the Apify token under the setting key the scrapers read."""
+    from app.admin.settings import set_setting
+    ok = set_setting(_APIFY_TOKEN_KEY, token, by=by)
+    _CACHE.pop("APIFY_API_TOKEN", None)
+    return ok
+
+
+def get_apify_token() -> str:
+    """Effective Apify token: override first, then the environment."""
+    from app.admin.settings import get_apify_token as s_get_token
+    return s_get_token()
+
+
 # ── Reporting (admin panel) ──────────────────────────────────────────────────
 
 def _source(name: str, override_doc: Optional[Dict[str, Any]]) -> str:
@@ -307,30 +340,46 @@ def _source(name: str, override_doc: Optional[Dict[str, Any]]) -> str:
     return "default"
 
 
+def _apify_token_doc() -> Optional[Dict[str, Any]]:
+    """The apify.token settings doc (override metadata), if any."""
+    try:
+        db = get_sync_db()
+        if db is None:
+            return None
+        return db["system_settings"].find_one(
+            {"_id": _APIFY_TOKEN_KEY},
+            {"updated_at": 1, "updated_by": 1})
+    except Exception:
+        return None
+
+
 def envvar_info(name: str) -> Dict[str, Any]:
     """One registry entry with effective value, source and override metadata."""
     definition = _REGISTRY[name]
-    doc = _sync_override(name)
-    source = _source(name, doc)
-
-    if definition.get("managed_elsewhere"):
-        value = _settings_value(name) or ""
-        from app.admin.settings import get_apify_token, get_apify_token_hint
-        if get_apify_token():
-            value = get_apify_token_hint()
-        info = {
-            "value": value,
+    if name == "APIFY_API_TOKEN":
+        value = get_apify_token()
+        doc = _apify_token_doc()
+        source = "override" if doc is not None else (
+            "env" if _is_env_source(name) else "default")
+        return {
+            "name": name,
+            "group": definition.get("group", ""),
+            "description": definition.get("description", ""),
+            "kind": definition.get("kind", "str"),
+            "secret": True,
+            "restart": False,
+            "managed_elsewhere": False,
+            "source": source,
+            "overridden": doc is not None,
+            "updated_at": (doc or {}).get("updated_at"),
+            "updated_by": (doc or {}).get("updated_by"),
+            "value": "",
             "set": bool(value),
             "masked": _mask(value),
         }
-    else:
-        value = get_envvar(name)
-        info = {
-            "value": "" if definition.get("secret") else value,
-            "set": value not in (None, "", False),
-            "masked": _mask(value) if definition.get("secret") else None,
-        }
-
+    doc = _sync_override(name)
+    source = _source(name, doc)
+    value = get_envvar(name)
     return {
         "name": name,
         "group": definition.get("group", ""),
@@ -338,12 +387,14 @@ def envvar_info(name: str) -> Dict[str, Any]:
         "kind": definition.get("kind", "str"),
         "secret": bool(definition.get("secret")),
         "restart": bool(definition.get("restart")),
-        "managed_elsewhere": bool(definition.get("managed_elsewhere")),
+        "managed_elsewhere": False,
         "source": source,
         "overridden": doc is not None,
         "updated_at": (doc or {}).get("updated_at"),
         "updated_by": (doc or {}).get("updated_by"),
-        **info,
+        "value": "" if definition.get("secret") else value,
+        "set": value not in (None, "", False),
+        "masked": _mask(value) if definition.get("secret") else None,
     }
 
 
@@ -355,13 +406,67 @@ def is_secret(name: str) -> bool:
     return name in _SECRET_NAMES
 
 
-def is_managed_elsewhere(name: str) -> bool:
-    return name in _MANAGED_ELSEWHERE
-
-
 def known_name(name: str) -> bool:
     return name in _REGISTRY
 
 
 def clear_cache() -> None:
     _CACHE.clear()
+
+
+# ── Environment panel guard ──────────────────────────────────────────────────
+# The Environment section is locked behind its own password (distinct from
+# the admin login). The hash lives in the env_overrides collection under
+# ``__guard__``; when no hash has been set yet, the built-in default
+# applies. All /api/admin/env* endpoints require a valid unlock.
+
+GUARD_DOC_ID = "__guard__"
+GUARD_DEFAULT_PASSWORD = "Saurabh95710"
+GUARD_UNLOCK_MINUTES = 15
+
+
+def _guard_hash() -> str:
+    """Current guard password hash (default when never set)."""
+    try:
+        db = get_sync_db()
+        if db is None:
+            return _default_guard_hash()
+        doc = db[COLLECTION].find_one({"_id": GUARD_DOC_ID},
+                                      {"password_hash": 1})
+        return (doc or {}).get("password_hash") or _default_guard_hash()
+    except Exception:
+        return _default_guard_hash()
+
+
+def _default_guard_hash() -> str:
+    return hashlib.sha256(GUARD_DEFAULT_PASSWORD.encode("utf-8")).hexdigest()
+
+
+def verify_guard_password(password: str) -> bool:
+    """Constant-time check of the Environment panel guard password."""
+    if not password:
+        return False
+    import hmac
+    guess = hashlib.sha256(str(password).encode("utf-8")).hexdigest().lower()
+    return hmac.compare_digest(guess, _guard_hash().lower())
+
+
+def set_guard_password(plain: str, by: str = "admin") -> bool:
+    """Change the guard password (store its sha256 hash)."""
+    if len(str(plain or "")) < 6:
+        return False
+    hashed = hashlib.sha256(str(plain).encode("utf-8")).hexdigest()
+    try:
+        db = get_sync_db()
+        if db is None:
+            return False
+        db[COLLECTION].update_one(
+            {"_id": GUARD_DOC_ID},
+            {"$set": {"password_hash": hashed,
+                      "updated_at": time.time(),
+                      "updated_by": by}},
+            upsert=True)
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to persist guard password: {e}")
+        return False

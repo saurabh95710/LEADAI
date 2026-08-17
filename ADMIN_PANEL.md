@@ -128,3 +128,20 @@ the `.env` file.
   managed in the Apify view (single source of truth: `apify.token`).
 
 Test suite is now **73 passed** (14 new envvar tests).
+### Environment guard password
+
+The Environment section is protected by its own guard password (default
+`Saurabh95710`, changeable once unlocked — the hash is stored in the
+`env_overrides` collection under `__guard__`). Every `/api/admin/env*`
+endpoint requires a valid signed unlock cookie (15 minutes, path-scoped to
+`/api/admin/env`) on top of the normal admin session and role checks;
+`lock-status`/`unlock` are the only env endpoints reachable without it.
+Wrong attempts are audited (`env.unlock.failed`), unlocks and re-locks too
+(`env.unlock` / `env.lock`). The panel shows a lock screen with a password
+form until unlocked.
+
+APIFY_API_TOKEN is now fully editable from the Environment view as well: an
+override stored here is the same `apify.token` row the Apify view and the
+scrapers read (single source of truth).
+
+Test suite: **79 passed** (14 envvar + 6 guard/unlock tests).

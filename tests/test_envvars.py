@@ -118,16 +118,98 @@ def test_secret_values_never_returned(monkeypatch):
     assert not ev.is_secret("SESSION_TTL_DAYS")
 
 
-def test_apify_token_managed_elsewhere():
-    assert ev.is_managed_elsewhere("APIFY_API_TOKEN")
+def test_apify_token_editable_via_override(monkeypatch):
+    """APIFY_API_TOKEN is fully editable here and shares the apify.token
+    setting row the Apify view and the scrapers read."""
+    monkeypatch.setattr("app.admin.settings.get_str",
+                        lambda key, fb="": "apify_api_1234567890" if key == "apify.token" else fb)
+    assert ev.get_envvar("APIFY_API_TOKEN") == "apify_api_1234567890"
     info = ev.envvar_info("APIFY_API_TOKEN")
-    assert info["managed_elsewhere"] is True
+    assert info["value"] == "" and info["secret"] is True
+    assert info["masked"].endswith("7890")
+    assert info["managed_elsewhere"] is False
 
 
 def test_restart_flags_are_explicit():
     assert ev.envvar_info("MONGO_URI")["restart"] is True
     assert ev.envvar_info("SESSION_TTL_DAYS")["restart"] is False
     assert ev.envvar_info("GEMINI_API_KEY")["restart"] is False
+
+
+# ── Guard password ───────────────────────────────────────────────────────────
+
+def test_guard_password_default_and_verify(monkeypatch):
+    monkeypatch.setattr(ev, "get_sync_db", lambda: None)  # no DB -> default hash
+    assert ev.verify_guard_password("Saurabh95710") is True
+    assert ev.verify_guard_password("wrong-password") is False
+    assert ev.verify_guard_password("") is False
+    assert ev.verify_guard_password(None) is False
+
+
+def test_guard_password_change_roundtrip(monkeypatch):
+    stored = {}
+
+    class FakeColl:
+        def update_one(self, _id, update, upsert=False):
+            stored[_id["_id"]] = update["$set"]
+
+        def find_one(self, _id, projection=None):
+            doc = stored.get(_id["_id"])
+            return {"password_hash": doc["password_hash"]} if doc else None
+
+    class FakeDb:
+        def __getitem__(self, name):
+            return FakeColl()
+
+    monkeypatch.setattr(ev, "get_sync_db", lambda: FakeDb())
+    assert ev.set_guard_password("NewGuard@2026", by="test") is True
+    assert ev.verify_guard_password("NewGuard@2026") is True
+    assert ev.verify_guard_password("Saurabh95710") is False
+    assert ev.set_guard_password("short", by="test") is False
+
+
+def test_guard_hash_never_equals_plaintext(monkeypatch):
+    monkeypatch.setattr(ev, "get_sync_db", lambda: None)
+    hashed = ev._guard_hash()
+    assert hashed != "Saurabh95710"
+    assert len(hashed) == 64
+
+
+# ── Unlock cookie ────────────────────────────────────────────────────────────
+
+def test_env_unlock_cookie_roundtrip_and_expiry():
+    from app.auth import service as auth_svc
+    value = auth_svc.build_env_unlock_value()
+    assert auth_svc.parse_env_unlock_value(value) is True
+    assert auth_svc.parse_env_unlock_value("") is False
+    assert auth_svc.parse_env_unlock_value("garbage.value") is False
+    expired = auth_svc.build_env_unlock_value(ttl_sec=-60)
+    assert auth_svc.parse_env_unlock_value(expired) is False
+    tampered = value[:-2] + ("ab" if value[-2:] != "ab" else "cd")
+    assert auth_svc.parse_env_unlock_value(tampered) is False
+
+
+def test_require_env_unlocked_rejects_without_cookie():
+    from fastapi import HTTPException
+    from app.auth import roles
+    from app.auth.service import ENV_UNLOCK_COOKIE
+
+    class FakeRequest:
+        cookies = {}
+
+    with pytest.raises(HTTPException) as exc:
+        roles.require_env_unlocked(FakeRequest())
+    assert exc.value.status_code == 403
+
+
+def test_require_env_unlocked_allows_valid_cookie():
+    from app.auth import roles
+    from app.auth.service import ENV_UNLOCK_COOKIE, build_env_unlock_value
+
+    class FakeRequest:
+        cookies = {ENV_UNLOCK_COOKIE: build_env_unlock_value()}
+
+    assert roles.require_env_unlocked(FakeRequest()) is None
 
 
 # ── Dynamic wiring ──────────────────────────────────────────────────────────

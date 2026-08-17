@@ -261,3 +261,55 @@ def public_user(user: Dict[str, Any]) -> Dict[str, Any]:
         "name": user.get("name", ""),
         "role": user.get("role", ""),
     }
+
+
+# ── Environment panel unlock cookie ─────────────────────────────────────────
+# A short-lived signed cookie that gates every /api/admin/env* endpoint on
+# top of the normal admin session. Set by POST /api/admin/env/unlock after
+# the guard password verifies; path-scoped so it only travels with env API
+# calls.
+
+ENV_UNLOCK_COOKIE = "leadai_env_unlock"
+ENV_UNLOCK_TTL_SEC = 15 * 60
+_ENV_UNLOCK_HEADER = {"v": 1}
+
+
+def build_env_unlock_value(ttl_sec: int = ENV_UNLOCK_TTL_SEC) -> str:
+    payload = {
+        **_ENV_UNLOCK_HEADER,
+        "iat": int(time.time()),
+        "exp": int(time.time()) + ttl_sec,
+    }
+    payload_b64 = _b64e(
+        json.dumps(payload, separators=(",", ":")).encode())
+    return f"{payload_b64}.{_sign(payload_b64)}"
+
+
+def parse_env_unlock_value(value: Optional[str]) -> bool:
+    if not value or "." not in value:
+        return False
+    payload_b64, sig = value.rsplit(".", 1)
+    if not hmac.compare_digest(_sign(payload_b64), sig):
+        return False
+    try:
+        data = json.loads(_b64d(payload_b64))
+    except Exception:
+        return False
+    return (data.get("v") == _ENV_UNLOCK_HEADER["v"]
+            and data.get("exp", 0) > time.time())
+
+
+def set_env_unlock_cookie(response: Response) -> None:
+    response.set_cookie(
+        ENV_UNLOCK_COOKIE,
+        build_env_unlock_value(),
+        max_age=ENV_UNLOCK_TTL_SEC,
+        httponly=True,
+        samesite="lax",
+        secure=get_envvar_bool("SESSION_COOKIE_SECURE", settings.session_cookie_secure),
+        path="/api/admin/env",
+    )
+
+
+def clear_env_unlock_cookie(response: Response) -> None:
+    response.delete_cookie(ENV_UNLOCK_COOKIE, path="/api/admin/env")

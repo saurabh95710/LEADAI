@@ -27,7 +27,8 @@ from fastapi.responses import Response
 from app.admin import settings as s
 from app.admin import audit as a
 from app.admin import envvars as ev
-from app.auth.roles import require_manager, require_super, require_viewer
+from app.auth.roles import (require_env_unlocked, require_manager,
+                            require_super, require_viewer)
 from app.config import get_settings
 from app.db.mongo import get_async_db
 from app.db.models import utcnow
@@ -649,21 +650,52 @@ async def clear_apify_token():
 # .env / process value applies, otherwise the documented default. Secrets are
 # never returned — only masked hints. Restart-flagged vars take effect after
 # the process restarts (their consumers read once at import).
+#
+# The whole section is additionally locked behind the guard password: every
+# /api/admin/env* endpoint (except lock-status/unlock) requires a valid
+# short-lived unlock cookie, on top of the normal admin session + role checks.
 
 
-@router.get("/env", dependencies=[Depends(require_viewer)])
+@router.get("/env/lock-status", dependencies=[Depends(require_viewer)])
+async def env_lock_status(request: Request):
+    from app.auth.service import ENV_UNLOCK_COOKIE, parse_env_unlock_value
+    locked = not parse_env_unlock_value(request.cookies.get(ENV_UNLOCK_COOKIE))
+    return {"locked": locked, "unlock_minutes": ev.GUARD_UNLOCK_MINUTES}
+
+
+@router.post("/env/unlock", dependencies=[Depends(require_viewer)])
+async def env_unlock(body: Dict[str, Any], response: Response,
+                     admin: dict = Depends(require_viewer)):
+    password = str(body.get("password") or "")
+    if not ev.verify_guard_password(password):
+        await a.aaudit("env.unlock.failed", "env", success=False)
+        raise HTTPException(status_code=401, detail="Wrong password")
+    from app.auth.service import set_env_unlock_cookie
+    set_env_unlock_cookie(response)
+    await a.aaudit("env.unlock", "env")
+    return {"success": True, "unlock_minutes": ev.GUARD_UNLOCK_MINUTES}
+
+
+@router.delete("/env/unlock", dependencies=[Depends(require_viewer)])
+async def env_lock(response: Response):
+    from app.auth.service import clear_env_unlock_cookie
+    clear_env_unlock_cookie(response)
+    await a.aaudit("env.lock", "env")
+    return {"success": True, "message": "Environment panel locked"}
+
+
+@router.get("/env", dependencies=[Depends(require_viewer),
+                                  Depends(require_env_unlocked)])
 async def env_list():
     return {"vars": ev.all_envvar_info()}
 
 
-@router.put("/env/{name}", dependencies=[Depends(require_manager)])
+@router.put("/env/{name}", dependencies=[Depends(require_manager),
+                                         Depends(require_env_unlocked)])
 async def env_set(name: str, body: Dict[str, Any],
                   admin: dict = Depends(require_viewer)):
     if not ev.known_name(name):
         raise HTTPException(status_code=404, detail=f"Unknown env var: {name}")
-    if ev.is_managed_elsewhere(name):
-        raise HTTPException(status_code=400,
-                            detail=f"{name} is managed in the Apify view")
     if ev.is_secret(name) and admin.get("role") != "super_admin":
         raise HTTPException(status_code=403,
                             detail="Only super admin can change secret env vars")
@@ -677,13 +709,11 @@ async def env_set(name: str, body: Dict[str, Any],
     return {"success": True, "entry": ev.envvar_info(name)}
 
 
-@router.delete("/env/{name}", dependencies=[Depends(require_manager)])
+@router.delete("/env/{name}", dependencies=[Depends(require_manager),
+                                            Depends(require_env_unlocked)])
 async def env_delete(name: str, admin: dict = Depends(require_viewer)):
     if not ev.known_name(name):
         raise HTTPException(status_code=404, detail=f"Unknown env var: {name}")
-    if ev.is_managed_elsewhere(name):
-        raise HTTPException(status_code=400,
-                            detail=f"{name} is managed in the Apify view")
     if ev.is_secret(name) and admin.get("role") != "super_admin":
         raise HTTPException(status_code=403,
                             detail="Only super admin can reset secret env vars")
@@ -696,7 +726,8 @@ async def env_delete(name: str, admin: dict = Depends(require_viewer)):
     return {"success": True, "entry": ev.envvar_info(name)}
 
 
-@router.post("/env/password", dependencies=[Depends(require_super)])
+@router.post("/env/password", dependencies=[Depends(require_super),
+                                            Depends(require_env_unlocked)])
 async def env_change_password(body: Dict[str, Any]):
     """Change the recovery admin password: hash it server-side, store as an
     override of ADMIN_PASSWORD_HASH. Takes effect on the next login."""

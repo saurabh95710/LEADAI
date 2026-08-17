@@ -131,3 +131,13 @@ def require_admin(min_role: str = "viewer"):
 require_viewer = require_admin("viewer")
 require_manager = require_admin("manager")
 require_super = require_admin("super_admin")
+
+
+def require_env_unlocked(request: Request):
+    """Additional gate for the /api/admin/env* endpoints: the caller needs a
+    valid short-lived unlock cookie on top of the normal admin session."""
+    from app.auth.service import ENV_UNLOCK_COOKIE, parse_env_unlock_value
+    if not parse_env_unlock_value(request.cookies.get(ENV_UNLOCK_COOKIE)):
+        raise HTTPException(
+            status_code=403,
+            detail="Environment panel is locked — unlock it first")
