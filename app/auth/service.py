@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import Request, Response
 
+from app.admin.envvars import get_envvar, get_envvar_bool, get_envvar_int, get_envvar_str
 from app.config import get_settings
 from app.db.mongo import get_sync_db
 
@@ -118,10 +119,11 @@ def verify_admin_login(email: str, password: str) -> Optional[Dict[str, Any]]:
         }
 
     # 2) Env admin (recovery super-admin)
-    expected_email = settings.admin_email.strip().lower()
+    expected_email = get_envvar_str("ADMIN_EMAIL", settings.admin_email).strip().lower()
     if not expected_email or email_clean != expected_email:
         return None
-    expected_hash = (settings.admin_password_hash or "").strip().lower()
+    expected_hash = (get_envvar_str("ADMIN_PASSWORD_HASH",
+                                    settings.admin_password_hash) or "").strip().lower()
     if not expected_hash or not password:
         return None
     if not hmac.compare_digest(guess, expected_hash):
@@ -158,6 +160,9 @@ def _touch_last_login(email: str, when: float) -> None:
 
 def _secret() -> str:
     global _FALLBACK_SECRET
+    override = get_envvar_str("SESSION_SECRET", "")
+    if override:
+        return override
     if settings.session_secret:
         return settings.session_secret
     if _FALLBACK_SECRET is None:
@@ -186,7 +191,7 @@ def build_session_value(user: Dict[str, Any]) -> str:
     payload = {
         "user": user,
         "iat": int(time.time()),
-        "exp": int(time.time()) + settings.session_ttl_days * 86400,
+        "exp": int(time.time()) + get_envvar_int("SESSION_TTL_DAYS", settings.session_ttl_days) * 86400,
     }
     payload_b64 = _b64e(
         json.dumps({**_HEADER, **payload}, separators=(",", ":")).encode())
@@ -216,10 +221,10 @@ def set_session_cookie(response: Response, user: Dict[str, Any]) -> None:
     response.set_cookie(
         COOKIE_NAME,
         build_session_value(user),
-        max_age=settings.session_ttl_days * 86400,
+        max_age=get_envvar_int("SESSION_TTL_DAYS", settings.session_ttl_days) * 86400,
         httponly=True,
         samesite="lax",
-        secure=settings.session_cookie_secure,
+        secure=get_envvar_bool("SESSION_COOKIE_SECURE", settings.session_cookie_secure),
         path="/",
     )
 

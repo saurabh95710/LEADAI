@@ -43,7 +43,9 @@ def role_rank(role: str) -> int:
 
 
 def is_env_admin_email(email: str) -> bool:
-    return email.strip().lower() == settings.admin_email.strip().lower()
+    from app.admin.envvars import get_envvar_str
+    expected = get_envvar_str("ADMIN_EMAIL", settings.admin_email)
+    return email.strip().lower() == expected.strip().lower()
 
 
 def get_admin_record(email: str) -> Optional[Dict[str, Any]]:

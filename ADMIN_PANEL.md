@@ -102,3 +102,29 @@ redirect to `/login`.
   existing lead filtering/scoring is unchanged until an admin opts in.
 - Maintenance message is kept after maintenance is switched off (reused on
   the next enable).
+## Environment variable management (Environment view)
+
+`/admin` -> Environment: 19 real env vars, registry-driven
+(`app/admin/envvars.py`). Three-layer resolution shown live on every row:
+**DB override wins** (`env_overrides` collection, survives restarts) ->
+real `.env` / process value -> documented default. Overrides never rewrite
+the `.env` file.
+
+- **Real values everywhere**: `GEMINI_API_KEY`, `APIFY_API_TOKEN`, admin
+  credentials and session settings are read through `get_envvar()` at the
+  moment they matter. Changing `ADMIN_PASSWORD_HASH`, `ADMIN_EMAIL`,
+  `SESSION_TTL_DAYS`, `SESSION_COOKIE_SECURE`, `SESSION_SECRET`,
+  `GEMINI_API_KEY`, `BUSINESS_DOMAIN` applies immediately (5s TTL cache);
+  `MONGO_URI`, actor IDs, `MIN_COMMENTS`, `API_PORT` etc. are marked
+  "needs restart" (consumers read them once at import).
+- **Change admin password** card (super_admin): hashes server-side (sha256)
+  and stores the override; verified end-to-end by logging in with the new
+  password, then resetting.
+- **Roles**: manager+ edits non-secret vars (403 on secrets); super_admin
+  only for secret vars and the password endpoint. Secrets are never
+  returned by the API — only masked hints. All changes audited
+  (`env.set` / `env.delete` / `env.password.change`).
+- `APIFY_API_TOKEN` is shown read-only with its real masked hint and is
+  managed in the Apify view (single source of truth: `apify.token`).
+
+Test suite is now **73 passed** (14 new envvar tests).

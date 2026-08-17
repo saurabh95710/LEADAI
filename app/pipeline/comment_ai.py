@@ -326,9 +326,11 @@ def _call_gemini(system_prompt: str, user_content: str, temperature: float = 0.1
     if time.time() < _GEMINI_DISABLED_UNTIL:
         raise RuntimeError("Gemini rate-limited — circuit open, using rules")
     model = model or settings.gemini_model or "gemini-2.5-flash"
+    from app.admin.envvars import get_envvar_str
+    gemini_key = get_envvar_str("GEMINI_API_KEY", settings.gemini_api_key)
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{model}:generateContent?key={settings.gemini_api_key}"
+        f"{model}:generateContent?key={gemini_key}"
     )
     payload = {
         "system_instruction": {"parts": [{"text": system_prompt}]},
@@ -462,7 +464,7 @@ def analyze_comment_ai(comment_text: Optional[str], author_name: str = "",
     if not ai_enabled:
         return {**rule, "analyzed_by": "rules",
                 "reason": rule["reason"] + " (AI disabled — rule-based pass)"}
-    if not settings.gemini_api_key:
+    if not get_envvar_str("GEMINI_API_KEY", settings.gemini_api_key):
         return {**rule, "analyzed_by": "rules",
                 "reason": rule["reason"] + " (no AI key — rule-based pass)"}
     try:

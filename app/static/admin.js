@@ -330,7 +330,7 @@ function renderShell() {
 
 function navigate(view) {
   const known = ["dashboard", "jobs", "failed", "leads", "analytics", "platforms",
-    "apify", "actors", "usage", "limits", "ai", "scoring", "ci", "database",
+    "apify", "actors", "usage", "environment", "limits", "ai", "scoring", "ci", "database",
     "logs", "exports", "users", "security", "features", "maintenance", "health", "audit"];
   if (!known.includes(view)) view = "dashboard";
   state.view = view;
@@ -339,7 +339,8 @@ function navigate(view) {
   const labels = {
     dashboard: "Dashboard", jobs: "Jobs", failed: "Failed Jobs", leads: "Leads",
     analytics: "Analytics", platforms: "Platforms", apify: "Apify",
-    actors: "Actors", usage: "Usage & Cost", limits: "Scraping & Global Limits",
+    actors: "Actors", usage: "Usage & Cost", environment: "Environment",
+    limits: "Scraping & Global Limits",
     ai: "AI / Gemini", scoring: "Lead Scoring", ci: "Comment Intelligence",
     database: "Database", logs: "Logs", exports: "Exports", users: "Users",
     security: "Security", features: "Features", maintenance: "Maintenance",
@@ -351,7 +352,8 @@ function navigate(view) {
   const renderers = {
     dashboard: viewDashboard, jobs: viewJobs, failed: viewFailed, leads: viewLeads,
     analytics: viewAnalytics, platforms: viewPlatforms, apify: viewApify,
-    actors: viewActors, usage: viewUsage, limits: viewLimits, ai: viewAI,
+    actors: viewActors, usage: viewUsage, environment: viewEnvironment,
+    limits: viewLimits, ai: viewAI,
     scoring: viewScoring, ci: viewCI, database: viewDatabase, logs: viewLogs,
     exports: viewExports, users: viewUsers, security: viewSecurity,
     features: viewFeatures, maintenance: viewMaintenance, health: viewHealth,
@@ -402,7 +404,7 @@ async function viewDashboard() {
       <div class="adm-card">
         <div class="adm-card-title">System Status</div>
         <div class="adm-kv">
-          <dt>Database</dt><dd><span class="adm-badge green">connected</span></dd>
+          <dt>Database</dt><dd><span class="adm-badge ${s.database ? "green" : "red"}">${s.database ? "connected" : "down"}</span></dd>
           <dt>Apify token</dt><dd>${s.apify_token ? `<span class="adm-badge green">${esc(s.apify_token_hint)}</span>` : `<span class="adm-badge red">not configured</span>`}</dd>
           <dt>Gemini key</dt><dd>${s.gemini_key ? `<span class="adm-badge green">configured</span>` : `<span class="adm-badge amber">not set (rule fallback)</span>`}</dd>
           <dt>URL search</dt><dd>${s.url_search_enabled ? `<span class="adm-badge green">enabled</span>` : `<span class="adm-badge red">disabled</span>`}</dd>
@@ -963,6 +965,112 @@ async function viewUsage() {
         </tbody>
       </table></div>
     </div>`;
+}
+
+/* ──────────────────────────────── ENVIRONMENT ──────────────────────── */
+const ENV_ROLE = { secret: "super admin", other: "manager+" };
+
+async function viewEnvironment() {
+  const root = $("#view");
+  const data = await api("/api/admin/env");
+  const vars = data.vars;
+  const canWrite = state.user.role !== "viewer";
+  const groups = [...new Set(vars.map((v) => v.group))];
+  const sourceBadge = (v) => v.source === "override"
+    ? `<span class="adm-badge green">override</span>`
+    : v.source === "env"
+      ? `<span class="adm-badge cyan">.env</span>`
+      : `<span class="adm-badge">default</span>`;
+  const valueCell = (v) => {
+    if (v.secret) return `<span class="adm-code">${v.masked ? esc(v.masked) : "—"}</span>`;
+    const raw = String(v.value === undefined || v.value === null ? "" : v.value);
+    return `<span class="adm-code">${esc(raw) || "—"}</span>`;
+  };
+  root.innerHTML = `
+    ${pageHead("Environment", "Live environment variables. An override row wins; otherwise the real .env value applies; otherwise the documented default. Changes take effect immediately unless marked 'needs restart' — the runtime reads these values at the moment they matter.", "")}
+    <div class="adm-note">Secrets are never displayed — only a masked hint. APIFY_API_TOKEN is managed in the Apify view. Environment overrides are stored in the database and survive restarts; they do not rewrite your .env file.</div>
+    ${state.user.role === "super_admin" ? `
+    <div class="adm-card" style="margin-bottom:16px">
+      <div class="adm-card-title">Recovery admin password</div>
+      <div class="adm-field" style="margin-bottom:12px">
+        <label>New password</label>
+        <input class="adm-input" id="envPass" type="password" placeholder="min 8 characters">
+        <span class="adm-hint">Hashed (sha256) server-side and stored as an ADMIN_PASSWORD_HASH override. Effective on the next login.</span>
+      </div>
+      <button class="adm-btn primary" id="envPassBtn">Change password</button>
+    </div>` : ""}
+    ${groups.map((group) => `
+      <div class="adm-card" style="margin-bottom:16px">
+        <div class="adm-card-title">${esc(group)}</div>
+        <div class="adm-table-wrap"><table class="adm-table">
+          <thead><tr><th>Variable</th><th>Value</th><th>Source</th><th>Notes</th><th style="width:150px"></th></tr></thead>
+          <tbody>
+            ${vars.filter((v) => v.group === group).map((v) => `
+              <tr>
+                <td><div class="adm-cell-main">${esc(v.name)}</div>
+                  <div class="adm-cell-sub">${esc(v.description)}</div></td>
+                <td>${valueCell(v)}</td>
+                <td>${sourceBadge(v)}${v.overridden ? `<div class="adm-cell-sub">${v.updated_by || "admin"} · ${v.updated_at ? fmtTime(new Date(v.updated_at * 1000)) : ""}</div>` : ""}</td>
+                <td>${v.restart ? `<span class="adm-badge amber">needs restart</span>` : `<span class="adm-badge green">applies now</span>`}${v.secret ? `<span class="adm-badge">secret</span>` : ""}${v.managed_elsewhere ? `<span class="adm-badge cyan">Apify view</span>` : ""}</td>
+                <td>${canWrite && !v.managed_elsewhere
+                  ? `<div class="adm-btn-row" style="gap:6px">
+                      <button class="adm-btn" data-env-edit="${esc(v.name)}" ${v.secret && state.user.role !== "super_admin" ? "disabled" : ""}>Edit</button>
+                      ${v.overridden ? `<button class="adm-btn danger" data-env-reset="${esc(v.name)}" ${v.secret && state.user.role !== "super_admin" ? "disabled" : ""}>Reset</button>` : ""}
+                    </div>`
+                  : `<span class="adm-badge">read only</span>`}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table></div>
+      </div>`).join("")}`;
+  if (canWrite) {
+    $$("[data-env-edit]", root).forEach((btn) => {
+      btn.onclick = () => {
+        const entry = vars.find((v) => v.name === btn.dataset.envEdit);
+        if (!entry) return;
+        openModal(`Edit ${entry.name}`, `
+          <div class="adm-field">
+            <label>Value</label>
+            <input class="adm-input" id="envInput" type="${entry.secret ? "password" : "text"}" value="${esc(entry.secret ? "" : entry.value)}" placeholder="${entry.kind === "int" ? "number" : entry.kind === "bool" ? "true / false" : "value"}">
+            <span class="adm-hint">${esc(entry.description)}${entry.secret ? " Never displayed again — only a masked hint." : ""}</span>
+          </div>`, `
+          <button class="adm-btn" data-close>Cancel</button>
+          <button class="adm-btn primary" id="envSaveBtn">Save</button>`);
+        $("#modalBackdrop").onclick = (e) => { if (e.target.id === "modalBackdrop") closeModal(); };
+        $("[data-close]", $("#modalBox")).onclick = closeModal;
+        $("#envSaveBtn").onclick = async () => {
+          const value = $("#envInput").value.trim();
+          if (!value) { toast("A value is required", "error"); return; }
+          try {
+            await api(`/api/admin/env/${encodeURIComponent(entry.name)}`, { method: "PUT", body: { value } });
+            toast(`${entry.name} saved`, "ok");
+            closeModal();
+            viewEnvironment();
+          } catch (err) { toast(err.message, "error"); }
+        };
+      };
+    });
+    $$("[data-env-reset]", root).forEach((btn) => {
+      btn.onclick = () => {
+        const name = btn.dataset.envReset;
+        confirmModal(`Reset ${name}`, `The database override will be removed; the real .env value (or default) becomes active again.`, async () => {
+          await api(`/api/admin/env/${encodeURIComponent(name)}`, { method: "DELETE" });
+          toast(`${name} reset`, "ok");
+          viewEnvironment();
+        }, "Reset");
+      };
+    });
+    const passBtn = $("#envPassBtn");
+    if (passBtn) passBtn.onclick = async () => {
+      const password = $("#envPass").value;
+      if (password.length < 8) { toast("Password must be at least 8 characters", "error"); return; }
+      try {
+        await api("/api/admin/env/password", { method: "POST", body: { new_password: password } });
+        toast("Admin password changed", "ok");
+        $("#envPass").value = "";
+        viewEnvironment();
+      } catch (err) { toast(err.message, "error"); }
+    };
+  }
 }
 
 /* ──────────────────────────────── LIMITS ──────────────────────────── */

@@ -66,6 +66,8 @@ def test_cookie_garbage_rejected():
 
 def test_cookie_expiry():
     _patch()
+    from app.admin.envvars import clear_cache as clear_env_cache
+    clear_env_cache()
     service.get_settings().session_ttl_days = 0
     value = service.build_session_value({"email": "admin@gmail.com", "name": "Admin", "role": "admin"})
     assert service.parse_session_value(value) is None

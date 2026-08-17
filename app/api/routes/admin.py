@@ -26,6 +26,7 @@ from fastapi.responses import Response
 
 from app.admin import settings as s
 from app.admin import audit as a
+from app.admin import envvars as ev
 from app.auth.roles import require_manager, require_super, require_viewer
 from app.config import get_settings
 from app.db.mongo import get_async_db
@@ -179,7 +180,7 @@ async def dashboard():
             "database": True,
             "apify_token": bool(apify_token_hint),
             "apify_token_hint": apify_token_hint,
-            "gemini_key": bool(settings.gemini_api_key),
+            "gemini_key": bool(ev.get_envvar_str("GEMINI_API_KEY", settings.gemini_api_key)),
             "maintenance": await s.aget_setting("maintenance.enabled"),
             "url_search_enabled": await s.aget_setting("features.url_search.enabled"),
         },
@@ -643,6 +644,76 @@ async def clear_apify_token():
     return {"success": True, "message": "Token override removed (env token still applies)"}
 
 
+# ── ENVIRONMENT VARIABLES ────────────────────────────────────────────────────
+# Registry-backed env management: an override row wins, otherwise the real
+# .env / process value applies, otherwise the documented default. Secrets are
+# never returned — only masked hints. Restart-flagged vars take effect after
+# the process restarts (their consumers read once at import).
+
+
+@router.get("/env", dependencies=[Depends(require_viewer)])
+async def env_list():
+    return {"vars": ev.all_envvar_info()}
+
+
+@router.put("/env/{name}", dependencies=[Depends(require_manager)])
+async def env_set(name: str, body: Dict[str, Any],
+                  admin: dict = Depends(require_viewer)):
+    if not ev.known_name(name):
+        raise HTTPException(status_code=404, detail=f"Unknown env var: {name}")
+    if ev.is_managed_elsewhere(name):
+        raise HTTPException(status_code=400,
+                            detail=f"{name} is managed in the Apify view")
+    if ev.is_secret(name) and admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403,
+                            detail="Only super admin can change secret env vars")
+    value = body.get("value")
+    if value is None or value == "":
+        raise HTTPException(status_code=400, detail="value is required")
+    ok = await ev.aset_envvar_override(name, value, by="admin")
+    if not ok:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    await a.aaudit("env.set", "env", details={"name": name})
+    return {"success": True, "entry": ev.envvar_info(name)}
+
+
+@router.delete("/env/{name}", dependencies=[Depends(require_manager)])
+async def env_delete(name: str, admin: dict = Depends(require_viewer)):
+    if not ev.known_name(name):
+        raise HTTPException(status_code=404, detail=f"Unknown env var: {name}")
+    if ev.is_managed_elsewhere(name):
+        raise HTTPException(status_code=400,
+                            detail=f"{name} is managed in the Apify view")
+    if ev.is_secret(name) and admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403,
+                            detail="Only super admin can reset secret env vars")
+    if not ev.envvar_info(name)["overridden"]:
+        return {"success": True, "message": "No override to remove"}
+    ok = ev.delete_envvar_override(name)
+    if not ok:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    await a.aaudit("env.delete", "env", details={"name": name})
+    return {"success": True, "entry": ev.envvar_info(name)}
+
+
+@router.post("/env/password", dependencies=[Depends(require_super)])
+async def env_change_password(body: Dict[str, Any]):
+    """Change the recovery admin password: hash it server-side, store as an
+    override of ADMIN_PASSWORD_HASH. Takes effect on the next login."""
+    new_password = str(body.get("new_password") or "")
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400,
+                            detail="Password must be at least 8 characters")
+    import hashlib
+    hashed = hashlib.sha256(new_password.encode("utf-8")).hexdigest()
+    ok = await ev.aset_envvar_override("ADMIN_PASSWORD_HASH", hashed, by="admin")
+    if not ok:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    await a.aaudit("env.password.change", "env",
+                   details={"admin_password_hash": "••••"})
+    return {"success": True, "masked": ev.envvar_info("ADMIN_PASSWORD_HASH")["masked"]}
+
+
 @router.get("/usage", dependencies=[Depends(require_viewer)])
 async def usage(days: int = Query(30, ge=1, le=365)):
     """Apify usage from REAL run metadata stored on search runs."""
@@ -750,7 +821,7 @@ _AI_KEYS = [k for k in s.SETTING_DEFAULTS if k.startswith("ai.")]
 @router.get("/ai", dependencies=[Depends(require_viewer)])
 async def get_ai():
     return {"settings": {k: await s.aget_setting(k) for k in _AI_KEYS},
-            "gemini_key_configured": bool(settings.gemini_api_key)}
+            "gemini_key_configured": bool(ev.get_envvar_str("GEMINI_API_KEY", settings.gemini_api_key))}
 
 
 @router.put("/ai", dependencies=[Depends(require_manager)])
@@ -1098,17 +1169,18 @@ async def list_users():
             {}, {"password_hash": 0}).sort("email", 1):
         rows.append(_serialize_oid(doc))
     env_admin = {
-        "email": settings.admin_email,
+        "email": ev.get_envvar_str("ADMIN_EMAIL", settings.admin_email),
         "name": "Admin",
         "role": "super_admin",
         "env_account": True,
         "enabled": True,
     }
-    if not any(r["email"] == settings.admin_email for r in rows):
+    env_email = env_admin["email"]
+    if not any(r["email"] == env_email for r in rows):
         rows.insert(0, env_admin)
     else:
         for r in rows:
-            if r["email"] == settings.admin_email:
+            if r["email"] == env_email:
                 r["env_account"] = True
     return {"users": rows}
 
@@ -1187,7 +1259,7 @@ async def delete_user(user_id: str):
     user = await db["admin_users"].find_one({"_id": oid})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    if user["email"] == settings.admin_email:
+    if user["email"] == ev.get_envvar_str("ADMIN_EMAIL", settings.admin_email):
         raise HTTPException(status_code=400, detail="The environment admin account cannot be deleted")
     await db["admin_users"].delete_one({"_id": oid})
     await a.aaudit("user.delete", "users", details={"email": user["email"]})
@@ -1206,7 +1278,8 @@ async def security(admin: dict = Depends(require_viewer)):
     return {
         "settings": {k: await s.aget_setting(k) for k in _SECURITY_KEYS},
         "me": admin,
-        "session_timeout_hours_env": settings.session_ttl_days * 24,
+        "session_timeout_hours_env": ev.get_envvar_int(
+            "SESSION_TTL_DAYS", settings.session_ttl_days) * 24,
         "login_protection_active": _login_protection_active(),
     }
 
@@ -1306,7 +1379,7 @@ async def health_check():
         "last_test_ok": await s.aget_setting("apify.last_test_ok"),
     }
     # Gemini
-    checks["gemini"] = {"ok": bool(settings.gemini_api_key)}
+    checks["gemini"] = {"ok": bool(ev.get_envvar_str("GEMINI_API_KEY", settings.gemini_api_key))}
     # Log file
     log_path = _log_file_path()
     checks["logs"] = {
