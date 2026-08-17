@@ -160,28 +160,279 @@ async def _actor_info(key: str) -> Dict[str, Any]:
     }
 
 
+def _day_range(days: int) -> tuple:
+    """Start/end datetimes for the last N calendar days (UTC)."""
+    now = datetime.now(timezone.utc)
+    end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    start = (now - timedelta(days=days - 1)).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    return start, end
+
+
+def _range_query(field: str, start: datetime, end: datetime,
+                 extra: Optional[dict] = None) -> Dict[str, Any]:
+    """Query for docs whose `field` (BSON date OR ISO string — legacy rows)
+    falls inside [start, end], with optional extra conditions."""
+    expr = {"$and": [
+        {"$gte": [{"$convert": {"input": f"${field}", "to": "date",
+                                "onError": None, "onNull": None}}, start]},
+        {"$lte": [{"$convert": {"input": f"${field}", "to": "date",
+                                "onError": None, "onNull": None}}, end]},
+    ]}
+    if extra:
+        return {"$and": [{"$expr": expr}, extra]}
+    return {"$expr": expr}
+
+
+def _date_key(value: Any) -> datetime:
+    """Best-effort datetime from either a BSON date or ISO string."""
+    if isinstance(value, datetime):
+        return value
+    try:
+        return _iso(str(value)) or datetime.now(timezone.utc)
+    except Exception:
+        return datetime.now(timezone.utc)
+
+
+async def _daily_counts(db, coll: str, field: str, start: datetime,
+                        end: datetime, extra: Optional[dict] = None
+                        ) -> List[Dict[str, Any]]:
+    """Daily counts for `field` between start/end. Handles mixed string/date
+    storage via $convert; never raises on schema drift."""
+    converted = {"$convert": {"input": f"${field}", "to": "date",
+                              "onError": None, "onNull": None}}
+    match: Dict[str, Any] = {"$and": [
+        {"$expr": {"$gte": [converted, start]}},
+        {"$expr": {"$lte": [converted, end]}},
+    ]}
+    if extra:
+        match["$and"].append(extra)
+    pipeline = [
+        {"$match": match},
+        {"$group": {"_id": {"$dateToString": {"format": "%Y-%m-%d", "date": converted}},
+                    "count": {"$sum": 1}}},
+        {"$sort": {"_id": 1}},
+    ]
+    try:
+        return [{"date": d["_id"], "count": d["count"]}
+                async for d in db[coll].aggregate(pipeline)]
+    except Exception as e:
+        logger.warning("daily_counts failed for %s.%s: %s", coll, field, e)
+        return []
+
+
+def _fill_daily(series: List[Dict[str, Any]], start: datetime, end: datetime
+                ) -> Dict[str, int]:
+    """Zero-filled {date: count} map for every day in [start, end]."""
+    out: Dict[str, int] = {}
+    day = start
+    while day <= end:
+        key = day.strftime("%Y-%m-%d")
+        out[key] = 0
+        day += timedelta(days=1)
+    for item in series:
+        out[item["date"]] = item.get("count", 0)
+    return out
+
+
+def _pct_change(current: int, previous: int) -> Optional[float]:
+    if previous <= 0:
+        return None
+    return round((current - previous) / previous * 100, 1)
+
+
+async def _derive_alerts(db, start: datetime, end: datetime) -> List[Dict[str, Any]]:
+    """Data-driven alerts for the dashboard: every message comes from a real
+    query against the database or configured settings."""
+    alerts = []
+    running = await _count(db, "search_history", {"status": "running"})
+    if running:
+        alerts.append({
+            "id": "jobs-running", "severity": "info",
+            "title": f"{running} job{'s' if running != 1 else ''} running",
+            "message": "Active scrapes in progress.",
+            "route": "#/jobs?status=running",
+        })
+    failed_window = await _count(db, "search_history", _range_query(
+        "created_at", datetime.now(timezone.utc) - timedelta(days=1),
+        datetime.now(timezone.utc), {"status": "error"}))
+    if failed_window:
+        alerts.append({
+            "id": "recent-failures", "severity": "warn",
+            "title": f"{failed_window} failed in the last 24h",
+            "message": "Scrape runs ended in error. Review the failures.",
+            "route": "#/failed",
+        })
+    if not s.get_apify_token():
+        alerts.append({
+            "id": "apify-missing", "severity": "warn",
+            "title": "Apify token not configured",
+            "message": "Scraping cannot start without an Apify token.",
+            "route": "#/apify",
+        })
+    elif await s.aget_setting("apify.last_test_ok") is None:
+        alerts.append({
+            "id": "apify-untested", "severity": "info",
+            "title": "Apify connection untested",
+            "message": "Run a connection test to verify the token works.",
+            "route": "#/apify",
+        })
+    if not ev.get_envvar_str("GEMINI_API_KEY", settings.gemini_api_key):
+        alerts.append({
+            "id": "gemini-missing", "severity": "warn",
+            "title": "Gemini key not set",
+            "message": "AI analysis falls back to rule-based scoring only.",
+            "route": "#/ai",
+        })
+    new_leads = await _count(db, "ai_comments", _range_query(
+        "analyzed_at", start, end, {"is_lead": True}))
+    if new_leads:
+        alerts.append({
+            "id": "new-leads", "severity": "ok",
+            "title": f"{new_leads} new lead{'s' if new_leads != 1 else ''} in range",
+            "message": "Qualified contacts captured.",
+            "route": "#/leads",
+        })
+    if await s.aget_setting("maintenance.enabled"):
+        alerts.append({
+            "id": "maintenance-on", "severity": "warn",
+            "title": "Maintenance mode is active",
+            "message": "Public API operations are disabled until turned off.",
+            "route": "#/maintenance",
+        })
+    return alerts
+
+
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # DASHBOARD
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/dashboard", dependencies=[Depends(require_viewer)])
-async def dashboard():
+async def dashboard(days: int = Query(30, ge=1, le=365),
+                    from_date: Optional[str] = Query(None),
+                    to_date: Optional[str] = Query(None)):
     db = await _db()
-    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    jobs_total = await _count(db, "search_history")
-    jobs_today = await _count(db, "search_history", {"created_at": {"$gte": today}})
-    jobs_running = await _count(db, "search_history", {"status": "running"})
-    jobs_failed = await _count(db, "search_history", {"status": "error"})
+    if from_date or to_date:
+        start = _iso(from_date) or (datetime.now(timezone.utc) -
+                                    timedelta(days=29)).replace(
+            hour=0, minute=0, second=0, microsecond=0)
+        end = _iso(to_date) or datetime.now(timezone.utc)
+        end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
+    else:
+        start, end = _day_range(days)
+    span = (end - start).days + 1
+    prev_start = start - timedelta(days=span)
+    prev_end = start - timedelta(days=1)
 
-    pages = await _count(db, "facebook_pages")
-    posts = await _count(db, "facebook_posts")
-    comments = await _count(db, "facebook_comments")
-    analyzed = await _count(db, "ai_comments")
-    leads = await _count(db, "ai_comments", {"is_lead": True})
-    leads_contact = await _count(db, "ai_comments", {
-        "is_lead": True, "$or": [
-            {"phone": {"$ne": None}}, {"email": {"$ne": None}},
-            {"whatsapp": {"$ne": None}}]})
+    # Daily series per collection (handles mixed string/date storage).
+    daily = {}
+    for key, (coll, field, extra) in {
+        "searches": ("search_history", "created_at", None),
+        "pages": ("facebook_pages", "collected_at", None),
+        "posts": ("facebook_posts", "collected_at", None),
+        "comments": ("facebook_comments", "created_at", None),
+        "leads": ("ai_comments", "analyzed_at", {"is_lead": True}),
+    }.items():
+        counts = await _daily_counts(db, coll, field, start, end, extra)
+        daily[key] = _fill_daily(counts, start, end)
+    labels = [(start + timedelta(days=i)).strftime("%Y-%m-%d")
+              for i in range(span)]
+    series = lambda key: [daily[key][d] for d in labels]
+
+    async def window_total(coll, field, s, e, extra=None):
+        return sum(c["count"] for c in
+                   await _daily_counts(db, coll, field, s, e, extra))
+
+    def kpi(key, label, value, previous, change, key_series):
+        return {"key": key, "label": label, "value": value,
+                "previous": previous, "change": change,
+                "series": key_series}
+
+    searches_prev = await window_total("search_history", "created_at",
+                                       prev_start, prev_end)
+    searches_now = await window_total("search_history", "created_at",
+                                      start, end)
+    leads_prev = await window_total("ai_comments", "analyzed_at",
+                                    prev_start, prev_end, {"is_lead": True})
+    leads_now = await window_total("ai_comments", "analyzed_at",
+                                   start, end, {"is_lead": True})
+    kpis = [
+        kpi("searches", "Searches", searches_now, searches_prev,
+            _pct_change(searches_now, searches_prev), series("searches")),
+        kpi("running", "Running",
+            await _count(db, "search_history", {"status": "running"}),
+            0, None, series("searches")),
+        kpi("failed", "Failed",
+            await _count(db, "search_history", {"status": "error"}),
+            0, None, series("searches")),
+        kpi("pages", "Pages",
+            await _count(db, "facebook_pages"), 0, None, series("pages")),
+        kpi("posts", "Posts",
+            await _count(db, "facebook_posts"), 0, None, series("posts")),
+        kpi("comments", "Comments",
+            await _count(db, "facebook_comments"), 0, None,
+            series("comments")),
+        kpi("analyzed", "AI Analyzed",
+            await _count(db, "ai_comments"), 0, None, series("leads")),
+        kpi("leads", "Leads", leads_now, leads_prev,
+            _pct_change(leads_now, leads_prev), series("leads")),
+    ]
+
+    leads_by_platform = []
+    try:
+        async for doc in db.ai_comments.aggregate([
+            {"$match": _range_query("analyzed_at", start, end,
+                                    {"is_lead": True})},
+            {"$group": {"_id": "$platform", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+        ]):
+            leads_by_platform.append(
+                {"platform": doc["_id"] or "other", "count": doc.get("count", 0)})
+    except Exception as e:
+        logger.warning("dashboard leads_by_platform failed: %s", e)
+
+    performance = {"success_rate": None, "avg_duration_s": None,
+                   "leads": leads_now, "analyzed":
+                   await _count(db, "ai_comments")}
+    try:
+        statuses = {}
+        async for doc in db.search_history.aggregate([
+            {"$match": _range_query("created_at", start, end)},
+            {"$group": {"_id": "$status", "count": {"$sum": 1}}},
+        ]):
+            statuses[doc["_id"] or "unknown"] = doc.get("count", 0)
+        total = sum(statuses.values())
+        completed = statuses.get("completed", 0)
+        performance["success_rate"] = round(completed / total * 100, 1) \
+            if total else None
+        async for doc in db.search_history.aggregate([
+            {"$match": {"status": "completed",
+                        "$expr": {"$and": [
+                            {"$gte": [{"$convert": {"input": "$created_at",
+                                                    "to": "date",
+                                                    "onError": None,
+                                                    "onNull": None}}, start]},
+                            {"$lte": [{"$convert": {"input": "$created_at",
+                                                    "to": "date",
+                                                    "onError": None,
+                                                    "onNull": None}}, end]}]}}},
+            {"$project": {"dur": {"$subtract": [
+                {"$convert": {"input": "$completed_at", "to": "date",
+                              "onError": None, "onNull": None}},
+                {"$convert": {"input": "$created_at", "to": "date",
+                              "onError": None, "onNull": None}}]}}},
+            {"$group": {"_id": None, "avg": {"$avg": "$dur"}}},
+        ]):
+            avg = doc.get("avg")
+            performance["avg_duration_s"] = round(avg, 1) \
+                if avg is not None else None
+    except Exception as e:
+        logger.warning("dashboard performance failed: %s", e)
+
+    recent = []
+    async for run in (db.search_history.find()
+                      .sort("created_at", -1).limit(8)):
+        recent.append(_serialize_oid(run))
 
     by_platform = []
     for platform in s.PLATFORMS:
@@ -190,18 +441,30 @@ async def dashboard():
         stats["enabled"] = await s.aget_setting(f"platform.{platform}.enabled")
         by_platform.append(stats)
 
-    recent = []
-    async for run in (db.search_history.find()
-                      .sort("created_at", -1).limit(8)):
-        recent.append(_serialize_oid(run))
-
     apify_token_hint = s.get_apify_token_hint()
     return {
+        "range": {
+            "from": start.isoformat(), "to": end.isoformat(), "days": span,
+            "label": f"{start.strftime('%b %d')} – {end.strftime('%b %d, %Y')}",
+        },
+        "kpis": kpis,
+        "activity": {"labels": labels,
+                     "searches": series("searches"),
+                     "pages": series("pages"),
+                     "posts": series("posts"),
+                     "comments": series("comments"),
+                     "leads": series("leads")},
+        "leads_by_platform": leads_by_platform,
+        "performance": performance,
+        "alerts": await _derive_alerts(db, start, end),
         "counts": {
-            "jobs_total": jobs_total, "jobs_today": jobs_today,
-            "jobs_running": jobs_running, "jobs_failed": jobs_failed,
-            "pages": pages, "posts": posts, "comments": comments,
-            "analyzed": analyzed, "leads": leads, "leads_contact": leads_contact,
+            "jobs_total": searches_now,
+            "jobs_today": sum(series("searches")[-1:]),
+            "jobs_running": kpis[1]["value"], "jobs_failed": kpis[2]["value"],
+            "pages": kpis[3]["value"], "posts": kpis[4]["value"],
+            "comments": kpis[5]["value"], "analyzed": kpis[6]["value"],
+            "leads": leads_now, "leads_contact": await _count(
+                db, "ai_comments", _contact_query()),
         },
         "platforms": by_platform,
         "recent_jobs": recent,
@@ -214,6 +477,63 @@ async def dashboard():
             "url_search_enabled": await s.aget_setting("features.url_search.enabled"),
         },
     }
+
+
+@router.get("/alerts", dependencies=[Depends(require_viewer)])
+async def alerts():
+    """Notifications for the topbar bell: last-24h window."""
+    db = await _db()
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(days=1)
+    return {"alerts": await _derive_alerts(db, start, now),
+            "checked_at": time.time()}
+
+
+@router.get("/search", dependencies=[Depends(require_viewer)])
+async def global_search(q: str = Query(..., min_length=2, max_length=80)):
+    """Global admin search across jobs, leads, pages, posts, comments and
+    platform names. Each group is capped at 5 results."""
+    db = await _db()
+    needle = re.escape(q)
+    result: Dict[str, Any] = {"query": q}
+
+    jobs = [doc async for doc in db.search_history.find(
+        {"$or": [{"query": {"$regex": needle, "$options": "i"}},
+                 {"run_id": {"$regex": needle, "$options": "i"}}]},
+        {"run_id": 1, "query": 1, "status": 1}).sort("created_at", -1).limit(5)]
+    result["jobs"] = _serialize_oid([{**j, "query": j.get("query") or ""}
+                                     for j in jobs])
+
+    leads = [doc async for doc in db.ai_comments.find(
+        {"$or": [{"commenter_name": {"$regex": needle, "$options": "i"}},
+                 {"comment_text": {"$regex": needle, "$options": "i"}},
+                 {"phone": {"$regex": needle}},
+                 {"email": {"$regex": needle, "$options": "i"}}]},
+        {"_id": 1, "commenter_name": 1, "intent": 1, "lead_score": 1})
+        .sort("lead_score", -1).limit(5)]
+    result["leads"] = _serialize_oid(leads)
+
+    pages = [doc async for doc in db.facebook_pages.find(
+        {"$or": [{"page_name": {"$regex": needle, "$options": "i"}},
+                 {"category": {"$regex": needle, "$options": "i"}},
+                 {"city": {"$regex": needle, "$options": "i"}}]},
+        {"page_name": 1, "category": 1, "city": 1}).limit(5)]
+    result["pages"] = _serialize_oid(pages)
+
+    posts = [doc async for doc in db.facebook_posts.find(
+        {"$or": [{"caption": {"$regex": needle, "$options": "i"}},
+                 {"page_name": {"$regex": needle, "$options": "i"}}]},
+        {"caption": 1, "page_name": 1}).sort("published_date", -1).limit(5)]
+    result["posts"] = _serialize_oid(posts)
+
+    comments = [doc async for doc in db.ai_comments.find(
+        {"$or": [{"comment_text": {"$regex": needle, "$options": "i"}},
+                 {"author_name": {"$regex": needle, "$options": "i"}}]},
+        {"comment_text": 1, "author_name": 1}).sort("lead_score", -1).limit(5)]
+    result["comments"] = _serialize_oid(comments)
+
+    result["platforms"] = [p for p in s.PLATFORMS if q.lower() in p]
+    return {"results": result}
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -419,9 +739,33 @@ async def failed_jobs(offset: int = Query(0, ge=0), limit: int = Query(20, ge=1,
     rows = [doc async for doc in
             db.search_history.find(query).sort("created_at", -1)
             .skip(offset).limit(limit)]
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    summary = {
+        "total": await _count(db, "search_history", query),
+        "today": await _count(db, "search_history",
+                              _range_query("created_at", today_start, now, query)),
+        "this_week": await _count(
+            db, "search_history",
+            _range_query("created_at", today_start - timedelta(days=6), now, query)),
+        "top_error": None,
+    }
+    try:
+        async for doc in db.search_history.aggregate([
+            {"$match": query},
+            {"$group": {"_id": {"$ifNull": ["$message", "unknown"]},
+                        "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+            {"$limit": 1},
+        ]):
+            summary["top_error"] = {"message": str(doc["_id"])[:160],
+                                    "count": doc.get("count", 0)}
+    except Exception as e:
+        logger.warning("failed-jobs top_error failed: %s", e)
     return {
         "items": [_serialize_oid(r) for r in rows],
         "total": await _count(db, "search_history", query),
+        "summary": summary,
     }
 
 
@@ -464,10 +808,36 @@ async def list_leads(
     rows = [doc async for doc in
             db.ai_comments.find(query).sort("lead_score", -1)
             .skip(offset).limit(limit)]
+    summary = {"total": await _count(db, "ai_comments", {"is_lead": True}),
+               "with_contact": 0, "by_platform": {}, "this_week": 0,
+               "avg_score": None}
+    try:
+        summary["with_contact"] = await _count(
+            db, "ai_comments", {"is_lead": True, **_contact_query()})
+        now = datetime.now(timezone.utc)
+        week_start = now - timedelta(days=7)
+        summary["this_week"] = await _count(
+            db, "ai_comments",
+            _range_query("analyzed_at", week_start, now, {"is_lead": True}))
+        async for doc in db.ai_comments.aggregate([
+            {"$match": {"is_lead": True}},
+            {"$group": {"_id": "$platform", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+        ]):
+            summary["by_platform"][doc["_id"] or "other"] = doc.get("count", 0)
+        async for doc in db.ai_comments.aggregate([
+            {"$match": {"is_lead": True}},
+            {"$group": {"_id": None, "avg": {"$avg": "$lead_score"}}},
+        ]):
+            avg = doc.get("avg")
+            summary["avg_score"] = round(avg, 1) if avg is not None else None
+    except Exception as e:
+        logger.warning("leads summary failed: %s", e)
     return {
         "items": [_serialize_oid(r) for r in rows],
         "total": await _count(db, "ai_comments", query),
         "offset": offset, "limit": limit,
+        "summary": summary,
     }
 
 
@@ -987,7 +1357,15 @@ _LIMITS_KEYS = [k for k in s.SETTING_DEFAULTS if k.startswith(("limits.", "cost.
 
 @router.get("/limits", dependencies=[Depends(require_viewer)])
 async def get_limits():
-    return {"settings": {k: await s.aget_setting(k) for k in _LIMITS_KEYS}}
+    db = await _db()
+    usage = {
+        "pages": await _count(db, "facebook_pages"),
+        "posts": await _count(db, "facebook_posts"),
+        "comments": await _count(db, "facebook_comments"),
+        "leads": await _count(db, "ai_comments", {"is_lead": True}),
+    }
+    return {"settings": {k: await s.aget_setting(k) for k in _LIMITS_KEYS},
+            "usage": usage}
 
 
 @router.put("/limits", dependencies=[Depends(require_manager)])
@@ -1013,8 +1391,17 @@ _AI_KEYS = [k for k in s.SETTING_DEFAULTS if k.startswith("ai.")]
 
 @router.get("/ai", dependencies=[Depends(require_viewer)])
 async def get_ai():
+    db = await _db()
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    counts = {"analyzed": await _count(db, "ai_comments"),
+              "this_month": await _count(
+                  db, "ai_comments",
+                  _range_query("analyzed_at", month_start, now)),
+              "leads": await _count(db, "ai_comments", {"is_lead": True})}
     return {"settings": {k: await s.aget_setting(k) for k in _AI_KEYS},
-            "gemini_key_configured": bool(ev.get_envvar_str("GEMINI_API_KEY", settings.gemini_api_key))}
+            "gemini_key_configured": bool(ev.get_envvar_str("GEMINI_API_KEY", settings.gemini_api_key)),
+            "counts": counts}
 
 
 @router.put("/ai", dependencies=[Depends(require_manager)])
@@ -1344,8 +1731,14 @@ async def database():
                  "admin_users", "audit_logs"):
         coll = db[name]
         count = 0
+        size = None
         try:
             count = await coll.count_documents({})
+        except Exception:
+            pass
+        try:
+            stats = await db.command("collStats", name)
+            size = stats.get("size")
         except Exception:
             pass
         indexes = []
@@ -1359,7 +1752,7 @@ async def database():
         except Exception:
             pass
         collections.append({"name": name, "documents": count,
-                            "indexes": indexes})
+                            "size": size, "indexes": indexes})
     return {"db_stats": db_stats, "collections": collections}
 
 
@@ -1368,8 +1761,8 @@ async def database():
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _log_file_path() -> str:
-    return os.path.join(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.abspath(__file__)))), "logs", "app.log")
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__))))), "logs", "app.log")
 
 
 def _tail_log(lines: int = 200, level: Optional[str] = None,

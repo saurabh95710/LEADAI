@@ -2,6 +2,8 @@
    LeadAI Admin Control Center — frontend application
    Vanilla JS SPA. Every number comes from the real backend; every control
    writes through the admin API and the backend enforces it.
+   Design system: "leads turned to gold" — gold = value moments only,
+   violet = AI / Gemini only.
    ══════════════════════════════════════════════════════════════════════ */
 "use strict";
 
@@ -87,41 +89,109 @@ function money(value) {
   return n.toFixed(4);
 }
 
+function fmtNum(value) {
+  const n = Number(value);
+  if (value === undefined || value === null || isNaN(n)) return "—";
+  return n.toLocaleString();
+}
+
+function fmtBytes(value) {
+  const n = Number(value);
+  if (value === undefined || value === null || isNaN(n)) return "—";
+  if (n < 1024) return `${n} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let i = -1;
+  let v = n;
+  do { v /= 1024; i++; } while (v >= 1024 && i < units.length - 1);
+  return `${v.toFixed(v >= 10 ? 1 : 2)} ${units[i]}`;
+}
+
+/* Inline SVG icons (24×24, stroke = currentColor) */
+const ICONS = {
+  dashboard: '<path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/>',
+  jobs: '<circle cx="12" cy="12" r="9"/><path d="M10 8.5l6 3.5-6 3.5z" fill="currentColor" stroke="none"/>',
+  failed: '<path d="M12 3l10 18H2z"/><path d="M12 10v5"/><circle cx="12" cy="17.5" r=".6" fill="currentColor" stroke="none"/>',
+  leads: '<path d="M12 3l2.4 6.2L21 9.7l-4.9 4.4 1.4 6.4L12 17.2l-5.5 3.3 1.4-6.4L3 9.7l6.6-.5z"/>',
+  analytics: '<path d="M4 20V4M4 20h16"/><path d="M8 16v-5M12 16V8M16 16v-3M20 16V6"/>',
+  platforms: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18 15 15 0 010-18z"/>',
+  apify: '<rect x="4" y="8" width="16" height="11" rx="2"/><path d="M12 8V5M8 5h8"/><path d="M9 14h.01M12 14h.01M15 14h.01"/>',
+  actors: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  usage: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/><path d="M7 6.5C5.6 7.6 5 9.6 5 12s.6 4.4 2 5.5"/>',
+  environment: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M2 14h4M10 8h4M18 16h4"/>',
+  ai: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>',
+  scoring: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/>',
+  ci: '<path d="M21 12a8 8 0 01-8 8H4l2.5-2.5A8 8 0 1121 12z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/>',
+  limits: '<path d="M12 3l8 3v6c0 4.5-3.2 7.7-8 9-4.8-1.3-8-4.5-8-9V6z"/><path d="M12 8v5M12 15.5h.01"/>',
+  database: '<ellipse cx="12" cy="5.5" rx="8" ry="2.5"/><path d="M4 5.5v13c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-13"/><path d="M4 12c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5"/>',
+  logs: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>',
+  health: '<path d="M3 12h4l2-6 4 12 2-6h6"/>',
+  exports: '<path d="M12 4v11M8 11l4 4 4-4"/><path d="M4 19h16"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.2 3.3-5 6.5-5s5.7 1.8 6.5 5"/><circle cx="17.5" cy="9" r="2.5"/><path d="M17 15c2.6.3 4.2 2 4.5 5"/>',
+  security: '<rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/><circle cx="12" cy="15" r="1.2"/>',
+  features: '<path d="M4 8h10M18 8h2M4 16h2M10 16h10"/><circle cx="16" cy="8" r="2"/><circle cx="8" cy="16" r="2"/>',
+  maintenance: '<path d="M14.5 6.5a5 5 0 106.9 6.9c-.4 2.6-2.4 4.6-5 5L4 21l2.6-12.4a5 5 0 015-5c-.8 2.2-.6 3.9.9 2.9z"/>',
+  audit: '<path d="M5 4h14v16H5z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/>',
+  bell: '<path d="M6 9a6 6 0 0112 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 19a2 2 0 004 0"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/>',
+  external: '<path d="M14 4h6v6M20 4L10 14"/><path d="M20 14v5a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2h5"/>',
+  eye: '<path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  refresh: '<path d="M20 12a8 8 0 11-2.3-5.7M20 4v4h-4"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  run: '<path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/>',
+};
+
+function icon(name, size = 16) {
+  const p = ICONS[name] || ICONS.dashboard;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+}
+
+function initials(name) {
+  const clean = String(name || "?").trim();
+  const parts = clean.split(/[\s@.]+/).filter(Boolean);
+  const a = (parts[0] || "?")[0] || "?";
+  const b = parts.length > 1 ? (parts[1] || "")[0] : "";
+  return (a + b).toUpperCase() || "?";
+}
+
+/* ──────────────────────────────── Badges ──────────────────────────── */
 function statusBadge(status) {
   const map = {
-    running: ["blue", "⟳ running"], completed: ["green", "✓ completed"],
-    error: ["red", "✕ error"], cancelled: ["amber", "◌ cancelled"],
-    queued: ["violet", "◌ queued"], skipped: ["cyan", "⊘ skipped"],
-    empty: ["amber", "○ empty"], pending: ["violet", "○ pending"],
-    not_started: ["cyan", "· not started"], started: ["blue", "⟳ started"],
+    running: ["green", "running"], started: ["green", "started"],
+    completed: ["green", "completed"], error: ["red", "error"],
+    cancelled: ["gray", "cancelled"], queued: ["amber", "queued"],
+    skipped: ["gray", "skipped"], empty: ["gray", "empty"],
+    pending: ["amber", "pending"], not_started: ["gray", "not started"],
   };
-  const [cls, label] = map[status] || ["", status || "—"];
-  return `<span class="adm-badge ${cls}">${label}</span>`;
+  const live = status === "running" || status === "started";
+  const [cls, label] = map[status] || ["gray", status || "—"];
+  return `<span class="adm-badge ${cls}${live ? " pulse" : ""}">${label}</span>`;
 }
 
 function platformBadge(p) {
-  const map = {
-    facebook: "blue", instagram: "violet", linkedin: "cyan", youtube: "red",
-  };
-  return `<span class="adm-badge ${map[p] || ""}">${esc(p || "unknown")}</span>`;
+  return `<span class="adm-badge gray plain">${esc(p || "unknown")}</span>`;
 }
 
 function qualityBadge(q) {
-  if (!q) return `<span class="adm-badge">—</span>`;
-  const cls = q === "hot" ? "red" : q === "warm" ? "amber" : "cyan";
+  if (!q) return `<span class="adm-badge gray plain">—</span>`;
+  const cls = q === "hot" ? "red" : q === "warm" ? "amber" : "gray";
   return `<span class="adm-badge ${cls}">${esc(q)}</span>`;
 }
 
 function leadStatusBadge(s) {
-  const map = { new: "blue", contacted: "violet", qualified: "cyan", converted: "green", ignored: "amber" };
-  return `<span class="adm-badge ${map[s] || ""}">${esc(s || "—")}</span>`;
+  const map = { new: "amber", contacted: "gold", qualified: "green", converted: "green", ignored: "gray" };
+  return `<span class="adm-badge ${map[s] || "gray"}">${esc(s || "—")}</span>`;
 }
 
 function scorePill(score) {
   const n = Number(score);
-  if (isNaN(n)) return `<span class="adm-badge">—</span>`;
-  const cls = n >= 80 ? "red" : n >= 50 ? "amber" : n >= 1 ? "cyan" : "";
-  return `<span class="adm-badge ${cls}">${n}</span>`;
+  if (isNaN(n)) return `<span class="adm-badge gray plain">—</span>`;
+  return `<span class="adm-badge gold">${n}</span>`;
+}
+
+function engineBadge(engine) {
+  return `<span class="adm-badge ${engine === "gemini" ? "violet" : "gray"}">${esc(engine || "rule")}</span>`;
 }
 
 function toast(message, kind = "info") {
@@ -188,8 +258,8 @@ function errorState(message, retryFn, context = "dashboard") {
   if (btn && retryFn) btn.onclick = retryFn;
 }
 
-function emptyState(icon, text) {
-  return `<div class="adm-empty"><div class="adm-empty-ico">${icon}</div>${esc(text)}</div>`;
+function emptyState(iconName, text) {
+  return `<div class="adm-empty"><div class="adm-empty-ico">${icon(iconName, 22)}</div>${esc(text)}</div>`;
 }
 
 function pagerHtml(total, offset, limit, cb) {
@@ -209,14 +279,31 @@ function bindPager(root, cb) {
   });
 }
 
+const CRUMBS = {
+  dashboard: "Main", jobs: "Main", failed: "Main", leads: "Main", analytics: "Main",
+  platforms: "Platforms & Data Sources", apify: "Platforms & Data Sources",
+  actors: "Platforms & Data Sources", usage: "Platforms & Data Sources",
+  environment: "Platforms & Data Sources", ai: "AI & Lead Engine",
+  scoring: "AI & Lead Engine", ci: "AI & Lead Engine",
+  limits: "Operations", database: "Operations", logs: "Operations",
+  health: "Operations", exports: "Operations",
+  users: "Administration", security: "Administration", features: "Administration",
+  maintenance: "Administration", audit: "Administration",
+  pages: "Main", posts: "Main",
+};
+
 function pageHead(title, sub, actions = "") {
+  const crumb = CRUMBS[state.view] || "Admin";
   return `
-    <div class="adm-page-head">
-      <div>
-        <h1 class="adm-page-title">${esc(title)}</h1>
-        <div class="adm-page-sub">${sub}</div>
+    <div class="adm-head">
+      <div class="adm-crumbline">${esc(crumb)}</div>
+      <div class="adm-head-row">
+        <div class="adm-head-main">
+          <h1 class="adm-title">${esc(title)}</h1>
+          <p class="adm-desc">${sub}</p>
+        </div>
+        ${actions ? `<div class="adm-head-actions">${actions}</div>` : ""}
       </div>
-      <div class="adm-flex">${actions}</div>
     </div>`;
 }
 
@@ -289,6 +376,204 @@ function bindSettingsSave(root, endpoint, cb) {
   };
 }
 
+/* ──────────────────────────────── Charts ──────────────────────────── */
+// Gold-first chart primitives. Everything is real data; only the drawing
+// is ours. Multi-series charts use gold for the primary series and muted
+// gray for secondary ones (opacity stagger, no rainbow).
+
+function sparkSvg(points, w = 110, h = 30) {
+  const vals = points.map(Number);
+  if (!vals.length || vals.every((v) => v === 0)) {
+    return `<svg class="adm-kpi-spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"></svg>`;
+  }
+  const max = Math.max(...vals, 1);
+  const min = Math.min(...vals, 0);
+  const span = max - min || 1;
+  const step = w / (vals.length - 1 || 1);
+  const pts = vals.map((v, i) => `${(i * step).toFixed(1)},${(h - 3 - ((v - min) / span) * (h - 8)).toFixed(1)}`);
+  return `<svg class="adm-kpi-spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+    <polyline points="${pts.join(" ")}" fill="none" stroke="#e3b25c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+  </svg>`;
+}
+
+function areaSvg(labels, values, opts = {}) {
+  const { w = 860, h = 210, color = "#e3b25c", id = "goldArea" } = opts;
+  const vals = values.map(Number);
+  const n = vals.length;
+  const padL = 10, padR = 10, padT = 12, padB = 24;
+  const iw = w - padL - padR, ih = h - padT - padB;
+  const max = Math.max(...vals, 1);
+  const x = (i) => padL + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw);
+  const y = (v) => padT + ih - (v / max) * ih;
+  const line = vals.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const area = `${line} L${x(n - 1).toFixed(1)},${padT + ih} L${x(0).toFixed(1)},${padT + ih} Z`;
+  const ticks = n > 1 ? [0, Math.floor(n / 2), n - 1] : [0];
+  return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="trend chart">
+    <defs>
+      <linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.28"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
+      </linearGradient>
+    </defs>
+    <g stroke="rgba(111,106,120,0.25)" stroke-width="1">
+      ${[0.25, 0.5, 0.75].map((f) => `<line x1="${padL}" y1="${(padT + ih * f).toFixed(1)}" x2="${w - padR}" y2="${(padT + ih * f).toFixed(1)}"/>`).join("")}
+    </g>
+    <path d="${area}" fill="url(#${id})"/>
+    <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    ${ticks.map((i) => `
+      <text x="${x(i).toFixed(1)}" y="${h - 7}" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}" fill="#5f5b68" font-size="10" font-family="JetBrains Mono, monospace">${esc(labels[i] || "")}</text>`).join("")}
+  </svg>`;
+}
+
+function dualAreaSvg(labels, primary, secondary, opts = {}) {
+  // primary → gold, secondary → muted gray
+  const { w = 860, h = 210, pColor = "#e3b25c", sColor = "#6f6a78", id = "dualGoldArea" } = opts;
+  const n = primary.length;
+  const padL = 10, padR = 10, padT = 12, padB = 24;
+  const iw = w - padL - padR, ih = h - padT - padB;
+  const max = Math.max(1, ...primary.map(Number), ...secondary.map(Number));
+  const x = (i) => padL + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw);
+  const y = (v) => padT + ih - (v / max) * ih;
+  const path = (vals) => vals.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(Number(v)).toFixed(1)}`).join(" ");
+  const ticks = n > 1 ? [0, Math.floor(n / 2), n - 1] : [0];
+  return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="dual trend chart">
+    <defs>
+      <linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${pColor}" stop-opacity="0.28"/>
+        <stop offset="100%" stop-color="${pColor}" stop-opacity="0.02"/>
+      </linearGradient>
+    </defs>
+    <g stroke="rgba(111,106,120,0.25)" stroke-width="1">
+      ${[0.25, 0.5, 0.75].map((f) => `<line x1="${padL}" y1="${(padT + ih * f).toFixed(1)}" x2="${w - padR}" y2="${(padT + ih * f).toFixed(1)}"/>`).join("")}
+    </g>
+    <path d="${path(secondary)}" fill="none" stroke="${sColor}" stroke-width="1.6" stroke-dasharray="4 4" stroke-linecap="round"/>
+    <path d="${path(primary)}" fill="none" stroke="${pColor}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    ${ticks.map((i) => `
+      <text x="${x(i).toFixed(1)}" y="${h - 7}" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}" fill="#5f5b68" font-size="10" font-family="JetBrains Mono, monospace">${esc(labels[i] || "")}</text>`).join("")}
+  </svg>`;
+}
+
+function vbarsSvg(labels, values, opts = {}) {
+  // Vertical gold bars with per-bar optional second (red) overlay.
+  const { w = 860, h = 200, id = "vbarGrad", overlay = null } = opts;
+  const vals = values.map(Number);
+  const n = vals.length;
+  const padL = 10, padR = 10, padT = 12, padB = 24;
+  const iw = w - padL - padR, ih = h - padT - padB;
+  const max = Math.max(...vals, 1);
+  const bw = Math.max(2, (iw / n) * 0.62);
+  const step = n <= 1 ? iw : iw / n;
+  const ov = overlay ? overlay.map(Number) : null;
+  const ticks = n > 1 ? [0, Math.floor(n / 2), n - 1] : [0];
+  return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="bar chart">
+    <defs>
+      <linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#f2cd86"/>
+        <stop offset="100%" stop-color="#b8853a"/>
+      </linearGradient>
+    </defs>
+    <g stroke="rgba(111,106,120,0.25)" stroke-width="1">
+      ${[0.25, 0.5, 0.75].map((f) => `<line x1="${padL}" y1="${(padT + ih * f).toFixed(1)}" x2="${w - padR}" y2="${(padT + ih * f).toFixed(1)}"/>`).join("")}
+    </g>
+    ${vals.map((v, i) => {
+      const cx = padL + i * step + step / 2;
+      const bh = (v / max) * ih;
+      const bhO = ov && ov[i] ? (ov[i] / max) * ih : 0;
+      return `
+        <rect x="${(cx - bw / 2).toFixed(1)}" y="${(padT + ih - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="url(#${id})"/>
+        ${ov && ov[i] ? `<rect x="${(cx - bw / 2).toFixed(1)}" y="${(padT + ih - bhO).toFixed(1)}" width="${bw.toFixed(1)}" height="${bhO.toFixed(1)}" rx="2" fill="#e8664f" opacity="0.85"/>` : ""}`;
+    }).join("")}
+    ${ticks.map((i) => `
+      <text x="${(padL + i * step + step / 2).toFixed(1)}" y="${h - 7}" text-anchor="middle" fill="#5f5b68" font-size="10" font-family="JetBrains Mono, monospace">${esc(labels[i] || "")}</text>`).join("")}
+  </svg>`;
+}
+
+/* ──────────────────────────────── Drawer ──────────────────────────── */
+function openDrawer(html) {
+  const backdrop = $("#drawerBackdrop");
+  const drawer = $("#drawer");
+  drawer.innerHTML = html;
+  drawer.hidden = false;
+  backdrop.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeDrawer() {
+  const backdrop = $("#drawerBackdrop");
+  const drawer = $("#drawer");
+  drawer.hidden = true;
+  backdrop.hidden = true;
+  drawer.innerHTML = "";
+  document.body.style.overflow = "";
+}
+
+/* Shared job report markup (drawer + details page) */
+function jobReportHtml(data, runId) {
+  const j = data.job;
+  const counts = data.counts || {};
+  const intent = j.intent || {};
+  const platform = j.platform || intent.platform;
+  const running = j.status === "running" || j.status === "queued";
+  const url = intent.canonical_url || j.query;
+  const duration = (() => {
+    if (!j.completed_at || !j.created_at) return "—";
+    const ms = new Date(j.completed_at).getTime() - new Date(j.created_at).getTime();
+    if (isNaN(ms) || ms < 0) return "—";
+    if (ms < 60000) return `${Math.round(ms / 1000)}s`;
+    if (ms < 3600000) return `${Math.round(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
+    return `${Math.floor(ms / 3600000)}h ${Math.round((ms % 3600000) / 60000)}m`;
+  })();
+  return `
+    <div class="adm-drawer-head">
+      <div>
+        <div class="adm-crumbline">Run report</div>
+        <h2 class="adm-title">${esc(runId)}</h2>
+        <div style="margin-top:6px">${statusBadge(j.status)} ${platformBadge(platform)}</div>
+      </div>
+      <button class="adm-drawer-close" id="drawerClose" aria-label="Close">${icon("close")}</button>
+    </div>
+    <div class="adm-grid-2" style="grid-template-columns:1fr 1fr">
+      <div class="adm-card" style="margin-bottom:14px">
+        <div class="adm-card-title">Run info</div>
+        <div class="adm-kv">
+          <div class="adm-kv-row"><dt>Run ID</dt><dd><span class="adm-code">${esc(runId)}</span></dd></div>
+          ${j.retried_from ? `<div class="adm-kv-row" data-nav="jobs/details:${esc(j.retried_from)}"><dt>Retry of</dt><dd><span class="adm-code">${esc(j.retried_from)}</span></dd></div>` : ""}
+          <div class="adm-kv-row"><dt>Query / URL</dt><dd>${url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(String(url).slice(0, 70))}</a>` : "—"}</dd></div>
+          <div class="adm-kv-row"><dt>Phase</dt><dd>${esc(j.phase || "—")}</dd></div>
+          <div class="adm-kv-row"><dt>Provider</dt><dd>${esc(j.provider || "—")}</dd></div>
+          <div class="adm-kv-row"><dt>Created</dt><dd>${fmtTime(j.created_at)}</dd></div>
+          <div class="adm-kv-row"><dt>Completed</dt><dd>${j.completed_at ? fmtTime(j.completed_at) : running ? `<span class="adm-badge green pulse">in progress</span>` : "—"}</dd></div>
+          <div class="adm-kv-row"><dt>Duration</dt><dd>${duration}</dd></div>
+        </div>
+        ${j.status === "error" ? `<div class="adm-note" style="color:var(--red)">${esc((j.message || j.error || "Failed").slice(0, 300))}</div>` : ""}
+        ${j.message ? `<div class="adm-cell-sub" style="margin-top:8px">${esc(String(j.message).slice(0, 300))}</div>` : ""}
+      </div>
+      <div class="adm-card" style="margin-bottom:14px">
+        <div class="adm-card-title">Collected data <span class="adm-hint">(live counts)</span></div>
+        <div class="adm-stats cols-3">
+          <div class="adm-stat"><div class="adm-stat-label">Pages</div><div class="adm-stat-value">${counts.pages ?? 0}</div></div>
+          <div class="adm-stat"><div class="adm-stat-label">Posts</div><div class="adm-stat-value">${counts.posts ?? 0}</div></div>
+          <div class="adm-stat"><div class="adm-stat-label">Comments</div><div class="adm-stat-value">${counts.comments ?? 0}</div></div>
+          <div class="adm-stat"><div class="adm-stat-label">AI analyzed</div><div class="adm-stat-value">${counts.analyzed ?? 0}</div></div>
+          <div class="adm-stat"><div class="adm-stat-label">Leads</div><div class="adm-stat-value ${counts.leads ? "gold" : ""}">${counts.leads ?? 0}</div></div>
+        </div>
+        <div class="adm-kv" style="margin-top:10px">
+          ${j.pages_found !== undefined && j.pages_found !== null ? `<div class="adm-kv-row"><dt>Pages found</dt><dd>${esc(j.pages_found)}</dd></div>` : ""}
+          ${j.pages_stored !== undefined && j.pages_stored !== null ? `<div class="adm-kv-row"><dt>Pages stored</dt><dd>${esc(j.pages_stored)}</dd></div>` : ""}
+          ${j.limit !== undefined ? `<div class="adm-kv-row"><dt>Post limit</dt><dd>${esc(j.limit)}</dd></div>` : ""}
+          ${intent.max_comments_per_post ? `<div class="adm-kv-row"><dt>Comments / post</dt><dd>${esc(intent.max_comments_per_post)}</dd></div>` : ""}
+          ${j.usageUsd !== undefined && j.usageUsd !== null ? `<div class="adm-kv-row"><dt>Apify cost</dt><dd>$${money(j.usageUsd)}</dd></div>` : ""}
+          ${j.actorRunId ? `<div class="adm-kv-row"><dt>Apify run</dt><dd><span class="adm-code">${esc(j.actorRunId)}</span></dd></div>` : ""}
+        </div>
+      </div>
+    </div>
+    <div class="adm-btn-row">
+      <a class="adm-btn" href="#/pages?run=${encodeURIComponent(runId)}">Pages of this run</a>
+      <a class="adm-btn" href="#/logs?q=${encodeURIComponent(runId)}">View logs</a>
+      <a class="adm-btn" href="#/jobs/details:${esc(runId)}">Open full report</a>
+    </div>`;
+}
+
 /* ──────────────────────────────── Auth / shell ────────────────────── */
 async function boot() {
   let authErr = null;
@@ -296,9 +581,6 @@ async function boot() {
     const res = await api("/api/auth/me");
     state.user = res.user;
   } catch (err) {
-    // api() redirects to /login on 401. Any other failure (server down,
-    // 500, timeout) must NOT leave a dead page: the shell renders and the
-    // content area shows a retryable error.
     authErr = err;
   }
   renderShell();
@@ -311,6 +593,7 @@ async function boot() {
     $("#admUser").textContent = name;
     const roleEl = $("#admRole");
     roleEl.textContent = state.user.role || "viewer";
+    $("#admAvatar").textContent = initials(name);
     navigate(location.hash.replace("#/", "").split("?")[0] || "dashboard");
   } else {
     $("#admUser").textContent = "—";
@@ -337,7 +620,20 @@ function renderShell() {
   };
   $("#logoutBtn").onclick = doLogout;
   $("#burger").onclick = () => $("#sidebar").classList.toggle("open");
-  // Profile dropdown (top-right): Open App / Users / Security / Sign out
+
+  // Sidebar collapse (persisted; collapses to an icon rail on wide screens)
+  const collapseBtn = $("#sidebarCollapse");
+  if (collapseBtn) {
+    if (localStorage.getItem("admSidebar") === "1") {
+      document.body.classList.add("sidebar-collapsed");
+    }
+    collapseBtn.onclick = () => {
+      const collapsed = document.body.classList.toggle("sidebar-collapsed");
+      localStorage.setItem("admSidebar", collapsed ? "1" : "0");
+    };
+  }
+
+  // Profile dropdown (top-right)
   const profileBtn = $("#admProfileBtn");
   const dropdown = $("#admDropdown");
   if (profileBtn) {
@@ -355,11 +651,147 @@ function renderShell() {
     });
     $("#ddLogout").onclick = doLogout;
   }
+
+  // Global search → /api/admin/search
+  const searchInput = $("#admSearchInput");
+  const searchBox = $("#admSearchResults");
+  let searchTimer = null;
+  if (searchInput) {
+    const runSearch = async (q) => {
+      if (q.length < 2) { searchBox.hidden = true; searchBox.innerHTML = ""; return; }
+      try {
+        const data = await api(`/api/admin/search?q=${encodeURIComponent(q)}`);
+        const groups = [
+          ["jobs", "Jobs"], ["leads", "Leads"], ["pages", "Pages"],
+          ["posts", "Posts"], ["comments", "Comments"], ["platforms", "Platforms"],
+        ];
+        const any = groups.some(([g]) => (data[g] || []).length);
+        searchBox.innerHTML = any ? groups.map(([g, label]) => {
+          const items = data[g] || [];
+          if (!items.length) return "";
+          return `
+            <div class="adm-search-group">${label}</div>
+            ${items.map((it) => {
+              const sub = it.query || it.commenter_name || it.page_name || it.platform || it.run_id || it._id || "";
+              const nav = g === "jobs" ? `jobs/details:${esc(it.run_id || it._id)}`
+                : g === "leads" ? `leads/details:${esc(it._id)}`
+                : g === "platforms" ? `platforms/details:${esc(it.platform)}`
+                : g === "comments" ? "ci" : g;
+              return `<div class="adm-search-item" data-nav="${nav}">
+                ${icon(g === "comments" ? "ci" : g === "platforms" ? "platforms" : g, 14)}
+                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(sub).slice(0, 60))}</span>
+                <span class="adm-hint">${esc(g)}</span>
+              </div>`;
+            }).join("")}`;
+        }).join("") : `<div class="adm-search-empty">No results for “${esc(q)}”</div>`;
+        searchBox.hidden = false;
+      } catch (err) {
+        searchBox.innerHTML = `<div class="adm-search-empty">${esc(err.message)}</div>`;
+        searchBox.hidden = false;
+      }
+    };
+    searchInput.addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => runSearch(searchInput.value.trim()), 250);
+    });
+    searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { searchBox.hidden = true; searchInput.blur(); }
+    });
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest(".adm-search")) searchBox.hidden = true;
+    });
+    searchBox.addEventListener("click", (e) => {
+      const item = e.target.closest("[data-nav]");
+      if (!item) return;
+      searchBox.hidden = true;
+      searchInput.value = "";
+      navigate(item.dataset.nav);
+    });
+  }
+
+  // Bell → /api/admin/alerts (last 24h)
+  const bell = $("#admBell");
+  const bellCount = $("#admBellCount");
+  const dropdown2 = $("#admDropdown");
+  let bellOpen = false;
+  if (bell) {
+    const loadAlerts = async () => {
+      try {
+        const data = await api("/api/admin/alerts");
+        const alerts = data.alerts || [];
+        bellCount.textContent = alerts.length;
+        bellCount.hidden = alerts.length === 0;
+        bell.dataset.alerts = JSON.stringify(alerts);
+      } catch (err) { /* health pill covers this */ }
+    };
+    loadAlerts();
+    setInterval(loadAlerts, 120000);
+    bell.onclick = (e) => {
+      e.stopPropagation();
+      bellOpen = !bellOpen;
+      if (!bellOpen) { dropdown2.hidden = true; return; }
+      dropdown2.hidden = false;
+      let alerts = [];
+      try { alerts = JSON.parse(bell.dataset.alerts || "[]"); } catch (err) {}
+      dropdown2.className = "adm-dropdown wide";
+      dropdown2.innerHTML = alerts.length ? `
+        <div class="adm-notif-head"><span>Notifications</span><span class="adm-hint">24h</span></div>
+        ${alerts.map((a) => `
+          <div class="adm-notif-item" data-alert-nav="${esc(a.route || "")}">
+            <span class="adm-notif-dot ${a.severity === "ok" ? "ok" : a.severity === "warn" ? "warn" : a.severity === "info" ? "info" : "err"}"></span>
+            <div>
+              <div class="adm-notif-title">${esc(a.title)}</div>
+              <div class="adm-notif-msg">${esc(a.message)}</div>
+            </div>
+          </div>`).join("")}`
+        : `<div class="adm-notif-head"><span>Notifications</span></div>
+           <div class="adm-search-empty">All quiet — nothing in the last 24h.</div>`;
+      $$("[data-alert-nav]", dropdown2).forEach((item) => {
+        item.onclick = () => {
+          dropdown2.hidden = true;
+          bellOpen = false;
+          if (item.dataset.alertNav) navigate(item.dataset.alertNav);
+        };
+      });
+    };
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest("#admBell") && !e.target.closest("#admDropdown")) {
+        dropdown2.hidden = true;
+        bellOpen = false;
+      }
+    });
+  }
+
+  // Health pill → /api/admin/health
+  const pill = $("#healthPill");
+  const dot = $("#healthDot");
+  const label = $("#healthLabel");
+  const setHealth = (overall) => {
+    const cls = overall === "ok" ? "ok" : overall === "warn" ? "warn" : "err";
+    dot.className = `adm-health-dot ${cls}`;
+    label.textContent = overall === "ok" ? "Healthy" : overall === "warn" ? "Degraded" : "Down";
+  };
+  const probeHealth = async () => {
+    try {
+      const h = await api("/api/admin/health");
+      setHealth(h.overall || "ok");
+    } catch (err) { setHealth("err"); }
+  };
+  probeHealth();
+  setInterval(probeHealth, 60000);
+  if (pill) pill.onclick = () => navigate("health");
+
+  // Drawer / modal close wiring
+  $("#drawerBackdrop").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (!$("#drawer").hidden) closeDrawer();
+      if (!$("#modalBackdrop").hidden) closeModal();
+    }
+  });
 }
 
 function navigate(view, params = null) {
-  // view: "jobs", "jobs/details:URL123…", "leads/details:…", "platforms/details:…",
-  //       "pages", "posts"; anything else falls through to the 404 page.
   const match = /^([a-z-]+)(?:\/([a-zA-Z0-9]+):(.+))?$/.exec(view) ||
     /^([a-z-]+)(?:\/([a-zA-Z0-9]+)\/(.+))?$/.exec(view);
   const base = (match && match[1]) || view;
@@ -385,7 +817,6 @@ function navigate(view, params = null) {
     security: "Security", features: "Features", maintenance: "Maintenance",
     health: "Health", audit: "Audit Log", pages: "Pages", posts: "Posts",
   };
-  // Param routes: jobs/details:ID, leads/details:ID, platforms/details:NAME
   let target = null;
   if (paramType) {
     if (base === "jobs" && paramType === "details") target = () => viewJobDetail(paramValue);
@@ -401,6 +832,7 @@ function navigate(view, params = null) {
     location.hash = `#/${view}`;
     $$("#nav .adm-nav-item").forEach((el) => el.classList.remove("active"));
     $("#crumb").textContent = "Not found";
+    $("#crumbSub").textContent = "";
     const viewEl = $("#view");
     viewEl.innerHTML = skeleton();
     target().catch((err) => errorState(err.message, () => navigate(state.view), "404"));
@@ -415,12 +847,10 @@ function navigate(view, params = null) {
   }
   $$("#nav .adm-nav-item").forEach((el) => el.classList.toggle("active", el.dataset.view === base));
   $("#crumb").textContent = labels[base] || base;
+  $("#crumbSub").textContent = "LeadAI · AI Lead Intelligence Platform";
   const viewEl = $("#view");
   viewEl.innerHTML = skeleton();
   target().catch((err) => {
-    // A failed view API must never blank the page: the sidebar, topbar and
-    // the rest of the shell stay intact; only the content area shows the
-    // error with a Retry action.
     errorState(err.message, () => navigate(state.view), labels[base] || base);
   });
 }
@@ -437,79 +867,6 @@ function viewNotFound() {
     </div>`;
 }
 
-/* ──────────────────────────────── DASHBOARD ───────────────────────── */
-async function viewDashboard() {
-  const data = await api("/api/admin/dashboard");
-  const c = data.counts;
-  const s = data.status;
-  const root = $("#view");
-  const stat = (label, value, hint, nav, params, cls) => `
-    <div class="adm-stat clickable" data-nav="${nav}" data-nav-params='${params ? JSON.stringify(params) : ""}'>
-      <div class="adm-stat-label">${label}</div><div class="adm-stat-value ${cls || ""}">${value.toLocaleString()}</div>
-      ${hint ? `<div class="adm-stat-hint">${hint}</div>` : ""}
-    </div>`;
-  root.innerHTML = `
-    ${pageHead("Dashboard", "Live overview of the LeadAI platform — every number is real data from the database.", `
-      <a class="adm-btn primary" href="#/jobs">View Jobs</a>
-      <a class="adm-btn" href="#/health">Health Check</a>`)}
-    <div class="adm-stats">
-      ${stat("Searches (total)", c.jobs_total, `${c.jobs_today} today`, "jobs")}
-      ${stat("Running", c.jobs_running, "currently running", "jobs", { status: "running" }, c.jobs_running ? "ok" : "")}
-      ${stat("Failed", c.jobs_failed, "ended in error", "jobs", { status: "error" }, c.jobs_failed ? "err" : "ok")}
-      ${stat("Pages", c.pages, "collected pages", "pages")}
-      ${stat("Posts", c.posts, "collected posts", "posts")}
-      ${stat("Comments", c.comments, "collected comments", "ci")}
-      ${stat("AI Analyzed", c.analyzed, "records processed by AI", "ci")}
-      ${stat("Leads", c.leads, `${c.leads_contact} with phone/email`, "leads")}
-    </div>
-    <div class="adm-grid-2">
-      <div class="adm-card">
-        <div class="adm-card-title">Platforms <span class="adm-hint">(click a row for details)</span></div>
-        <div class="adm-table-wrap"><table class="adm-table">
-          <thead><tr><th>Platform</th><th>Enabled</th><th>Pages</th><th>Posts</th><th>Comments</th><th>Leads</th></tr></thead>
-          <tbody>
-            ${data.platforms.map((p) => `
-              <tr class="adm-row-link" data-nav="platforms/details:${esc(p.platform)}">
-                <td>${platformBadge(p.platform)}</td>
-                <td>${p.enabled ? `<span class="adm-badge green">on</span>` : `<span class="adm-badge red">off</span>`}</td>
-                <td>${p.pages}</td><td>${p.posts}</td><td>${p.comments}</td><td>${p.leads}</td>
-              </tr>`).join("")}
-          </tbody>
-        </table></div>
-      </div>
-      <div class="adm-card">
-        <div class="adm-card-title">System Status <span class="adm-hint">(click a row to open its page)</span></div>
-        <div class="adm-kv">
-          <div class="adm-kv-row" data-nav="database"><dt>Database</dt><dd><span class="adm-badge ${s.database ? "green" : "red"}">${s.database ? "connected" : "down"}</span></dd></div>
-          <div class="adm-kv-row" data-nav="apify"><dt>Apify token</dt><dd>${s.apify_token ? `<span class="adm-badge green">${esc(s.apify_token_hint)}</span>` : `<span class="adm-badge red">not configured</span>`}</dd></div>
-          <div class="adm-kv-row" data-nav="ai"><dt>Gemini key</dt><dd>${s.gemini_key ? `<span class="adm-badge green">configured</span>` : `<span class="adm-badge amber">not set (rule fallback)</span>`}</dd></div>
-          <div class="adm-kv-row" data-nav="features"><dt>URL search</dt><dd>${s.url_search_enabled ? `<span class="adm-badge green">enabled</span>` : `<span class="adm-badge red">disabled</span>`}</dd></div>
-          <div class="adm-kv-row" data-nav="maintenance"><dt>Maintenance</dt><dd>${s.maintenance ? `<span class="adm-badge amber">active</span>` : `<span class="adm-badge">off</span>`}</dd></div>
-        </div>
-      </div>
-    </div>
-    <div class="adm-card">
-      <div class="adm-card-title">Recent Jobs <span class="adm-hint">(click a row for details)</span></div>
-      ${data.recent_jobs.length ? `
-        <div class="adm-table-wrap"><table class="adm-table">
-          <thead><tr><th>Run ID</th><th>Query</th><th>Platform</th><th>Status</th><th>Phase</th><th>Created</th></tr></thead>
-          <tbody>
-            ${data.recent_jobs.map((j) => `
-              <tr class="adm-row-link" data-nav="jobs/details:${esc(j.run_id)}">
-                <td><span class="adm-code">${esc(j.run_id)}</span></td>
-                <td><div class="adm-cell-main">${esc((j.query || "").slice(0, 60))}</div></td>
-                <td>${platformBadge(j.platform || (j.intent || {}).platform)}</td>
-                <td>${statusBadge(j.status)}</td>
-                <td>${esc(j.phase || "—")}</td>
-                <td>${relativeTime(j.created_at)}</td>
-              </tr>`).join("")}
-          </tbody>
-        </table></div>`
-      : emptyState("⇶", "No searches yet — run one from the app.")}
-    </div>`;
-  bindNav(root);
-}
-
 function bindNav(root) {
   $$("[data-nav]", root).forEach((el) => {
     el.onclick = () => {
@@ -522,8 +879,209 @@ function bindNav(root) {
   });
 }
 
+/* ──────────────────────────────── DASHBOARD ───────────────────────── */
+let DASH_RANGE = { days: 30, from: "", to: "" };
+
+async function viewDashboard() {
+  const root = $("#view");
+  const r = DASH_RANGE;
+  const params = new URLSearchParams();
+  if (r.from || r.to) {
+    if (r.from) params.set("from_date", r.from);
+    if (r.to) params.set("to_date", r.to);
+  } else {
+    params.set("days", r.days);
+  }
+  const data = await api(`/api/admin/dashboard?${params}`);
+  const kpiOf = (key) => data.kpis.find((k) => k.key === key) || { key, label: key, value: 0, change: null, series: [] };
+  const leads = kpiOf("leads");
+  const searches = kpiOf("searches");
+  const act = data.activity || {};
+  const counts = data.counts || {};
+  const delta = (k) => {
+    if (k.change === null || k.change === undefined) return "";
+    const up = k.change >= 0;
+    return `<span class="adm-kpi-delta ${k.change === 0 ? "flat" : up ? "up" : "down"}">
+      ${up ? "▲" : "▼"} ${Math.abs(k.change).toFixed(1)}% vs prev window</span>`;
+  };
+  const kpiNav = {
+    searches: ["jobs", {}], running: ["jobs", { status: "running" }],
+    failed: ["jobs", { status: "error" }], pages: ["pages", {}],
+    posts: ["posts", {}], comments: ["ci", {}], analyzed: ["ci", {}],
+    leads: ["leads", {}],
+  };
+  const kpiIco = {
+    searches: ["jobs", "gray"], running: ["run", "green"], failed: ["failed", "red"],
+    pages: ["platforms", "gray"], posts: ["ci", "gray"], comments: ["ci", "gray"],
+    analyzed: ["ai", "violet"], leads: ["leads", "gold"],
+  };
+  const rangeBtn = (days, label) =>
+    `<button class="adm-range-btn ${r.days === days && !r.from ? "active" : ""}" data-days="${days}">${label}</button>`;
+  const alerts = data.alerts || [];
+  const maxPlat = Math.max(1, ...data.leads_by_platform.map((p) => p.count));
+  root.innerHTML = `
+    ${pageHead("Dashboard", "Live overview of the LeadAI platform — every number is real data from the database.", `
+      <a class="adm-btn primary" href="/" target="_blank">${icon("plus", 14)} New Search</a>`)}
+    <div class="adm-hero">
+      <div class="adm-hero-num">${Number(leads.value).toLocaleString()}</div>
+      <div class="adm-hero-main">
+        <div class="adm-hero-label">Leads in range</div>
+        <div class="adm-hero-sub"><strong>${Number(counts.leads_contact || 0).toLocaleString()}</strong> with verified phone/email · ${esc(data.range.label)}</div>
+        ${delta(leads)}
+      </div>
+      <div class="adm-hero-stat">
+        <div>
+          <div class="adm-stat-label">Searches</div>
+          <div class="adm-stat-value">${Number(searches.value).toLocaleString()}</div>
+          <div class="adm-kpi-delta ${(searches.change || 0) >= 0 ? "up" : "down"}">${searches.change !== null && searches.change !== undefined ? `${searches.change >= 0 ? "▲" : "▼"} ${Math.abs(searches.change).toFixed(1)}%` : ""}</div>
+        </div>
+        <div>
+          <div class="adm-stat-label">Running now</div>
+          <div class="adm-stat-value ${kpiOf("running").value ? "ok" : ""}">${kpiOf("running").value}</div>
+        </div>
+        <div>
+          <div class="adm-stat-label">Success rate</div>
+          <div class="adm-stat-value">${data.performance.success_rate !== null && data.performance.success_rate !== undefined ? `${data.performance.success_rate}%` : "—"}</div>
+        </div>
+      </div>
+    </div>
+    <div class="adm-dash-head">
+      <div class="adm-hint">Daily activity for the selected window — click a KPI to open its module.</div>
+      <div class="adm-dash-range">
+        ${rangeBtn(7, "7d")}${rangeBtn(30, "30d")}${rangeBtn(90, "90d")}
+        <input class="adm-input" type="date" id="dashFrom" title="From" value="${esc(r.from)}" style="max-width:140px">
+        <input class="adm-input" type="date" id="dashTo" title="To" value="${esc(r.to)}" style="max-width:140px">
+        <button class="adm-range-btn" id="dashApply">Apply</button>
+      </div>
+    </div>
+    <div class="adm-kpi-grid">
+      ${data.kpis.map((k) => `
+        <div class="adm-kpi" data-nav="${kpiNav[k.key][0]}" data-nav-params='${JSON.stringify(kpiNav[k.key][1])}'>
+          <div class="adm-kpi-top">
+            <span class="adm-kpi-label">${esc(k.label)}</span>
+            <span class="adm-kpi-ico ${kpiIco[k.key][1]}">${icon(kpiIco[k.key][0], 13)}</span>
+          </div>
+          <div class="adm-kpi-value">${Number(k.value).toLocaleString()}</div>
+          ${delta(k)}
+          ${sparkSvg(k.series)}
+        </div>`).join("")}
+    </div>
+    <div class="adm-grid-2">
+      <div class="adm-card">
+        <div class="adm-card-title">Activity <span class="adm-hint">(leads gold · searches muted)</span></div>
+        <div class="adm-chart">
+          ${dualAreaSvg(act.labels || [], act.leads || [], act.searches || [])}
+        </div>
+        <div class="adm-legend">
+          <span class="adm-legend-item"><span class="adm-legend-dot" style="background:var(--gold)"></span>Leads</span>
+          <span class="adm-legend-item"><span class="adm-legend-dot" style="background:var(--gray)"></span>Searches</span>
+        </div>
+      </div>
+      <div class="adm-card">
+        <div class="adm-card-title">Leads by platform <span class="adm-hint">(click a row)</span></div>
+        ${data.leads_by_platform.length ? data.leads_by_platform.map((p, i) => `
+          <div class="adm-bar-row" data-nav="platforms/details:${esc(p.platform)}">
+            <div class="adm-bar-top">
+              <span class="adm-cell-main">${platformBadge(p.platform)}</span>
+              <span class="adm-cell-sub">${p.count.toLocaleString()} ${p.count === 1 ? "lead" : "leads"}</span>
+            </div>
+            <div class="adm-bar-track"><div class="adm-bar-fill" style="width:${Math.max(2, (p.count / maxPlat) * 100).toFixed(1)}%;opacity:${(1 - i * 0.12).toFixed(2)}"></div></div>
+          </div>`).join("") : emptyState("leads", "No leads analyzed in this window.")}
+      </div>
+    </div>
+    <div class="adm-grid-2">
+      <div class="adm-card">
+        <div class="adm-card-title">Alerts <span class="adm-hint">(click to open)</span></div>
+        ${alerts.length ? alerts.map((a) => `
+          <div class="adm-alert-row" data-nav="${esc(a.route || "health")}">
+            <span class="adm-alert-dot ${a.severity === "ok" ? "ok" : a.severity === "warn" ? "warn" : a.severity === "info" ? "info" : "err"}"></span>
+            <div>
+              <div class="adm-alert-title">${esc(a.title)}</div>
+              <div class="adm-alert-msg">${esc(a.message)}</div>
+            </div>
+          </div>`).join("") : emptyState("health", "All quiet — no alerts for this window.")}
+      </div>
+      <div class="adm-card">
+        <div class="adm-card-title">System status <span class="adm-hint">(click a row to open its page)</span></div>
+        <div class="adm-kv">
+          <div class="adm-kv-row" data-nav="database"><dt>Database</dt><dd><span class="adm-badge ${data.status.database ? "green" : "red"}">${data.status.database ? "connected" : "down"}</span></dd></div>
+          <div class="adm-kv-row" data-nav="apify"><dt>Apify token</dt><dd>${data.status.apify_token ? `<span class="adm-badge green">${esc(data.status.apify_token_hint)}</span>` : `<span class="adm-badge red">not configured</span>`}</dd></div>
+          <div class="adm-kv-row" data-nav="ai"><dt>Gemini key</dt><dd>${data.status.gemini_key ? `<span class="adm-badge green">configured</span>` : `<span class="adm-badge amber">not set (rule fallback)</span>`}</dd></div>
+          <div class="adm-kv-row" data-nav="features"><dt>URL search</dt><dd>${data.status.url_search_enabled ? `<span class="adm-badge green">enabled</span>` : `<span class="adm-badge red">disabled</span>`}</dd></div>
+          <div class="adm-kv-row" data-nav="maintenance"><dt>Maintenance</dt><dd>${data.status.maintenance ? `<span class="adm-badge amber">active</span>` : `<span class="adm-badge gray plain">off</span>`}</dd></div>
+        </div>
+        <div class="adm-quick-grid" style="margin-top:14px">
+          <button class="adm-quick" data-nav="failed">${icon("failed", 15)} Failed jobs</button>
+          <button class="adm-quick" data-nav="health">${icon("health", 15)} Health check</button>
+          <button class="adm-quick" data-nav="usage">${icon("usage", 15)} Usage & cost</button>
+          <button class="adm-quick" data-nav="exports">${icon("exports", 15)} Exports</button>
+        </div>
+      </div>
+    </div>
+    <div class="adm-card">
+      <div class="adm-card-title">Recent jobs <span class="adm-hint">(click a row for the full report)</span></div>
+      ${data.recent_jobs.length ? `
+        <div class="adm-table-wrap"><table class="adm-table">
+          <thead><tr><th>Run ID</th><th>Query</th><th>Platform</th><th>Status</th><th>Phase</th><th>Created</th></tr></thead>
+          <tbody>
+            ${data.recent_jobs.map((j) => `
+              <tr class="adm-row-link" data-job="${esc(j.run_id)}">
+                <td><span class="adm-code">${esc(j.run_id)}</span></td>
+                <td><div class="adm-cell-main">${esc((j.query || "").slice(0, 60))}</div></td>
+                <td>${platformBadge(j.platform || (j.intent || {}).platform)}</td>
+                <td>${statusBadge(j.status)}</td>
+                <td>${esc(j.phase || "—")}</td>
+                <td>${relativeTime(j.created_at)}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table></div>`
+      : emptyState("jobs", "No searches yet — run one from the app.")}
+    </div>`;
+  bindNav(root);
+  $$("[data-job]", root).forEach((row) => {
+    row.onclick = () => openJobDrawer(row.dataset.job);
+  });
+  $$("[data-days]", root).forEach((btn) => {
+    btn.onclick = () => {
+      DASH_RANGE = { days: Number(btn.dataset.days), from: "", to: "" };
+      viewDashboard();
+    };
+  });
+  $("#dashApply").onclick = () => {
+    const from = $("#dashFrom").value;
+    const to = $("#dashTo").value;
+    if (!from && !to) { DASH_RANGE = { days: 30, from: "", to: "" }; }
+    else { DASH_RANGE = { days: 0, from, to }; }
+    viewDashboard();
+  };
+}
+
+async function openJobDrawer(runId) {
+  openDrawer(`<div class="adm-card" style="margin-bottom:14px">${skeleton()}</div>`);
+  try {
+    const data = await api(`/api/admin/jobs/${encodeURIComponent(runId)}`);
+    const html = jobReportHtml(data, runId);
+    $("#drawer").innerHTML = html;
+    const closeBtn = $("#drawerClose");
+    if (closeBtn) closeBtn.onclick = closeDrawer;
+    bindNav($("#drawer"));
+  } catch (err) {
+    $("#drawer").innerHTML = `
+      <div class="adm-drawer-head">
+        <div><div class="adm-crumbline">Run report</div><h2 class="adm-title">${esc(runId)}</h2></div>
+        <button class="adm-drawer-close" id="drawerClose">${icon("close")}</button>
+      </div>
+      <div class="adm-empty">${esc(err.message)}</div>`;
+    $("#drawerClose").onclick = closeDrawer;
+  }
+}
+
 /* ──────────────────────────────── JOBS ────────────────────────────── */
 const JOB_FILTERS = { status: "", platform: "", q: "", from: "", to: "" };
+const JOB_PILLS = [
+  ["", "All"], ["running", "Running"], ["completed", "Completed"],
+  ["error", "Failed"], ["cancelled", "Cancelled"], ["queued", "Queued"],
+];
 
 async function viewJobs() {
   const root = $("#view");
@@ -543,18 +1101,20 @@ async function viewJobs() {
   const role = state.user.role;
   root.innerHTML = `
     ${pageHead("Jobs", "All search runs. Retry recreates a failed run with the same URL and limits; deletion is permanent. Click a row for the full run report.", `
-      <a class="adm-btn" href="/api/admin/export/jobs.csv" ${role === "viewer" ? "onclick='return false'" : ""}>⇩ Export jobs CSV</a>`)}
+      <a class="adm-btn primary" href="/" target="_blank">${icon("plus", 14)} New Search</a>
+      <a class="adm-btn" href="/api/admin/export/jobs.csv" ${role === "viewer" ? "onclick='return false'" : ""}>${icon("exports", 14)} Export CSV</a>`)}
     <div class="adm-card">
       <div class="adm-filters">
-        <input class="adm-input" id="fStatus" placeholder="Status" list="statusOpts" value="${esc(f.status)}">
-        <datalist id="statusOpts">
-          <option>running</option><option>completed</option><option>error</option>
-          <option>cancelled</option><option>queued</option>
-        </datalist>
-        <input class="adm-input" id="fPlatform" placeholder="Platform" list="platOpts" value="${esc(f.platform)}">
-        <datalist id="platOpts">
-          <option>facebook</option><option>instagram</option><option>linkedin</option><option>youtube</option>
-        </datalist>
+        <div class="adm-pills">
+          ${JOB_PILLS.map(([val, label]) => `
+            <button class="adm-pill ${f.status === val ? (val === "error" ? "red" : val === "running" ? "green" : "active") : ""}" data-pill="${val}">
+              ${val === "running" ? `<span class="adm-status-dot ok pulse"></span>` : ""}${label}
+            </button>`).join("")}
+        </div>
+        <select class="adm-select" id="fPlatform">
+          <option value="">All platforms</option>
+          ${["facebook", "instagram", "linkedin", "youtube"].map((p) => `<option value="${p}" ${f.platform === p ? "selected" : ""}>${p}</option>`).join("")}
+        </select>
         <input class="adm-input" id="fQ" placeholder="Search query / run id…" value="${esc(f.q)}">
         <input class="adm-input" type="date" id="fFrom" title="From date" value="${esc(f.from)}">
         <input class="adm-input" type="date" id="fTo" title="To date" value="${esc(f.to)}">
@@ -578,11 +1138,11 @@ async function viewJobs() {
                 <div class="adm-btn-row">
                   <button class="adm-btn small" data-act="cancel" data-id="${esc(j.run_id)}" ${j.status !== "running" || role === "viewer" ? "disabled" : ""}>◼ Cancel</button>
                   <button class="adm-btn small" data-act="retry" data-id="${esc(j.run_id)}" ${j.status === "running" || role === "viewer" ? "disabled" : ""}>↻ Retry</button>
-                  <button class="adm-btn small danger" data-act="del" data-id="${esc(j.run_id)}" ${j.status === "running" || role !== "super_admin" ? "disabled" : ""}>✕</button>
+                  <button class="adm-btn small danger" data-act="del" data-id="${esc(j.run_id)}" ${j.status === "running" || role !== "super_admin" ? "disabled" : ""}>${icon("close", 12)}</button>
                 </div>
               </td>
             </tr>`).join("")
-          : `<tr><td colspan="8">${emptyState("⇶", "No jobs match these filters.")}</td></tr>`}
+          : `<tr><td colspan="8">${emptyState("jobs", "No jobs match these filters.")}</td></tr>`}
         </tbody>
       </table></div>
       ${pagerHtml(data.total, data.offset, data.limit, (dir) => {
@@ -591,16 +1151,21 @@ async function viewJobs() {
         viewJobs();
       })}
     </div>`;
-  const apply = () => {
+  $$("[data-pill]", root).forEach((btn) => {
+    btn.onclick = () => {
+      JOB_FILTERS.status = btn.dataset.pill;
+      state.filters.jobsOffset = 0;
+      viewJobs();
+    };
+  });
+  $("#applyFilters").onclick = () => {
     state.filters.jobsOffset = 0;
-    f.status = $("#fStatus").value.trim();
-    f.platform = $("#fPlatform").value.trim();
+    f.platform = $("#fPlatform").value;
     f.q = $("#fQ").value.trim();
     f.from = $("#fFrom").value;
     f.to = $("#fTo").value;
     viewJobs();
   };
-  $("#applyFilters").onclick = apply;
   $("#clearFilters").onclick = () => {
     Object.assign(f, { status: "", platform: "", q: "", from: "", to: "" });
     state.filters.jobsOffset = 0;
@@ -609,7 +1174,7 @@ async function viewJobs() {
   $$("[data-job]", root).forEach((row) => {
     row.onclick = (e) => {
       if (e.target.closest("button")) return;
-      navigate(`jobs/details:${row.dataset.job}`);
+      openJobDrawer(row.dataset.job);
     };
   });
   $$("[data-act]", root).forEach((btn) => {
@@ -651,70 +1216,18 @@ async function viewJobDetail(runId) {
   const role = state.user.role;
   const data = await api(`/api/admin/jobs/${encodeURIComponent(runId)}`);
   const j = data.job;
-  const counts = data.counts || {};
-  const intent = j.intent || {};
-  const platform = j.platform || intent.platform;
-  const started = j.started_at || j.updated_at || j.created_at;
-  const duration = (() => {
-    if (!j.completed_at || !j.created_at) return "—";
-    const ms = new Date(j.completed_at).getTime() - new Date(j.created_at).getTime();
-    if (isNaN(ms) || ms < 0) return "—";
-    if (ms < 60000) return `${Math.round(ms / 1000)}s`;
-    if (ms < 3600000) return `${Math.round(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
-    return `${Math.floor(ms / 3600000)}h ${Math.round((ms % 3600000) / 60000)}m`;
-  })();
   const running = j.status === "running" || j.status === "queued";
-  const url = intent.canonical_url || j.query;
   root.innerHTML = `
     ${pageHead(`Job ${esc(runId)}`, "Full run report from the real search history record.", `
       <a class="adm-btn" href="#/jobs">← All Jobs</a>
-      <button class="adm-btn" id="jdRefresh">⟳ Refresh</button>
+      <button class="adm-btn" id="jdRefresh">${icon("refresh", 14)} Refresh</button>
       <button class="adm-btn primary" id="jdRetry" ${!running && role !== "viewer" ? "" : "disabled"} data-act="retry">↻ Retry</button>
       <button class="adm-btn" id="jdCancel" ${running && role !== "viewer" ? "" : "disabled"} data-act="cancel">◼ Cancel</button>
-      <button class="adm-btn danger" id="jdDelete" ${!running && role === "super_admin" ? "" : "disabled"} data-act="del">✕ Delete</button>`)}
-    <div class="adm-grid-2">
-      <div class="adm-card">
-        <div class="adm-card-title">Run info</div>
-        <div class="adm-kv">
-          <dt>Run ID</dt><dd><span class="adm-code">${esc(runId)}</span></dd>
-          ${j.retried_from ? `<dt>Retry of</dt><dd><a class="adm-link" href="#/jobs/details:${esc(j.retried_from)}">${esc(j.retried_from)}</a></dd>` : ""}
-          <dt>Query / URL</dt><dd>${url ? `<a class="adm-link" href="${esc(url)}" target="_blank" rel="noopener">${esc(String(url).slice(0, 90))}</a>` : "—"}</dd>
-          <dt>Platform</dt><dd>${platformBadge(platform)}</dd>
-          <dt>Status</dt><dd>${statusBadge(j.status)}${j.status === "error" ? `<div class="adm-cell-sub" style="color:var(--red)">${esc((j.message || j.error || "Failed").slice(0, 300))}</div>` : ""}</dd>
-          <dt>Phase</dt><dd>${esc(j.phase || "—")}${j.message ? `<div class="adm-cell-sub">${esc(String(j.message).slice(0, 300))}</div>` : ""}</dd>
-          <dt>Provider</dt><dd>${esc(j.provider || "—")}</dd>
-          <dt>Created</dt><dd>${fmtTime(j.created_at)}</dd>
-          <dt>Last update</dt><dd>${fmtTime(j.updated_at)}</dd>
-          <dt>Completed</dt><dd>${j.completed_at ? fmtTime(j.completed_at) : running ? `<span class="adm-badge blue">in progress</span>` : "—"}</dd>
-          <dt>Duration</dt><dd>${duration}</dd>
-        </div>
-      </div>
-      <div class="adm-card">
-        <div class="adm-card-title">Collected data <span class="adm-hint">(counted live from pages/posts/comments/leads)</span></div>
-        <div class="adm-stats">
-          <div class="adm-stat"><div class="adm-stat-label">Pages</div><div class="adm-stat-value">${counts.pages}</div></div>
-          <div class="adm-stat"><div class="adm-stat-label">Posts</div><div class="adm-stat-value">${counts.posts}</div></div>
-          <div class="adm-stat"><div class="adm-stat-label">Comments</div><div class="adm-stat-value">${counts.comments}</div></div>
-          <div class="adm-stat"><div class="adm-stat-label">AI analyzed</div><div class="adm-stat-value">${counts.analyzed}</div></div>
-          <div class="adm-stat"><div class="adm-stat-label">Leads</div><div class="adm-stat-value ${counts.leads ? "ok" : ""}">${counts.leads}</div></div>
-        </div>
-        <div class="adm-kv" style="margin-top:14px">
-          <dt>Pages found (run record)</dt><dd>${esc(j.pages_found ?? "—")}</dd>
-          <dt>Pages stored (run record)</dt><dd>${esc(j.pages_stored ?? "—")}</dd>
-          ${j.limit !== undefined ? `<dt>Post limit</dt><dd>${esc(j.limit)}</dd>` : ""}
-          ${intent.max_comments_per_post ? `<dt>Comments per post</dt><dd>${esc(intent.max_comments_per_post)}</dd>` : ""}
-          ${j.usageUsd !== undefined && j.usageUsd !== null ? `<dt>Apify cost (USD)</dt><dd>$${money(j.usageUsd)}</dd>` : ""}
-          ${j.actorRunId ? `<dt>Apify run</dt><dd><span class="adm-code">${esc(j.actorRunId)}</span></dd>` : ""}
-        </div>
-        <div class="adm-btn-row" style="margin-top:14px">
-          <a class="adm-btn" href="#/pages?run=${encodeURIComponent(runId)}">Pages of this run</a>
-          <a class="adm-btn" href="#/logs?q=${encodeURIComponent(runId)}">View logs</a>
-        </div>
-      </div>
-    </div>
+      <button class="adm-btn danger" id="jdDelete" ${!running && role === "super_admin" ? "" : "disabled"} data-act="del">${icon("close", 14)} Delete</button>`)}
+    ${jobReportHtml(data, runId)}
     <div class="adm-card">
       <div class="adm-card-title">Raw run record</div>
-      <pre class="adm-log" style="margin:0;padding:14px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;line-height:1.55;color:var(--text-2);max-height:360px;overflow:auto;white-space:pre-wrap;word-break:break-word">${esc(JSON.stringify({ ...j, intent }, null, 2).slice(0, 6000))}</pre>
+      <pre class="adm-code" style="display:block;padding:14px;font-size:12px;line-height:1.55;color:var(--text-dim);max-height:360px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:var(--surface-2);border-radius:var(--radius-sm)">${esc(JSON.stringify({ ...j, intent: j.intent || {} }, null, 2).slice(0, 6000))}</pre>
     </div>`;
   $$("[data-act]", root).forEach((btn) => {
     btn.onclick = () => {
@@ -760,9 +1273,26 @@ async function viewFailed() {
   const root = $("#view");
   const data = await api(`/api/admin/failed-jobs?offset=0&limit=50`);
   const role = state.user.role;
+  const s = data.summary || {};
+  const topErr = s.top_error;
   root.innerHTML = `
     ${pageHead("Failed Jobs", "Runs that ended in an error, with the failure reason and a one-click retry.", `
-      <span class="adm-badge red">${data.total} failed</span>`)}
+      <button class="adm-btn primary" id="retryAll" ${!data.items.length || role === "viewer" ? "disabled" : ""}>↻ Retry All</button>`)}
+    <div class="adm-hero red">
+      <div class="adm-hero-num">${Number(s.total || 0).toLocaleString()}</div>
+      <div class="adm-hero-main">
+        <div class="adm-hero-label">Failed runs (all time)</div>
+        <div class="adm-hero-sub"><strong>${s.today ?? 0}</strong> today · <strong>${s.this_week ?? 0}</strong> this week</div>
+      </div>
+      ${topErr ? `
+      <div class="adm-hero-stat" style="margin-left:0">
+        <div>
+          <div class="adm-stat-label">Most common error</div>
+          <div class="adm-cell-sub" style="max-width:340px;color:var(--text-dim)">${esc(topErr.message)}</div>
+          <div class="adm-stat-hint">${topErr.count} run(s)</div>
+        </div>
+      </div>` : ""}
+    </div>
     <div class="adm-card">
       <div class="adm-table-wrap"><table class="adm-table">
         <thead><tr><th>Run ID</th><th>Query</th><th>Platform</th><th>Error</th><th>Created</th><th></th></tr></thead>
@@ -780,14 +1310,14 @@ async function viewFailed() {
                 </div>
               </td>
             </tr>`).join("")
-          : `<tr><td colspan="6">${emptyState("✓", "No failed jobs. Everything is healthy.")}</td></tr>`}
+          : `<tr><td colspan="6">${emptyState("health", "No failed jobs. Everything is healthy.")}</td></tr>`}
         </tbody>
       </table></div>
     </div>`;
   $$("[data-job]", root).forEach((row) => {
     row.onclick = (e) => {
       if (e.target.closest("button")) return;
-      navigate(`jobs/details:${row.dataset.job}`);
+      openJobDrawer(row.dataset.job);
     };
   });
   $$("[data-act]", root).forEach((btn) => {
@@ -802,6 +1332,22 @@ async function viewFailed() {
         }, "Retry");
     };
   });
+  const retryAll = $("#retryAll");
+  if (retryAll) retryAll.onclick = () => confirmModal(
+    "Retry all failed runs", `Re-run all <b>${data.items.length}</b> failed runs shown here, one by one, with their original URLs and limits?`,
+    async () => {
+      const btn = $("#retryAll");
+      btn.disabled = true;
+      let ok = 0;
+      for (const j of data.items) {
+        try {
+          await api(`/api/admin/jobs/${encodeURIComponent(j.run_id)}/retry`, { method: "POST" });
+          ok += 1;
+        } catch (err) { /* keep going */ }
+      }
+      toast(`Retried ${ok} of ${data.items.length} runs`, ok === data.items.length ? "ok" : "warn");
+      viewFailed();
+    }, "Retry All");
 }
 
 /* ──────────────────────────────── LEADS ───────────────────────────── */
@@ -817,8 +1363,33 @@ async function viewLeads() {
   const data = await api(`/api/admin/leads?${qs}`);
   const role = state.user.role;
   const statuses = ["new", "contacted", "qualified", "converted", "ignored"];
+  const s = data.summary || {};
+  const platEntries = Object.entries(s.by_platform || {}).slice(0, 3);
   root.innerHTML = `
-    ${pageHead("Leads", "AI-analyzed comments. Update their pipeline status, bulk-mark, export or delete.")}
+    ${pageHead("Leads", "AI-analyzed comments. Update their pipeline status, bulk-mark, export or delete.", `
+      <a class="adm-btn" href="/api/admin/export/leads.csv" ${role === "viewer" ? "onclick='return false'" : ""}>${icon("exports", 14)} Export CSV</a>`)}
+    <div class="adm-hero">
+      <div class="adm-hero-num">${Number(s.total || 0).toLocaleString()}</div>
+      <div class="adm-hero-main">
+        <div class="adm-hero-label">Total leads</div>
+        <div class="adm-hero-sub"><strong>${Number(s.with_contact || 0).toLocaleString()}</strong> with verified phone or email</div>
+      </div>
+      <div class="adm-hero-stat">
+        <div>
+          <div class="adm-stat-label">Found this week</div>
+          <div class="adm-stat-value">${Number(s.this_week || 0).toLocaleString()}</div>
+        </div>
+        <div>
+          <div class="adm-stat-label">Avg score</div>
+          <div class="adm-stat-value">${s.avg_score !== null && s.avg_score !== undefined ? s.avg_score : "—"}</div>
+        </div>
+        ${platEntries.map(([p, c]) => `
+        <div>
+          <div class="adm-stat-label">${esc(p)}</div>
+          <div class="adm-stat-value">${Number(c).toLocaleString()}</div>
+        </div>`).join("")}
+      </div>
+    </div>
     <div class="adm-card">
       <div class="adm-filters">
         <input class="adm-input" id="lPlat" placeholder="Platform" list="platOpts" value="${esc(f.platform)}">
@@ -826,7 +1397,7 @@ async function viewLeads() {
         <datalist id="qualityOpts"><option>hot</option><option>warm</option><option>cold</option></datalist>
         <select class="adm-select" id="lStatus">
           <option value="">Any status</option>
-          ${statuses.map((s) => `<option value="${s}" ${f.status === s ? "selected" : ""}>${s}</option>`).join("")}
+          ${statuses.map((s2) => `<option value="${s2}" ${f.status === s2 ? "selected" : ""}>${s2}</option>`).join("")}
         </select>
         <input class="adm-input" id="lQ" placeholder="Text / name / phone / email…" value="${esc(f.q)}">
         <button class="adm-btn primary" id="applyFilters">Filter</button>
@@ -834,7 +1405,7 @@ async function viewLeads() {
       </div>
       <div class="adm-flex" style="margin-bottom:12px">
         <select class="adm-select" id="bulkStatus" ${role === "viewer" ? "disabled" : ""}>
-          ${statuses.map((s) => `<option value="${s}">Mark selected → ${s}</option>`).join("")}
+          ${statuses.map((s2) => `<option value="${s2}">Mark selected → ${s2}</option>`).join("")}
         </select>
         <button class="adm-btn" id="bulkApply" ${role === "viewer" ? "disabled" : ""}>Apply</button>
         <button class="adm-btn danger" id="bulkDelete" ${role !== "super_admin" ? "disabled" : ""}>Delete selected</button>
@@ -858,10 +1429,10 @@ async function viewLeads() {
               <td>${leadStatusBadge(l.lead_status)}</td>
               <td>${l.phone || l.email || l.whatsapp ? `
                 <div class="adm-cell-sub">${[l.phone, l.whatsapp, l.email].filter(Boolean).map((v) => esc(String(v))).join(" · ")}</div>`
-                : `<span class="adm-badge">no contact</span>`}</td>
+                : `<span class="adm-badge gray plain">no contact</span>`}</td>
               <td>${relativeTime(l.analyzed_at)}</td>
             </tr>`).join("")
-          : `<tr><td colspan="${role !== "viewer" ? 9 : 8}">${emptyState("◎", "No leads match these filters.")}</td></tr>`}
+          : `<tr><td colspan="${role !== "viewer" ? 9 : 8}">${emptyState("leads", "No leads match these filters.")}</td></tr>`}
         </tbody>
       </table></div>
       ${pagerHtml(data.total, data.offset, data.limit, (dir) => {
@@ -922,7 +1493,7 @@ async function viewLeadDetail(leadId) {
     const href = kind === "phone"
       ? `tel:${encodeURIComponent(String(v))}`
       : `mailto:${encodeURIComponent(String(v))}`;
-    return `<button class="adm-btn small" data-copy="${esc(String(v))}">⇪ Copy</button>
+    return `<button class="adm-btn small" data-copy="${esc(String(v))}">${icon("copy", 12)} Copy</button>
       <a class="adm-btn small" href="${href}">Open</a>`;
   };
   openModal(`Lead — ${esc(lead.commenter_name || "Unknown")}`, `
@@ -931,19 +1502,19 @@ async function viewLeadDetail(leadId) {
       <dt>Page</dt><dd>${esc(lead.page_name || "—")}</dd>
       <dt>Platform</dt><dd>${platformBadge(lead.platform)}</dd>
       <dt>Comment</dt><dd><div style="max-width:520px;font-size:13px;line-height:1.5">${esc((lead.comment_text || "").slice(0, 600))}</div></dd>
-      <dt>Post</dt><dd>${lead.post_url ? `<a class="adm-link" href="${esc(lead.post_url)}" target="_blank" rel="noopener">open post ↗</a>` : "—"}</dd>
+      <dt>Post</dt><dd>${lead.post_url ? `<a href="${esc(lead.post_url)}" target="_blank" rel="noopener">open post ↗</a>` : "—"}</dd>
       <dt>Lead score</dt><dd>${scorePill(lead.lead_score)}${lead.signal_score !== undefined ? ` <span class="adm-hint">signal ${esc(lead.signal_score)}</span>` : ""}</dd>
       <dt>Quality</dt><dd>${qualityBadge(lead.lead_quality)}</dd>
-      <dt>Priority</dt><dd><span class="adm-badge">${esc(lead.priority || "—")}</span></dd>
+      <dt>Priority</dt><dd><span class="adm-badge gray plain">${esc(lead.priority || "—")}</span></dd>
       <dt>Confidence</dt><dd>${lead.confidence !== undefined ? `${(Number(lead.confidence) * 100).toFixed(0)}%` : "—"}</dd>
       <dt>Intent</dt><dd>${esc(lead.intent || "—")}</dd>
       ${lead.budget ? `<dt>Budget</dt><dd>${esc(lead.budget)}</dd>` : ""}
       ${lead.requirement ? `<dt>Requirement</dt><dd>${esc(lead.requirement)}</dd>` : ""}
       ${lead.urgency ? `<dt>Urgency</dt><dd>${esc(lead.urgency)}</dd>` : ""}
       ${lead.location ? `<dt>Location</dt><dd>${esc(lead.location)}</dd>` : ""}
-      ${lead.website ? `<dt>Website</dt><dd><a class="adm-link" href="${esc(lead.website)}" target="_blank" rel="noopener">${esc(lead.website)}</a></dd>` : ""}
+      ${lead.website ? `<dt>Website</dt><dd><a href="${esc(lead.website)}" target="_blank" rel="noopener">${esc(lead.website)}</a></dd>` : ""}
       <dt>Reason</dt><dd><div class="adm-cell-sub">${esc((lead.reason || "").slice(0, 300))}</div></dd>
-      <dt>Analyzed</dt><dd>${fmtTime(lead.analyzed_at)} by <span class="adm-badge ${lead.analyzed_by === "gemini" ? "violet" : "cyan"}">${esc(lead.analyzed_by || "—")}</span></dd>
+      <dt>Analyzed</dt><dd>${fmtTime(lead.analyzed_at)} by ${engineBadge(lead.analyzed_by)}</dd>
       <dt>Status</dt><dd>
         <select class="adm-select" id="leadStatus" ${role === "viewer" ? "disabled" : ""}>
           ${statuses.map((s) => `<option value="${s}" ${lead.lead_status === s ? "selected" : ""}>${s}</option>`).join("")}
@@ -1009,96 +1580,96 @@ async function viewAnalytics() {
     qs = `?days=${r.days}`;
   }
   const data = await api(`/api/admin/analytics${qs}`);
-  const maxJobs = Math.max(1, ...data.jobs_series.map((d) => d.jobs));
-  const maxLeads = Math.max(1, ...data.leads_series.map((d) => d.leads));
-  const palette = ["#4f8cff", "#8b5cf6", "#22d3ee", "#34d399", "#fbbf24", "#f87171", "#c084fc"];
-  const qualityTotal = Object.values(data.quality).reduce((a, b) => a + b, 0) || 1;
-  const platTotal = Object.values(data.leads_by_platform).reduce((a, b) => a + b, 0) || 1;
+  // Week-over-week delta for the hero (real: same window on the dashboard).
+  let wotw = null;
+  try {
+    const dash = await api(`/api/admin/dashboard?days=${r.days || 30}`);
+    const lk = dash.kpis.find((k) => k.key === "leads");
+    wotw = lk && lk.change !== null && lk.change !== undefined ? lk.change : null;
+  } catch (err) { /* non-fatal */ }
   const t = data.totals || {};
   const rangeBtn = (days, label) =>
-    `<button class="adm-btn small ${r.days === days && !r.from ? "primary" : ""}" data-range="${days}">${label}</button>`;
+    `<button class="adm-range-btn ${r.days === days && !r.from ? "active" : ""}" data-range="${days}">${label}</button>`;
+  const distBars = (obj, badgeFn, emptyIco, emptyTxt) => {
+    const entries = Object.entries(obj || {});
+    if (!entries.length) return emptyState(emptyIco, emptyTxt);
+    const total = entries.reduce((a, [, v]) => a + v, 0) || 1;
+    const max = Math.max(...entries.map(([, v]) => v), 1);
+    return entries.map(([k, v], i) => `
+      <div class="adm-bar-row">
+        <div class="adm-bar-top">
+          <span class="adm-cell-main">${badgeFn(k)}</span>
+          <span class="adm-cell-sub">${v} · ${Math.round((v / total) * 100)}%</span>
+        </div>
+        <div class="adm-bar-track"><div class="adm-bar-fill" style="width:${Math.max(2, (v / max) * 100).toFixed(1)}%;opacity:${(1 - i * 0.13).toFixed(2)}"></div></div>
+      </div>`).join("");
+  };
+  const jobLabels = data.jobs_series.map((d) => d.date.slice(5));
+  const jobFailed = data.jobs_series.map((d) => d.failed || 0);
   root.innerHTML = `
     ${pageHead("Analytics", "Aggregations over real database records for the selected range.", `
-      <button class="adm-btn small" data-range="today">Today</button>
+      <button class="adm-range-btn" data-range="today">Today</button>
       ${rangeBtn(7, "7 days")}${rangeBtn(14, "14 days")}${rangeBtn(30, "30 days")}${rangeBtn(90, "90 days")}
       <input class="adm-input" type="date" id="anFrom" title="From" value="${esc(r.from)}" style="max-width:150px">
       <input class="adm-input" type="date" id="anTo" title="To" value="${esc(r.to)}" style="max-width:150px">
       <button class="adm-btn primary small" id="anApply">Apply</button>`)}
-    <div class="adm-stats">
-      <div class="adm-stat"><div class="adm-stat-label">Jobs</div><div class="adm-stat-value">${t.jobs ?? "—"}</div><div class="adm-stat-hint">${t.completed ?? 0} completed</div></div>
-      <div class="adm-stat"><div class="adm-stat-label">Success rate</div><div class="adm-stat-value">${t.success_rate !== null && t.success_rate !== undefined ? `${t.success_rate}%` : "—"}</div><div class="adm-stat-hint">${t.failed ?? 0} failed</div></div>
-      <div class="adm-stat"><div class="adm-stat-label">Pages</div><div class="adm-stat-value">${(t.pages ?? 0).toLocaleString()}</div></div>
-      <div class="adm-stat"><div class="adm-stat-label">Posts</div><div class="adm-stat-value">${(t.posts ?? 0).toLocaleString()}</div></div>
-      <div class="adm-stat"><div class="adm-stat-label">Comments</div><div class="adm-stat-value">${(t.comments ?? 0).toLocaleString()}</div></div>
-      <div class="adm-stat"><div class="adm-stat-label">AI analyzed</div><div class="adm-stat-value">${(t.analyzed ?? 0).toLocaleString()}</div></div>
-      <div class="adm-stat"><div class="adm-stat-label">Leads</div><div class="adm-stat-value">${(t.leads ?? 0).toLocaleString()}</div></div>
+    <div class="adm-hero">
+      <div class="adm-hero-num small">${(t.leads ?? 0).toLocaleString()}</div>
+      <div class="adm-hero-main">
+        <div class="adm-hero-label">Leads in range</div>
+        <div class="adm-hero-sub">${wotw !== null ? `<strong>${wotw >= 0 ? "▲" : "▼"} ${Math.abs(wotw).toFixed(1)}%</strong> week-over-week` : `${data.range ? `from ${esc(data.range.from)} to ${esc(data.range.to)}` : ""}`}</div>
+      </div>
+      <div class="adm-hero-stat">
+        <div>
+          <div class="adm-stat-label">Success rate</div>
+          <div class="adm-stat-value">${t.success_rate !== null && t.success_rate !== undefined ? `${t.success_rate}%` : "—"}</div>
+          <div class="adm-stat-hint">${t.failed ?? 0} failed of ${t.jobs ?? 0}</div>
+        </div>
+        <div>
+          <div class="adm-stat-label">Pages</div>
+          <div class="adm-stat-value">${(t.pages ?? 0).toLocaleString()}</div>
+        </div>
+        <div>
+          <div class="adm-stat-label">Comments</div>
+          <div class="adm-stat-value">${(t.comments ?? 0).toLocaleString()}</div>
+        </div>
+      </div>
     </div>
     <div class="adm-grid-2">
       <div class="adm-card">
-        <div class="adm-card-title">Jobs per day</div>
-        <div class="adm-bars">
-          ${data.jobs_series.length ? data.jobs_series.map((d) => `
-            <div class="adm-bar-col" title="${esc(d.date)}">
-              <div class="adm-bar-value">${d.jobs}</div>
-              <div class="adm-bar ${d.failed ? "failed" : ""}" style="height:${Math.round((d.jobs / maxJobs) * 100)}%"></div>
-              <div class="adm-bar-label">${esc(d.date.slice(5))}</div>
-            </div>`).join("") : emptyState("◔", "No jobs in range.")}
+        <div class="adm-card-title">Jobs per day <span class="adm-hint">(red = failed share)</span></div>
+        <div class="adm-chart">
+          ${data.jobs_series.length ? vbarsSvg(jobLabels, data.jobs_series.map((d) => d.jobs), { overlay: jobFailed }) : emptyState("jobs", "No jobs in range.")}
         </div>
       </div>
       <div class="adm-card">
         <div class="adm-card-title">Leads per day</div>
-        <div class="adm-bars">
-          ${data.leads_series.length ? data.leads_series.map((d) => `
-            <div class="adm-bar-col" title="${esc(d.date)}">
-              <div class="adm-bar-value">${d.leads}</div>
-              <div class="adm-bar" style="height:${Math.round((d.leads / maxLeads) * 100)}%"></div>
-              <div class="adm-bar-label">${esc(d.date.slice(5))}</div>
-            </div>`).join("") : emptyState("◎", "No leads analyzed in range.")}
+        <div class="adm-chart">
+          ${data.leads_series.length ? areaSvg(data.leads_series.map((d) => d.date.slice(5)), data.leads_series.map((d) => d.leads)) : emptyState("leads", "No leads analyzed in range.")}
         </div>
       </div>
       <div class="adm-card">
         <div class="adm-card-title">Job statuses</div>
-        ${Object.keys(data.job_statuses).length ? `
-          <div class="adm-donut-legend">
-            ${Object.entries(data.job_statuses).map(([k, v], i) => `
-              <div class="adm-legend-row">
-                <span class="adm-legend-swatch" style="background:${palette[i % palette.length]}"></span>
-                ${statusBadge(k)} <span>${v}</span>
-              </div>`).join("")}
-          </div>` : emptyState("◔", "No jobs yet.")}
+        ${distBars(data.job_statuses, statusBadge, "jobs", "No jobs yet.")}
       </div>
       <div class="adm-card">
         <div class="adm-card-title">Leads by platform</div>
-        ${Object.keys(data.leads_by_platform).length ? `
-          <div class="adm-donut-legend">
-            ${Object.entries(data.leads_by_platform).map(([k, v], i) => `
-              <div class="adm-legend-row">
-                <span class="adm-legend-swatch" style="background:${palette[i % palette.length]}"></span>
-                ${platformBadge(k)} <span>${v} (${Math.round((v / platTotal) * 100)}%)</span>
-              </div>`).join("")}
-          </div>` : emptyState("◎", "No leads yet.")}
+        ${distBars(data.leads_by_platform, platformBadge, "leads", "No leads yet.")}
       </div>
       <div class="adm-card">
         <div class="adm-card-title">Lead quality distribution</div>
-        ${Object.keys(data.quality).length ? `
-          <div class="adm-donut-legend">
-            ${Object.entries(data.quality).map(([k, v], i) => `
-              <div class="adm-legend-row">
-                <span class="adm-legend-swatch" style="background:${palette[i % palette.length]}"></span>
-                ${qualityBadge(k)} <span>${v} (${Math.round((v / qualityTotal) * 100)}%)</span>
-              </div>`).join("")}
-          </div>` : emptyState("≈", "No analyzed comments yet.")}
+        ${distBars(data.quality, qualityBadge, "ci", "No analyzed comments yet.")}
       </div>
       <div class="adm-card">
         <div class="adm-card-title">Lead score distribution</div>
-        ${Object.keys(data.score_distribution || {}).length ? `
-          <div class="adm-donut-legend">
-            ${Object.entries(data.score_distribution).map(([k, v], i) => `
-              <div class="adm-legend-row">
-                <span class="adm-legend-swatch" style="background:${palette[i % palette.length]}"></span>
-                <span class="adm-code">${esc(k)}</span> <span>${v}</span>
-              </div>`).join("")}
-          </div>` : emptyState("≈", "No scored leads in range.")}
+        ${Object.keys(data.score_distribution || {}).length ? Object.entries(data.score_distribution).map(([k, v], i) => `
+          <div class="adm-bar-row">
+            <div class="adm-bar-top">
+              <span class="adm-cell-main"><span class="adm-code">${esc(k)}</span></span>
+              <span class="adm-cell-sub">${v}</span>
+            </div>
+            <div class="adm-bar-track"><div class="adm-bar-fill violet" style="width:${Math.max(2, (v / Math.max(1, ...Object.values(data.score_distribution))) * 100).toFixed(1)}%;opacity:${(1 - i * 0.13).toFixed(2)}"></div></div>
+          </div>`).join("") : emptyState("scoring", "No scored leads in range.")}
       </div>
     </div>
     <div class="adm-card">
@@ -1117,7 +1688,7 @@ async function viewAnalytics() {
                 <td>${p.leads}</td>
               </tr>`).join("")}
           </tbody>
-        </table></div>` : emptyState("⬡", "No platform data in range.")}
+        </table></div>` : emptyState("platforms", "No platform data in range.")}
     </div>
     <div class="adm-grid-2">
       <div class="adm-card">
@@ -1129,14 +1700,11 @@ async function viewAnalytics() {
               ${data.top_pages.map((p) => `
                 <tr><td><div class="adm-cell-main">${esc(p.page)}</div></td><td>${p.leads}</td></tr>`).join("")}
             </tbody>
-          </table></div>` : emptyState("◎", "No lead data yet.")}
+          </table></div>` : emptyState("leads", "No lead data yet.")}
       </div>
       <div class="adm-card">
         <div class="adm-card-title">Lead pipeline status</div>
-        <div class="adm-donut-legend">
-          ${Object.entries(data.lead_statuses || {}).map(([k, v]) => `
-            <div class="adm-legend-row">${leadStatusBadge(k)} <span>${v}</span></div>`).join("")}
-        </div>
+        ${distBars(data.lead_statuses || {}, leadStatusBadge, "leads", "No leads in range.")}
       </div>
     </div>`;
   const setRange = (days) => {
@@ -1172,28 +1740,28 @@ async function viewPlatforms() {
   const role = state.user.role;
   root.innerHTML = `
     ${pageHead("Platforms", "Enable/disable platforms server-side and manage the Apify actors each platform scrapes with. Disabling blocks every scrape entry point — including the user app.", `
-      <span class="adm-badge">${data.platforms.filter((p) => p.enabled).length}/${data.platforms.length} enabled</span>`)}
+      <span class="adm-badge gold">${data.platforms.filter((p) => p.enabled).length}/${data.platforms.length} enabled</span>`)}
     <div class="adm-grid-2">
       ${data.platforms.map((p) => `
         <div class="adm-card">
           <div class="adm-flex">
             <h3 class="adm-card-title" style="margin:0">${platformBadge(p.platform)}</h3>
-            <span class="adm-spacer"></span>
+            <span style="flex:1"></span>
             <label class="adm-toggle" title="Enable/disable ${esc(p.platform)}">
               <input type="checkbox" data-toggle data-p="${esc(p.platform)}" ${p.enabled ? "checked" : ""} ${role === "viewer" ? "disabled" : ""}>
               <span class="adm-toggle-slider"></span>
             </label>
           </div>
           <div class="adm-kv" style="margin-top:12px">
-            <dt>Pages</dt><dd>${p.stats.pages}</dd>
-            <dt>Posts</dt><dd>${p.stats.posts}</dd>
-            <dt>Comments</dt><dd>${p.stats.comments}</dd>
-            <dt>Leads</dt><dd>${p.stats.leads}</dd>
+            <div class="adm-kv-row"><dt>Pages</dt><dd>${p.stats.pages}</dd></div>
+            <div class="adm-kv-row"><dt>Posts</dt><dd>${p.stats.posts}</dd></div>
+            <div class="adm-kv-row"><dt>Comments</dt><dd>${p.stats.comments}</dd></div>
+            <div class="adm-kv-row"><dt>Leads</dt><dd>${p.stats.leads}</dd></div>
           </div>
           <div class="adm-card-title" style="margin:16px 0 10px">Actors</div>
           ${p.actors.map((a) => `
             <div class="adm-flex" style="margin-bottom:8px">
-              <span class="adm-badge violet">${esc(a.kind)}</span>
+              <span class="adm-badge gray plain">${esc(a.kind)}</span>
               <input class="adm-input" data-actor data-key="${esc(a.key)}" value="${esc(a.value)}" ${role === "viewer" ? "disabled" : ""}>
               <button class="adm-btn small" data-test data-key="${esc(a.key)}" ${role === "viewer" ? "disabled" : ""}>Test</button>
             </div>
@@ -1250,7 +1818,7 @@ async function viewPlatformDetail(platform) {
   ]);
   const p = plats.platforms.find((x) => x.platform === platform);
   if (!p) {
-    root.innerHTML = emptyState("⬡", `Platform "${esc(platform)}" is not in the configured list.`);
+    root.innerHTML = emptyState("platforms", `Platform "${esc(platform)}" is not in the configured list.`);
     return;
   }
   root.innerHTML = `
@@ -1260,25 +1828,25 @@ async function viewPlatformDetail(platform) {
       <div class="adm-card">
         <div class="adm-flex">
           <h3 class="adm-card-title" style="margin:0">${platformBadge(p.platform)}</h3>
-          <span class="adm-spacer"></span>
+          <span style="flex:1"></span>
           <label class="adm-toggle" title="Enable/disable ${esc(p.platform)}">
             <input type="checkbox" id="pToggle" ${p.enabled ? "checked" : ""} ${role === "viewer" ? "disabled" : ""}>
             <span class="adm-toggle-slider"></span>
           </label>
         </div>
         <div class="adm-kv" style="margin-top:12px">
-          <dt>Status</dt><dd>${p.enabled ? `<span class="adm-badge green">enabled</span>` : `<span class="adm-badge red">disabled</span>`}</dd>
-          <dt>Pages</dt><dd>${p.stats.pages}</dd>
-          <dt>Posts</dt><dd>${p.stats.posts}</dd>
-          <dt>Comments</dt><dd>${p.stats.comments}</dd>
-          <dt>Leads</dt><dd>${p.stats.leads}</dd>
+          <div class="adm-kv-row"><dt>Status</dt><dd>${p.enabled ? `<span class="adm-badge green">enabled</span>` : `<span class="adm-badge red">disabled</span>`}</dd></div>
+          <div class="adm-kv-row"><dt>Pages</dt><dd>${p.stats.pages}</dd></div>
+          <div class="adm-kv-row"><dt>Posts</dt><dd>${p.stats.posts}</dd></div>
+          <div class="adm-kv-row"><dt>Comments</dt><dd>${p.stats.comments}</dd></div>
+          <div class="adm-kv-row"><dt>Leads</dt><dd>${p.stats.leads}</dd></div>
         </div>
       </div>
       <div class="adm-card">
         <div class="adm-card-title">Actors used by this platform</div>
         ${p.actors.map((a) => `
           <div class="adm-flex" style="margin-bottom:8px">
-            <span class="adm-badge violet">${esc(a.kind)}</span>
+            <span class="adm-badge gray plain">${esc(a.kind)}</span>
             <span class="adm-code" style="flex:1">${esc(a.value)}</span>
             <span class="adm-hint">${a.overridden ? "override" : "default"}</span>
           </div>`).join("")}
@@ -1292,7 +1860,7 @@ async function viewPlatformDetail(platform) {
           <thead><tr><th>Run ID</th><th>Query</th><th>Status</th><th>Phase</th><th>Created</th></tr></thead>
           <tbody>
             ${jobs.items.map((j) => `
-              <tr class="adm-row-link" data-nav="jobs/details:${esc(j.run_id)}">
+              <tr class="adm-row-link" data-job="${esc(j.run_id)}">
                 <td><span class="adm-code">${esc(j.run_id)}</span></td>
                 <td><div class="adm-cell-main">${esc((j.query || "").slice(0, 60))}</div></td>
                 <td>${statusBadge(j.status)}</td>
@@ -1304,8 +1872,11 @@ async function viewPlatformDetail(platform) {
         <div class="adm-btn-row" style="margin-top:10px">
           <a class="adm-btn" href="#/jobs?platform=${encodeURIComponent(platform)}">All ${esc(p.platform)} jobs →</a>
         </div>`
-      : emptyState("⇶", `No runs on ${esc(platform)} yet.`)}
+      : emptyState("jobs", `No runs on ${esc(platform)} yet.`)}
     </div>`;
+  $$("[data-job]", root).forEach((row) => {
+    row.onclick = () => openJobDrawer(row.dataset.job);
+  });
   const toggle = $("#pToggle");
   if (toggle) toggle.onchange = async () => {
     try {
@@ -1314,7 +1885,6 @@ async function viewPlatformDetail(platform) {
       viewPlatformDetail(platform);
     } catch (err) { toast(err.message, "error"); toggle.checked = !toggle.checked; }
   };
-  bindNav(root);
 }
 
 /* ──────────────────────────────── PAGES / POSTS BROWSER ───────────── */
@@ -1334,7 +1904,7 @@ async function viewPages() {
   const data = await api(`/api/admin/pages?${qs}`);
   root.innerHTML = `
     ${pageHead("Pages", "Every collected page from the real database.", `
-      <a class="adm-btn" href="/api/admin/export/pages.csv" ${state.user.role === "viewer" ? "onclick='return false'" : ""}>⇩ Export CSV</a>`)}
+      <a class="adm-btn" href="/api/admin/export/pages.csv" ${state.user.role === "viewer" ? "onclick='return false'" : ""}>${icon("exports", 14)} Export CSV</a>`)}
     <div class="adm-card">
       <div class="adm-filters">
         <input class="adm-input" id="pPlat" placeholder="Platform" list="platOpts" value="${esc(f.platform)}">
@@ -1352,17 +1922,17 @@ async function viewPages() {
           ${data.items.length ? data.items.map((p) => `
             <tr class="adm-row-link" data-page="${esc(p._id)}">
               <td><div class="adm-cell-main">${esc(p.page_name || "—")}</div>
-                <div class="adm-cell-sub"><a class="adm-link" href="${esc(p.facebook_url || "#")}" target="_blank" rel="noopener">open profile ↗</a></div></td>
+                <div class="adm-cell-sub"><a href="${esc(p.facebook_url || "#")}" target="_blank" rel="noopener">open profile ↗</a></div></td>
               <td>${platformBadge(p.platform)}</td>
               <td>${esc(p.category || "—")}</td>
               <td>${esc(p.city || "—")}</td>
               <td>${(p.followers || 0).toLocaleString()}</td>
               <td>${p.phone || p.email || p.whatsapp || p.website
                 ? `<div class="adm-cell-sub">${[p.phone, p.whatsapp, p.email].filter(Boolean).map((v) => esc(String(v))).join(" · ")}</div>`
-                : `<span class="adm-badge">no contact</span>`}</td>
+                : `<span class="adm-badge gray plain">no contact</span>`}</td>
               <td>${relativeTime(p.collected_at)}</td>
             </tr>`).join("")
-          : `<tr><td colspan="7">${emptyState("▥", "No pages match these filters.")}</td></tr>`}
+          : `<tr><td colspan="7">${emptyState("platforms", "No pages match these filters.")}</td></tr>`}
         </tbody>
       </table></div>
       ${pagerHtml(data.total, data.offset, data.limit, (dir) => {
@@ -1393,14 +1963,14 @@ function openPageDetail(page) {
   openModal(`Page — ${esc(page.page_name || "Unknown")}`, `
     <div class="adm-kv">
       <dt>Name</dt><dd><div class="adm-cell-main">${esc(page.page_name || "—")}</div></dd>
-      <dt>URL</dt><dd>${page.facebook_url ? `<a class="adm-link" href="${esc(page.facebook_url)}" target="_blank" rel="noopener">${esc(page.facebook_url)}</a>` : "—"}</dd>
+      <dt>URL</dt><dd>${page.facebook_url ? `<a href="${esc(page.facebook_url)}" target="_blank" rel="noopener">${esc(page.facebook_url)}</a>` : "—"}</dd>
       <dt>Category</dt><dd>${esc(page.category || "—")}</dd>
       <dt>City / State</dt><dd>${[page.city, page.state].filter(Boolean).map(esc).join(", ") || "—"}</dd>
       <dt>Followers</dt><dd>${(page.followers || 0).toLocaleString()}</dd>
       <dt>Verified</dt><dd>${page.verified ? "✓" : "—"}</dd>
       <dt>Phone</dt><dd>${esc(page.phone || "—")}</dd>
       <dt>Email</dt><dd>${esc(page.email || "—")}</dd>
-      <dt>Website</dt><dd>${page.website ? `<a class="adm-link" href="${esc(page.website)}" target="_blank" rel="noopener">${esc(page.website)}</a>` : "—"}</dd>
+      <dt>Website</dt><dd>${page.website ? `<a href="${esc(page.website)}" target="_blank" rel="noopener">${esc(page.website)}</a>` : "—"}</dd>
       <dt>Description</dt><dd><div style="max-width:520px;font-size:13px;line-height:1.5">${esc((page.description || "").slice(0, 600))}</div></dd>
       <dt>Collected</dt><dd>${fmtTime(page.collected_at)}</dd>
     </div>`, `
@@ -1421,7 +1991,7 @@ async function viewPosts() {
   const data = await api(`/api/admin/posts?${qs}`);
   root.innerHTML = `
     ${pageHead("Posts", "Every collected post from the real database.", `
-      <a class="adm-btn" href="/api/admin/export/posts.csv" ${state.user.role === "viewer" ? "onclick='return false'" : ""}>⇩ Export CSV</a>`)}
+      <a class="adm-btn" href="/api/admin/export/posts.csv" ${state.user.role === "viewer" ? "onclick='return false'" : ""}>${icon("exports", 14)} Export CSV</a>`)}
     <div class="adm-card">
       <div class="adm-filters">
         <input class="adm-input" id="oPlat" placeholder="Platform" list="platOpts" value="${esc(f.platform)}">
@@ -1442,7 +2012,7 @@ async function viewPosts() {
               <td>${(o.shares_count || 0).toLocaleString()}</td>
               <td>${o.published_date ? relativeTime(o.published_date) : "—"}</td>
             </tr>`).join("")
-          : `<tr><td colspan="7">${emptyState("▤", "No posts match these filters.")}</td></tr>`}
+          : `<tr><td colspan="7">${emptyState("ci", "No posts match these filters.")}</td></tr>`}
         </tbody>
       </table></div>
       ${pagerHtml(data.total, data.offset, data.limit, (dir) => {
@@ -1473,11 +2043,11 @@ function openPostDetail(post) {
   const comments = post.total_comment_count || post.comments_count || 0;
   openModal(`Post — ${esc(post.page_name || "Unknown page")}`, `
     <div class="adm-kv">
-      <dt>URL</dt><dd>${post.post_url ? `<a class="adm-link" href="${esc(post.post_url)}" target="_blank" rel="noopener">open post ↗</a>` : "—"}</dd>
+      <dt>URL</dt><dd>${post.post_url ? `<a href="${esc(post.post_url)}" target="_blank" rel="noopener">open post ↗</a>` : "—"}</dd>
       <dt>Page</dt><dd>${esc(post.page_name || "—")}</dd>
       <dt>Platform</dt><dd>${platformBadge(post.platform)}</dd>
       <dt>Caption</dt><dd><div style="max-width:520px;font-size:13px;line-height:1.5;white-space:pre-wrap">${esc((post.caption || post.description || "").slice(0, 1200))}</div></dd>
-      ${post.hashtags && post.hashtags.length ? `<dt>Hashtags</dt><dd>${post.hashtags.map((h) => `<span class="adm-badge cyan">${esc(h)}</span>`).join(" ")}</dd>` : ""}
+      ${post.hashtags && post.hashtags.length ? `<dt>Hashtags</dt><dd>${post.hashtags.map((h) => `<span class="adm-badge gray plain">${esc(h)}</span>`).join(" ")}</dd>` : ""}
       <dt>Reactions</dt><dd>${likes.toLocaleString()}</dd>
       <dt>Comments</dt><dd>${comments.toLocaleString()}</dd>
       <dt>Shares</dt><dd>${(post.shares_count || 0).toLocaleString()}</dd>
@@ -1492,24 +2062,29 @@ function openPostDetail(post) {
 /* ──────────────────────────────── APIFY ───────────────────────────── */
 async function viewApify() {
   const root = $("#view");
-  // Note: /api/admin/apify/test is a POST that performs a real Apify API
-  // probe, so it must NOT run on page load (wrong method + wasted call).
-  // Load status only; the probe runs on demand via the "Run live test" button.
-  const status = await api("/api/admin/apify");
+  // /api/admin/apify/test is a POST that performs a real Apify API probe,
+  // so it must NOT run on page load. Load status only; the probe runs on
+  // demand via the "Run live test" button.
+  const [status, usage] = await Promise.all([
+    api("/api/admin/apify"),
+    api("/api/admin/usage?days=30").catch(() => null),
+  ]);
   const role = state.user.role;
+  const u = usage || {};
+  const maxActor = Math.max(1, ...(u.actors || []).map((a) => a.runs));
   root.innerHTML = `
     ${pageHead("Apify", "Connection status, connection test and token management. Tokens are never displayed — only a masked hint.", `
-      <a class="adm-btn" href="#/usage">Usage & Cost</a>`)}
+      <a class="adm-btn" href="#/usage">${icon("usage", 14)} Usage & Cost</a>`)}
     <div class="adm-grid-2">
       <div class="adm-card">
         <div class="adm-card-title">Connection</div>
         <div class="adm-kv">
-          <dt>Token</dt><dd>${status.token_configured ? `<span class="adm-badge green">${esc(status.token_hint)}</span>` : `<span class="adm-badge red">not configured</span>`}</dd>
-          <dt>Source</dt><dd>${status.env_token_configured && status.token_hint ? "env override active" : status.env_token_configured ? "environment (.env)" : "—"}</dd>
-          <dt>Last test</dt><dd>${status.last_test_at ? `${status.last_test_ok ? "✓ ok" : "✕ failed"} · ${fmtTime(new Date(status.last_test_at * 1000))}` : "never"}</dd>
+          <div class="adm-kv-row"><dt>Token</dt><dd>${status.token_configured ? `<span class="adm-badge green">${esc(status.token_hint)}</span>` : `<span class="adm-badge red">not configured</span>`}</dd></div>
+          <div class="adm-kv-row"><dt>Source</dt><dd>${status.env_token_configured && status.token_hint ? "env override active" : status.env_token_configured ? "environment (.env)" : "—"}</dd></div>
+          <div class="adm-kv-row"><dt>Last test</dt><dd>${status.last_test_at ? `${status.last_test_ok ? "✓ ok" : "✕ failed"} · ${fmtTime(new Date(status.last_test_at * 1000))}` : "never"}</dd></div>
         </div>
         <div class="adm-btn-row" style="margin-top:14px">
-          <button class="adm-btn primary" id="probeBtn" ${role === "viewer" ? "disabled" : ""}>⟳ Run live test</button>
+          <button class="adm-btn primary" id="probeBtn" ${role === "viewer" ? "disabled" : ""}>${icon("refresh", 14)} Run live test</button>
         </div>
       </div>
       <div class="adm-card">
@@ -1526,11 +2101,29 @@ async function viewApify() {
           </div>`}
       </div>
     </div>
-    <div class="adm-card" id="probeResult" hidden></div>`;
+    <div class="adm-card" id="probeResult" hidden></div>
+    <div class="adm-card">
+      <div class="adm-card-title">Usage this month <span class="adm-hint">(real usageUsd from run records, last 30 days)</span></div>
+      ${u && (u.actors || []).length ? `
+        <div class="adm-stats cols-4">
+          <div class="adm-stat"><div class="adm-stat-label">Total cost</div><div class="adm-stat-value gold">$${money(u.total_cost)}</div></div>
+          <div class="adm-stat"><div class="adm-stat-label">Runs with usage</div><div class="adm-stat-value">${u.runs_with_usage}</div></div>
+          <div class="adm-stat"><div class="adm-stat-label">Actors used</div><div class="adm-stat-value">${u.actors.length}</div></div>
+        </div>
+        ${u.actors.map((a, i) => `
+          <div class="adm-bar-row">
+            <div class="adm-bar-top">
+              <span class="adm-cell-main">${esc(a.actor)}</span>
+              <span class="adm-cell-sub">${a.runs} runs · $${money(a.cost)}</span>
+            </div>
+            <div class="adm-bar-track"><div class="adm-bar-fill" style="width:${Math.max(2, (a.runs / maxActor) * 100).toFixed(1)}%;opacity:${(1 - i * 0.12).toFixed(2)}"></div></div>
+          </div>`).join("")}`
+      : `<div class="adm-note">No Apify runs with usage data in the last 30 days — costs appear here as they are reported.</div>`}
+    </div>`;
   const probeBtn = $("#probeBtn");
   if (probeBtn) probeBtn.onclick = async () => {
     probeBtn.disabled = true;
-    probeBtn.textContent = "⟳ Testing…";
+    probeBtn.textContent = "Testing…";
     try {
       const result = await api("/api/admin/apify/test", { method: "POST" });
       const box = $("#probeResult");
@@ -1543,7 +2136,7 @@ async function viewApify() {
       toast(err.message, "error");
     } finally {
       probeBtn.disabled = false;
-      probeBtn.textContent = "⟳ Run live test";
+      probeBtn.textContent = "Run live test";
     }
   };
   if (role !== "viewer") {
@@ -1571,21 +2164,26 @@ async function viewActors() {
   const role = state.user.role;
   root.innerHTML = `
     ${pageHead("Actors", "Every Apify actor the scrapers call, with its current value and whether it overrides the default.", `
-      <button class="adm-btn" id="refreshActors">↻ Refresh</button>`)}
-    <div class="adm-card">
-      <div class="adm-table-wrap"><table class="adm-table">
-        <thead><tr><th>Key</th><th>Platform</th><th>Current actor id</th><th>Source</th><th></th></tr></thead>
-        <tbody>
-          ${data.actors.map((a) => `
-            <tr>
-              <td><span class="adm-code">${esc(a.key)}</span></td>
-              <td>${platformBadge(a.platform)}</td>
-              <td><div class="adm-cell-main">${esc(a.value)}</div></td>
-              <td>${a.overridden ? `<span class="adm-badge amber">override</span> <span class="adm-hint">default: ${esc(a.default)}</span>` : `<span class="adm-badge">default</span>`}</td>
-              <td><button class="adm-btn small" data-test data-key="${esc(a.key)}" ${role === "viewer" ? "disabled" : ""}>Test</button></td>
-            </tr>`).join("")}
-        </tbody>
-      </table></div>
+      <button class="adm-btn" id="refreshActors">${icon("refresh", 14)} Refresh</button>`)}
+    <div class="adm-actor-grid">
+      ${data.actors.map((a) => `
+        <div class="adm-actor-card">
+          <div class="adm-actor-top">
+            <span class="adm-actor-ico">${icon("actors", 16)}</span>
+            <div style="min-width:0">
+              <div class="adm-actor-name">${esc(a.key)}</div>
+              <div class="adm-actor-kind">${platformBadge(a.platform)}</div>
+            </div>
+          </div>
+          <div class="adm-actor-meta">
+            <span class="adm-code" style="align-self:flex-start">${esc(a.value)}</span>
+            <span>${a.overridden ? `<span class="adm-badge amber">override</span> <span class="adm-hint">default: ${esc(a.default)}</span>` : `<span class="adm-badge gray plain">default</span>`}</span>
+          </div>
+          <div class="adm-actor-foot">
+            <button class="adm-btn small" data-test data-key="${esc(a.key)}" ${role === "viewer" ? "disabled" : ""}>Test</button>
+            <a class="adm-btn small ghost" href="https://apify.com/${esc(a.value)}" target="_blank" rel="noopener">${icon("external", 12)} Open in Apify</a>
+          </div>
+        </div>`).join("")}
     </div>`;
   $("#refreshActors").onclick = viewActors;
   $$("[data-test]", root).forEach((el) => {
@@ -1607,17 +2205,18 @@ async function viewUsage() {
   const maxRuns = Math.max(1, ...data.actors.map((a) => a.runs));
   root.innerHTML = `
     ${pageHead("Usage & Cost", "Apify usage aggregated from real run metadata stored on each search run (usageUsd). Nothing is estimated.", `
-      <span class="adm-badge ${data.total_cost > 0 ? "amber" : ""}">$${money(data.total_cost)} total (${data.runs_with_usage} runs with usage data)</span>`)}
+      <span class="adm-badge ${data.total_cost > 0 ? "gold" : "gray plain"}">$${money(data.total_cost)} total · ${data.runs_with_usage} runs with usage</span>`)}
     <div class="adm-note">${esc(data.note)}</div>
     <div class="adm-card">
-      <div class="adm-bars">
-        ${data.actors.length ? data.actors.map((a) => `
-          <div class="adm-bar-col" title="${esc(a.actor)}">
-            <div class="adm-bar-value">${a.runs}</div>
-            <div class="adm-bar" style="height:${Math.round((a.runs / maxRuns) * 100)}%"></div>
-            <div class="adm-bar-label">${esc(a.actor.split("/").pop().slice(0, 14))}</div>
-          </div>`).join("") : emptyState("¥", "No Apify runs with usage data in the last 30 days.")}
-      </div>
+      <div class="adm-card-title">Cost by actor <span class="adm-hint">(30 days)</span></div>
+      ${data.actors.length ? data.actors.map((a, i) => `
+        <div class="adm-bar-row">
+          <div class="adm-bar-top">
+            <span class="adm-cell-main">${esc(a.actor)}</span>
+            <span class="adm-cell-sub">${a.runs} runs · $${money(a.cost)}</span>
+          </div>
+          <div class="adm-bar-track"><div class="adm-bar-fill" style="width:${Math.max(2, (a.runs / maxRuns) * 100).toFixed(1)}%;opacity:${(1 - i * 0.12).toFixed(2)}"></div></div>
+        </div>`).join("") : emptyState("usage", "No Apify runs with usage data in the last 30 days.")}
       <div class="adm-table-wrap" style="margin-top:16px"><table class="adm-table">
         <thead><tr><th>Actor</th><th>Runs</th><th>Cost (USD)</th></tr></thead>
         <tbody>
@@ -1625,947 +2224,992 @@ async function viewUsage() {
             <tr>
               <td><div class="adm-cell-main">${esc(a.actor)}</div></td>
               <td>${a.runs}</td>
-              <td>${a.cost > 0 ? `$${money(a.cost)}` : `<span class="adm-badge">not reported</span>`}</td>
+              <td>${a.cost > 0 ? `$${money(a.cost)}` : `<span class="adm-badge gray plain">not reported</span>`}</td>
             </tr>`).join("")}
         </tbody>
       </table></div>
     </div>`;
 }
 
-/* ──────────────────────────────── ENVIRONMENT ──────────────────────── */
+/* ────────────────────────────── ENVIRONMENT ──────────────────────── */
+const ENV_LOCK_COOKIE = "admin_env_unlock";
+
 async function viewEnvironment() {
   const root = $("#view");
-  let lock;
-  try {
-    lock = await api("/api/admin/env/lock-status");
-  } catch (err) {
-    throw err;
-  }
-  if (lock.locked) {
-    renderEnvLock(root);
-    return;
-  }
-  let data;
-  try {
-    data = await api("/api/admin/env");
-  } catch (err) {
-    if (err.message.includes("locked")) {
-      renderEnvLock(root);
-      return;
+  const role = state.user.role;
+  const lock = await api("/api/admin/env/lock-status");
+  let data = null;
+  if (!lock.locked) {
+    try {
+      data = await api("/api/admin/env");
+    } catch (err) {
+      if (err.status === 403) { lock.locked = true; }
+      else throw err;
     }
-    throw err;
   }
-  const vars = data.vars;
-  const canWrite = state.user.role !== "viewer";
-  const groups = [...new Set(vars.map((v) => v.group))];
-  const sourceBadge = (v) => v.source === "override"
-    ? `<span class="adm-badge green">override</span>`
-    : v.source === "env"
-      ? `<span class="adm-badge cyan">.env</span>`
-      : `<span class="adm-badge">default</span>`;
-  const valueCell = (v) => {
-    if (v.secret) return `<span class="adm-code">${v.masked ? esc(v.masked) : "—"}</span>`;
-    const raw = String(v.value === undefined || v.value === null ? "" : v.value);
-    return `<span class="adm-code">${esc(raw) || "—"}</span>`;
-  };
+  const locked = !!lock.locked;
+  const rows = data ? data.vars : [];
+  const byCategory = {};
+  rows.forEach((v) => {
+    const g = v.group || "Other";
+    (byCategory[g] = byCategory[g] || []).push(v);
+  });
   root.innerHTML = `
-    ${pageHead("Environment", "Live environment variables. An override row wins; otherwise the real .env value applies; otherwise the documented default. Changes take effect immediately unless marked 'needs restart'.", `
-      <button class="adm-btn" id="envLockBtn">🔒 Lock now</button>`)}
-    <div class="adm-note">Secrets are never displayed — only a masked hint. Every value below is editable (manager+; the guard password is the protection). Overrides are stored in the database and survive restarts; they do not rewrite your .env file. The section stays open for ${lock.unlock_minutes} minutes after unlocking.</div>
-    ${canWrite ? `
-    <div class="adm-card" style="margin-bottom:16px">
-      <div class="adm-card-title">Recovery admin password</div>
-      <div class="adm-field" style="margin-bottom:12px">
-        <label>New password</label>
-        <input class="adm-input" id="envPass" type="password" placeholder="min 8 characters">
-        <span class="adm-hint">Hashed (sha256) server-side and stored as an ADMIN_PASSWORD_HASH override. Effective on the next login.</span>
-      </div>
-      <button class="adm-btn primary" id="envPassBtn">Change password</button>
-    </div>` : ""}
-    ${groups.map((group) => `
-      <div class="adm-card" style="margin-bottom:16px">
-        <div class="adm-card-title">${esc(group)}</div>
-        <div class="adm-table-wrap"><table class="adm-table">
-          <thead><tr><th>Variable</th><th>Value</th><th>Source</th><th>Notes</th><th style="width:150px"></th></tr></thead>
-          <tbody>
-            ${vars.filter((v) => v.group === group).map((v) => `
-              <tr>
-                <td><div class="adm-cell-main">${esc(v.name)}</div>
-                  <div class="adm-cell-sub">${esc(v.description)}</div></td>
-                <td>${valueCell(v)}</td>
-                <td>${sourceBadge(v)}${v.overridden ? `<div class="adm-cell-sub">${v.updated_by || "admin"} · ${v.updated_at ? fmtTime(new Date(v.updated_at * 1000)) : ""}</div>` : ""}</td>
-                <td>${v.restart ? `<span class="adm-badge amber">needs restart</span>` : `<span class="adm-badge green">applies now</span>`}${v.secret ? `<span class="adm-badge">secret</span>` : ""}</td>
-                <td>${canWrite
-                  ? `<div class="adm-btn-row" style="gap:6px">
-                      <button class="adm-btn" data-env-edit="${esc(v.name)}">Edit</button>
-                      ${v.overridden ? `<button class="adm-btn danger" data-env-reset="${esc(v.name)}">Reset</button>` : ""}
-                    </div>`
-                  : `<span class="adm-badge">read only</span>`}</td>
-              </tr>`).join("")}
-          </tbody>
-        </table></div>
-      </div>`).join("")}`;
-  const lockBtn = $("#envLockBtn");
-  if (lockBtn) lockBtn.onclick = async () => {
-    await api("/api/admin/env/unlock", { method: "DELETE" });
-    toast("Environment panel locked", "ok");
-    viewEnvironment();
+    ${pageHead("Environment", "Runtime variables: masked secrets, overrides, sources and the section lock. Editing takes effect on the next scrape.", `
+      ${role === "viewer" ? `<span class="adm-badge gray plain">viewer — read only</span>` : `
+        <button class="adm-btn" id="envLockNow" ${locked ? "disabled" : ""}>${icon("lock", 14)} Lock</button>`}`)}
+    <div class="adm-note ${locked ? "adm-note-warn" : ""}">${locked
+      ? `<b>The environment is locked.</b> Enter the guard password to unlock and edit for ${esc(lock.unlock_minutes || "a short")} minutes.`
+      : `<b>Unlocked.</b> Edits are saved to the DB override table; the .env value stays the fallback.`}</div>
+    ${locked ? `
+      <div class="adm-card" style="max-width:440px">
+        <div class="adm-card-title">Unlock environment</div>
+        <div class="adm-field"><label>Guard password</label>
+          <input class="adm-input" id="envPassword" type="password" placeholder="••••••••">
+        </div>
+        <div class="adm-btn-row">
+          <button class="adm-btn primary" id="envUnlockBtn">${icon("unlock", 14)} Unlock</button>
+          <button class="adm-btn" id="envReload">${icon("refresh", 14)} Reload</button>
+        </div>
+        <div class="adm-hint" id="envUnlockErr"></div>
+      </div>` : `
+      ${Object.entries(byCategory).map(([cat, vars]) => `
+        <div class="adm-card">
+          <div class="adm-card-title">${esc(cat)}</div>
+          <div class="adm-env-list">
+            ${vars.map((v) => `
+              <div class="adm-env-row" data-key="${esc(v.name)}">
+                <div class="adm-env-head">
+                  <div class="adm-cell-main">${esc(v.name)}</div>
+                  ${v.secret ? `<span class="adm-badge gray plain">secret</span>` : ""}
+                  ${v.overridden ? `<span class="adm-badge amber">override</span>` : `<span class="adm-badge gray plain">${esc(v.source || "default")}</span>`}
+                  ${v.restart ? `<span class="adm-badge gold">restart needed</span>` : ""}
+                </div>
+                <span class="adm-code">${v.secret ? `••••${(v.masked && v.masked.length > 4 ? esc(v.masked.slice(-4)) : "")}` : esc(String(v.value ?? "—").slice(0, 60))}</span>
+                <div class="adm-cell-sub">${esc(v.description || "")}</div>
+                <div class="adm-env-actions">
+                  ${v.secret ? `<span class="adm-hint">value never exposed</span>` : ""}
+                  <button class="adm-btn small" data-edit data-key="${esc(v.name)}" data-secret="${v.secret}" ${role === "viewer" ? "disabled" : ""}>${icon("edit", 12)} Edit</button>
+                  <button class="adm-btn small danger" data-reset data-key="${esc(v.name)}" ${v.overridden && role !== "viewer" ? "" : "disabled"}>Reset</button>
+                </div>
+              </div>`).join("")}
+          </div>
+        </div>`).join("")}
+      <div class="adm-card">
+        <div class="adm-card-title">Guard password</div>
+        <p class="adm-hint">Change the password protecting this section. It is hashed server-side (SHA-256) and stored as an override.</p>
+        <div class="adm-field" style="margin-bottom:12px">
+          <label>New password</label>
+          <input class="adm-input" id="envNewPassword" type="password" placeholder="8+ characters" ${role === "viewer" ? "disabled" : ""}>
+        </div>
+        ${role !== "viewer" ? `<button class="adm-btn primary" id="envSavePassword">${icon("key", 14)} Change password</button>` : ""}
+      </div>`}`;
+
+  const unlockBtn = $("#envUnlockBtn");
+  if (unlockBtn) unlockBtn.onclick = async () => {
+    const pw = $("#envPassword").value.trim();
+    if (!pw) { $("#envUnlockErr").textContent = "Password required"; return; }
+    unlockBtn.disabled = true;
+    try {
+      await api("/api/admin/env/unlock", { method: "POST", body: { password: pw } });
+      toast("Unlocked", "ok");
+      viewEnvironment();
+    } catch (err) {
+      $("#envUnlockErr").textContent = err.message || "Wrong password";
+      toast(err.message, "error");
+    } finally {
+      unlockBtn.disabled = false;
+    }
   };
-  if (canWrite) {
-    $$("[data-env-edit]", root).forEach((btn) => {
-      btn.onclick = () => {
-        const entry = vars.find((v) => v.name === btn.dataset.envEdit);
-        if (!entry) return;
-        openModal(`Edit ${entry.name}`, `
-          <div class="adm-field">
-            <label>Value</label>
-            <input class="adm-input" id="envInput" type="${entry.secret ? "password" : "text"}" value="${esc(entry.secret ? "" : entry.value)}" placeholder="${entry.kind === "int" ? "number" : entry.kind === "bool" ? "true / false" : "value"}">
-            <span class="adm-hint">${esc(entry.description)}${entry.secret ? " Never displayed again — only a masked hint." : ""}</span>
-          </div>`, `
-          <button class="adm-btn" data-close>Cancel</button>
-          <button class="adm-btn primary" id="envSaveBtn">Save</button>`);
-        $("#modalBackdrop").onclick = (e) => { if (e.target.id === "modalBackdrop") closeModal(); };
-        $("[data-close]", $("#modalBox")).onclick = closeModal;
-        $("#envSaveBtn").onclick = async () => {
-          const value = $("#envInput").value.trim();
-          if (!value) { toast("A value is required", "error"); return; }
-          try {
-            await api(`/api/admin/env/${encodeURIComponent(entry.name)}`, { method: "PUT", body: { value } });
-            toast(`${entry.name} saved`, "ok");
-            closeModal();
-            viewEnvironment();
-          } catch (err) { toast(err.message, "error"); }
-        };
-      };
-    });
-    $$("[data-env-reset]", root).forEach((btn) => {
-      btn.onclick = () => {
-        const name = btn.dataset.envReset;
-        confirmModal(`Reset ${name}`, `The database override will be removed; the real .env value (or default) becomes active again.`, async () => {
-          await api(`/api/admin/env/${encodeURIComponent(name)}`, { method: "DELETE" });
-          toast(`${name} reset`, "ok");
-          viewEnvironment();
-        }, "Reset");
-      };
-    });
-    const passBtn = $("#envPassBtn");
-    if (passBtn) passBtn.onclick = async () => {
-      const password = $("#envPass").value;
-      if (password.length < 8) { toast("Password must be at least 8 characters", "error"); return; }
+  const reloadBtn = $("#envReload");
+  if (reloadBtn) reloadBtn.onclick = () => viewEnvironment();
+  if (!locked) {
+    const lockBtn = $("#envLockNow");
+    if (lockBtn) lockBtn.onclick = async () => {
       try {
-        await api("/api/admin/env/password", { method: "POST", body: { new_password: password } });
-        toast("Admin password changed", "ok");
-        $("#envPass").value = "";
+        await api("/api/admin/env/unlock", { method: "DELETE" });
+        toast("Environment locked", "ok");
         viewEnvironment();
       } catch (err) { toast(err.message, "error"); }
     };
+    const savePwBtn = $("#envSavePassword");
+    if (savePwBtn) savePwBtn.onclick = async () => {
+      const pw = $("#envNewPassword").value.trim();
+      if (pw.length < 8) { toast("Password must be at least 8 characters", "warn"); return; }
+      try {
+        await api("/api/admin/env/password", { method: "POST", body: { new_password: pw } });
+        toast("Password changed", "ok");
+        $("#envNewPassword").value = "";
+      } catch (err) { toast(err.message, "error"); }
+    };
+    $$("[data-edit]", root).forEach((el) => el.onclick = () => {
+      const box = el.closest(".adm-env-row");
+      const editRow = document.createElement("div");
+      editRow.className = "adm-env-edit";
+      editRow.innerHTML = `
+        <input class="adm-input" type="${el.dataset.secret === "true" ? "password" : "text"}" value="" placeholder="${el.dataset.secret === "true" ? "••••••••" : "new value"}">
+        <div class="adm-btn-row">
+          <button class="adm-btn small primary">Save</button>
+          <button class="adm-btn small ghost">Cancel</button>
+        </div>`;
+      box.after(editRow);
+      box.style.display = "none";
+      const input = editRow.querySelector("input");
+      editRow.querySelector("button.primary").onclick = async () => {
+        const value = input.value.trim();
+        if (!value) { toast("Value cannot be empty", "warn"); return; }
+        try {
+          await api(`/api/admin/env/${encodeURIComponent(el.dataset.key)}`, { method: "PUT", body: { value } });
+          toast("Saved", "ok");
+          viewEnvironment();
+        } catch (err) { toast(err.message, "error"); }
+      };
+      editRow.querySelector("button.ghost").onclick = () => { editRow.remove(); box.style.display = ""; };
+    });
+    $$("[data-reset]", root).forEach((el) => el.onclick = () => {
+      if (el.disabled) return;
+      confirmModal("Reset variable", `Remove the DB override for ${el.dataset.key}? The .env value becomes active again.`,
+        async () => { await api(`/api/admin/env/${encodeURIComponent(el.dataset.key)}`, { method: "DELETE" }); toast("Reset", "ok"); viewEnvironment(); },
+        "Reset");
+    });
   }
 }
 
-function renderEnvLock(root) {
-  root.innerHTML = `
-    ${pageHead("Environment", "Environment variables are protected — unlock with the guard password to view and edit them.", "")}
-    <div class="adm-card" style="max-width:520px">
-      <div class="adm-empty">
-        <div class="adm-empty-ico">🔒</div>
-        <div style="font-size:14px;color:var(--text);margin-bottom:6px">Environment panel locked</div>
-        <div style="font-size:12.5px;margin-bottom:16px">Every environment variable is hidden until you enter the guard password. The unlock lasts 15 minutes.</div>
-        <input class="adm-input" id="envUnlockInput" type="password" placeholder="Guard password" style="max-width:280px;margin:0 auto 12px">
-        <div class="adm-btn-row" style="justify-content:center">
-          <button class="adm-btn primary" id="envUnlockBtn">Unlock</button>
-        </div>
-      </div>
-    </div>`;
-  const btn = $("#envUnlockBtn");
-  btn.onclick = async () => {
-    const password = $("#envUnlockInput").value;
-    if (!password) { toast("Enter the guard password", "error"); return; }
-    btn.disabled = true;
-    btn.textContent = "Unlocking…";
-    try {
-      await api("/api/admin/env/unlock", { method: "POST", body: { password } });
-      toast("Environment unlocked", "ok");
-      viewEnvironment();
-    } catch (err) {
-      toast(err.message, "error");
-      btn.disabled = false;
-      btn.textContent = "Unlock";
-    }
-  };
-  const enter = (e) => { if (e.key === "Enter") btn.onclick(); };
-  $("#envUnlockInput").onkeydown = enter;
-}
-
 /* ──────────────────────────────── LIMITS ──────────────────────────── */
-const LIMIT_LABELS = {
-  "limits.min_comments": "Min comments to qualify a post",
-  "limits.max_posts_default": "Default posts per scrape",
-  "limits.max_posts_cap": "Hard cap: posts per scrape",
-  "limits.max_comments_per_post_default": "Default comments per post",
-  "limits.max_comments_per_post_cap": "Hard cap: comments per post",
-  "limits.global_max_comments": "Global cap: total comments per run",
-  "cost.stop_on_limit": "Stop collecting when the global cap is hit",
-  "cost.warn_before_expensive": "Warn before an expensive scrape",
+const LIMIT_META = {
+  "limits.min_comments": { label: "Min comments", hint: "Ignore comments shorter than this many characters.", min: 0, max: 500, step: 1 },
+  "limits.max_posts_default": { label: "Max posts (default)", hint: "Post URLs collected per query by default.", min: 1, max: 100, step: 1 },
+  "limits.max_posts_cap": { label: "Max posts (cap)", hint: "Hard ceiling for the post limit on any query.", min: 1, max: 500, step: 1 },
+  "limits.max_comments_per_post_default": { label: "Comments / post (default)", hint: "Comments collected per post by default.", min: 1, max: 500, step: 1 },
+  "limits.max_comments_per_post_cap": { label: "Comments / post (cap)", hint: "Hard ceiling per post.", min: 1, max: 2000, step: 1 },
+  "limits.global_max_comments": { label: "Global comment budget", hint: "Total comments collected per query.", min: 1, max: 20000, step: 10 },
 };
-const LIMIT_HINTS = {
-  "limits.min_comments": "Posts with fewer comments are skipped (0 disables).",
-  "limits.global_max_comments": "Hard ceiling for one URL-search run.",
+const COST_META = {
+  "cost.stop_on_limit": { label: "Stop on limit", hint: "Abort a run when the comment budget is reached instead of over-collecting." },
+  "cost.warn_before_expensive": { label: "Warn before expensive runs", hint: "Show a cost warning before starting very large scrapes." },
 };
 
 async function viewLimits() {
   const root = $("#view");
   const data = await api("/api/admin/limits");
-  const keys = Object.keys(LIMIT_LABELS);
-  const values = data.settings;
+  const settings = data.settings || {};
+  const usage = data.usage || {};
+  const role = state.user.role;
   root.innerHTML = `
-    ${pageHead("Scraping & Global Limits", "Server-enforced limits. The backend clamps every request to these values — the frontend cannot bypass them.")}
+    ${pageHead("Limits", "Scrape quotas and cost protection. Saved instantly to the DB — the running scrapers respect them on the next query.", "")}
     <div class="adm-card">
-      ${settingsForm(keys, LIMIT_LABELS, values, { hints: LIMIT_HINTS })}
+      <div class="adm-card-title">Scrape limits <span class="adm-hint">(usage = documents currently stored)</span></div>
+      ${Object.entries(LIMIT_META).map(([key, m]) => {
+        const val = settings[key];
+        const usageKey = key === "limits.global_max_comments" ? "comments" : null;
+        const used = usageKey ? usage[usageKey] || 0 : null;
+        return `
+        <div class="adm-settings-row" data-key="${key}">
+          <div class="adm-settings-text">
+            <div class="adm-cell-main">${esc(m.label)}</div>
+            <div class="adm-hint">${esc(m.hint)}</div>
+            ${used !== null ? `<div class="adm-hint">currently stored: <b>${fmtNum(used)}</b></div>` : ""}
+          </div>
+          <input class="adm-input" type="number" min="${m.min}" max="${m.max}" step="${m.step}" value="${val ?? m.min}" data-role="edit" ${role === "viewer" ? "disabled" : ""}>
+        </div>`;
+      }).join("")}
+    </div>
+    <div class="adm-card">
+      <div class="adm-card-title">Cost protection</div>
+      ${Object.entries(COST_META).map(([key, m]) => `
+        <div class="adm-toggle-row">
+          <div><div class="adm-cell-main">${esc(m.label)}</div><div class="adm-hint">${esc(m.hint)}</div></div>
+          <label class="adm-switch"><input type="checkbox" data-key="${key}" ${settings[key] ? "checked" : ""} ${role === "viewer" ? "disabled" : ""}><span></span></label>
+        </div>`).join("")}
     </div>`;
-  bindSettingsSave(root, "/api/admin/limits", viewLimits);
+  $$("[data-role=edit]", root).forEach((input) => {
+    let timer;
+    const commit = async () => {
+      const key = input.closest(".adm-settings-row").dataset.key;
+      const m = LIMIT_META[key];
+      const val = parseInt(input.value, 10);
+      if (isNaN(val) || val < m.min || val > m.max) { toast(`${m.label} out of range (${m.min}–${m.max})`, "warn"); return; }
+      try {
+        await api("/api/admin/limits", { method: "PUT", body: { [key]: val } });
+        toast(`${m.label} → ${val}`, "ok");
+      } catch (err) { toast(err.message, "error"); }
+    };
+    input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(commit, 600); });
+  });
+  $$(".adm-switch input", root).forEach((el) => el.addEventListener("change", async () => {
+    try {
+      await api("/api/admin/limits", { method: "PUT", body: { [el.dataset.key]: el.checked } });
+      toast(`${COST_META[el.dataset.key].label} → ${el.checked ? "on" : "off"}`, "ok");
+    } catch (err) { toast(err.message, "error"); el.checked = !el.checked; }
+  }));
 }
 
-/* ──────────────────────────────── AI ──────────────────────────────── */
-const AI_LABELS = {
-  "ai.enabled": "AI analysis enabled",
-  "ai.rule_fallback": "Rule-based fallback when Gemini fails",
-  "ai.max_calls_per_job": "Max Gemini calls per job",
-  "ai.temperature": "Temperature",
-  "ai.model": "Gemini model",
+/* ───────────────────────────────── AI ─────────────────────────────── */
+const AI_TOGGLES = {
+  "ai.enabled": { label: "AI analysis", hint: "Run the Gemini stage on collected comments. When off, rules-only scoring applies." },
+  "ai.rule_fallback": { label: "Rule fallback", hint: "If the model is unreachable, fall back to deterministic rules instead of failing the run." },
 };
-const AI_HINTS = {
-  "ai.temperature": "0.0–1.0; lower is more deterministic.",
-  "ai.model": "e.g. gemini-2.5-flash",
+const AI_NUMBERS = {
+  "ai.max_calls_per_job": { label: "Max calls per job", hint: "Gemini calls budgeted for a single search run.", min: 0, max: 10000, step: 10 },
+  "ai.temperature": { label: "Temperature", hint: "Model sampling temperature (0–1).", min: 0, max: 1, step: 0.05 },
 };
 
 async function viewAI() {
   const root = $("#view");
   const data = await api("/api/admin/ai");
+  const settings = data.settings || {};
+  const role = state.user.role;
   root.innerHTML = `
-    ${pageHead("AI / Gemini", "Tune the comment-analysis model. Changes apply on the next analysis; existing results are untouched.", `
-      <span class="adm-badge ${data.gemini_key_configured ? "green" : "amber"}">${data.gemini_key_configured ? "Gemini key configured" : "No Gemini key — rule-based only"}</span>`)}
+    ${pageHead("AI & Analysis", "Gemini analysis of collected content — lead scoring, intent detection, classification. Everything below uses the real pipeline.", "", "violet")}
     <div class="adm-grid-2">
       <div class="adm-card">
-        <div class="adm-card-title">Settings</div>
-        ${settingsForm(Object.keys(AI_LABELS), AI_LABELS, data.settings, { hints: AI_HINTS })}
+        <div class="adm-card-title">Status</div>
+        <div class="adm-kv">
+          <div class="adm-kv-row"><dt>Model</dt><dd><span class="adm-badge violet">${esc(settings["ai.model"] || "—")}</span></dd></div>
+          <div class="adm-kv-row"><dt>API key</dt><dd>${data.gemini_key_configured ? `<span class="adm-badge green">configured</span>` : `<span class="adm-badge red">missing</span>`}</dd></div>
+          <div class="adm-kv-row"><dt>Analyzed (all time)</dt><dd>${fmtNum(data.counts.analyzed)}</dd></div>
+          <div class="adm-kv-row"><dt>This month</dt><dd>${fmtNum(data.counts.this_month)}</dd></div>
+          <div class="adm-kv-row"><dt>Leads saved</dt><dd>${fmtNum(data.counts.leads)}</dd></div>
+        </div>
       </div>
       <div class="adm-card">
-        <div class="adm-card-title">Test the pipeline</div>
-        <div class="adm-field" style="margin-bottom:12px">
-          <label>Sample comment</label>
-          <textarea class="adm-textarea" id="aiSample">Hi, I want to buy a 2BHK flat near Hitech City within 45 lakhs. Please call me at 9876543210.</textarea>
-        </div>
-        <button class="adm-btn primary" id="aiTestBtn">Run real analysis</button>
-        <div id="aiResult" style="margin-top:14px"></div>
+        <div class="adm-card-title">Settings <span class="adm-hint">(saved instantly)</span></div>
+        ${Object.entries(AI_TOGGLES).map(([key, m]) => `
+          <div class="adm-toggle-row">
+            <div><div class="adm-cell-main">${esc(m.label)}</div><div class="adm-hint">${esc(m.hint)}</div></div>
+            <label class="adm-switch"><input type="checkbox" data-setting="${key}" ${settings[key] ? "checked" : ""} ${role === "viewer" ? "disabled" : ""}><span></span></label>
+          </div>`).join("")}
+        ${Object.entries(AI_NUMBERS).map(([key, m]) => `
+          <div class="adm-settings-row" data-key="${key}">
+            <div class="adm-settings-text">
+              <div class="adm-cell-main">${esc(m.label)}</div>
+              <div class="adm-hint">${esc(m.hint)}</div>
+            </div>
+            <input class="adm-input" type="number" min="${m.min}" max="${m.max}" step="${m.step}" value="${settings[key] ?? m.min}" data-setting="${key}" ${role === "viewer" ? "disabled" : ""}>
+          </div>`).join("")}
       </div>
-    </div>`;
-  bindSettingsSave(root, "/api/admin/ai", viewAI);
-  $("#aiTestBtn").onclick = async () => {
-    const btn = $("#aiTestBtn");
-    btn.disabled = true;
+    </div>
+    <div class="adm-card">
+      <div class="adm-card-title">Live test <span class="adm-hint">(runs the real analysis on your text)</span></div>
+      <div class="adm-field">
+        <label>Sample comment</label>
+        <textarea class="adm-input" id="aiSample" rows="3">Need a website redesign for my salon, budget around 5-7k, can share more details on WhatsApp 9812345678.</textarea>
+      </div>
+      <div class="adm-field">
+        <label>Author</label>
+        <input class="adm-input" id="aiAuthor" value="Test User">
+      </div>
+      <div class="adm-btn-row">
+        <button class="adm-btn primary" id="aiTest" ${role === "viewer" ? "disabled" : ""}>${icon("sparkles", 14)} Run live test</button>
+      </div>
+    </div>
+    <div class="adm-card" id="aiResult" hidden></div>`;
+  const testBtn = $("#aiTest");
+  if (testBtn) testBtn.onclick = async () => {
+    const text = $("#aiSample").value.trim();
+    if (!text) { toast("Sample comment required", "warn"); return; }
+    testBtn.disabled = true;
+    testBtn.textContent = "Analyzing…";
     try {
-      const res = await api("/api/admin/ai/test", { method: "POST", body: { text: $("#aiSample").value } });
-      const contact = res.contact || {};
-      const buyer = res.buyer || {};
-      $("#aiResult").innerHTML = `
+      const res = await api("/api/admin/ai/test", { method: "POST", body: { text, author: $("#aiAuthor").value || "Test User" } });
+      const box = $("#aiResult");
+      box.hidden = false;
+      box.innerHTML = `
+        <div class="adm-card-title">Test result <span class="adm-badge violet">${esc(res.analyzed_by || "gemini")}</span></div>
         <div class="adm-kv">
-          <dt>Engine</dt><dd><span class="adm-badge ${res.analyzed_by === "gemini" ? "violet" : "cyan"}">${esc(res.analyzed_by)}</span></dd>
-          <dt>Useful</dt><dd>${res.is_useful ? "✓" : "✕"} — ${esc(res.reason || "")}</dd>
-          <dt>Quality</dt><dd>${qualityBadge(res.lead_quality)}</dd>
-          <dt>Priority</dt><dd><span class="adm-badge">${esc(res.priority)}</span></dd>
-          <dt>Lead score</dt><dd>${scorePill(res.lead_score)}</dd>
-          <dt>Signal score</dt><dd>${scorePill(res.signal_score)}</dd>
-          <dt>Signals</dt><dd>${res.signals.length ? res.signals.map((s) => `<span class="adm-badge cyan">${esc(s)}</span>`).join(" ") : "—"}</dd>
-          <dt>Phone</dt><dd>${esc(contact.phone || contact.mobile || "—")}</dd>
-          <dt>Email</dt><dd>${esc(contact.email || "—")}</dd>
-          <dt>Budget</dt><dd>${esc(buyer.budget || "—")}</dd>
-          <dt>Intent</dt><dd>${esc(buyer.intent || "—")}</dd>
+          <div class="adm-kv-row"><dt>Lead?</dt><dd><span class="adm-badge ${res.is_useful ? "gold" : "gray plain"}">${res.is_useful ? "yes" : "no"}</span></dd></div>
+          <div class="adm-kv-row"><dt>Reason</dt><dd>${esc(res.reason || "—")}</dd></div>
+          <div class="adm-kv-row"><dt>Quality</dt><dd>${esc(res.lead_quality || "—")}</dd></div>
+          <div class="adm-kv-row"><dt>Priority</dt><dd>${esc(res.priority || "—")}</dd></div>
+          <div class="adm-kv-row"><dt>Buyer</dt><dd>${esc(res.buyer || "—")}</dd></div>
+          ${res.contact ? Object.entries(res.contact).filter(([, v]) => v).map(([k, v]) => `<div class="adm-kv-row"><dt>${esc(k)}</dt><dd>${esc(String(v))}</dd></div>`).join("") : ""}
+          <div class="adm-kv-row"><dt>Lead score</dt><dd><span class="adm-score-pill">${res.lead_score ?? 0}</span></dd></div>
+          <div class="adm-kv-row"><dt>Signal score</dt><dd>${res.signal_score ?? 0}</dd></div>
+          ${res.signals && res.signals.length ? `<div class="adm-kv-row"><dt>Signals</dt><dd>${res.signals.map((s) => `<span class="adm-badge gray plain">${esc(s)}</span>`).join(" ")}</dd></div>` : ""}
         </div>`;
+      toast("AI test complete", "ok");
     } catch (err) { toast(err.message, "error"); }
-    finally { btn.disabled = false; }
+    finally { testBtn.disabled = false; testBtn.textContent = "Run live test"; }
   };
+  if (role !== "viewer") {
+    $$(".adm-switch input", root).forEach((el) => el.addEventListener("change", async () => {
+      try {
+        await api("/api/admin/ai", { method: "PUT", body: { [el.dataset.setting]: el.checked } });
+        toast(`${AI_TOGGLES[el.dataset.setting].label} → ${el.checked ? "on" : "off"}`, "ok");
+      } catch (err) { toast(err.message, "error"); el.checked = !el.checked; }
+    }));
+    $$("input[data-setting]", root).forEach((input) => {
+      let timer;
+      const commit = async () => {
+        const key = input.dataset.setting;
+        const m = AI_NUMBERS[key];
+        const val = parseFloat(input.value);
+        if (isNaN(val) || val < m.min || val > m.max) { toast(`${m.label} out of range`, "warn"); return; }
+        try {
+          await api("/api/admin/ai", { method: "PUT", body: { [key]: val } });
+          toast(`${m.label} → ${val}`, "ok");
+        } catch (err) { toast(err.message, "error"); }
+      };
+      input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(commit, 600); });
+    });
+  }
 }
 
-/* ──────────────────────────────── SCORING ─────────────────────────── */
-const SCORE_LABELS = {
-  "scoring.confidence_weight": "Confidence weight (× score)",
-  "scoring.priority_weight": "Priority weight (max)",
-  "scoring.quality_weight": "Quality weight (max)",
-  "scoring.contact_phone": "Contact points: phone",
-  "scoring.contact_email": "Contact points: email",
-  "scoring.spam_penalty": "Spam penalty (× spam score)",
-  "scoring.phone": "Signal score: phone",
-  "scoring.email": "Signal score: email",
-  "scoring.budget": "Signal score: budget",
-  "scoring.urgency": "Signal score: urgency",
-  "scoring.location": "Signal score: location",
-  "scoring.buying_intent": "Signal score: buying intent",
-  "scoring.hot_min": "Hot threshold (signal score)",
-  "scoring.warm_min": "Warm threshold (signal score)",
-  "scoring.derive_quality": "Derive quality from signal score",
-};
-const SCORE_HINTS = {
-  "scoring.confidence_weight": "The base formula: confidence × weight + priority + quality + contact − spam.",
-  "scoring.derive_quality": "When on, comments without an AI quality get hot/warm/cold from the signal score.",
+/* ─────────────────────────────── SCORING ──────────────────────────── */
+const SCORING_GROUPS = [
+  ["Weights", [
+    ["scoring.confidence_weight", { label: "Confidence", hint: "AI confidence in the analysis.", min: 0, max: 100, step: 1 }],
+    ["scoring.priority_weight", { label: "Priority", hint: "Priority detected in the comment.", min: 0, max: 100, step: 1 }],
+    ["scoring.quality_weight", { label: "Quality", hint: "Overall comment quality.", min: 0, max: 100, step: 1 }],
+    ["scoring.contact_phone", { label: "Phone", hint: "Points when a phone number is present.", min: 0, max: 50, step: 1 }],
+    ["scoring.contact_email", { label: "Email", hint: "Points when an email is present.", min: 0, max: 50, step: 1 }],
+    ["scoring.spam_penalty", { label: "Spam penalty", hint: "Points subtracted for spam signals.", min: 0, max: 100, step: 1 }],
+  ]],
+  ["Signals", [
+    ["scoring.phone", { label: "Phone signal", hint: "Signal points for a phone.", min: 0, max: 50, step: 1 }],
+    ["scoring.email", { label: "Email signal", hint: "Signal points for an email.", min: 0, max: 50, step: 1 }],
+    ["scoring.budget", { label: "Budget", hint: "Signal points for a stated budget.", min: 0, max: 50, step: 1 }],
+    ["scoring.urgency", { label: "Urgency", hint: "Signal points for urgency.", min: 0, max: 50, step: 1 }],
+    ["scoring.location", { label: "Location", hint: "Signal points for a location.", min: 0, max: 50, step: 1 }],
+    ["scoring.buying_intent", { label: "Buying intent", hint: "Signal points for buying intent.", min: 0, max: 50, step: 1 }],
+  ]],
+  ["Thresholds", [
+    ["scoring.hot_min", { label: "Hot minimum", hint: "Score at or above this is a hot lead.", min: 0, max: 100, step: 1 }],
+    ["scoring.warm_min", { label: "Warm minimum", hint: "Score at or above this is a warm lead.", min: 0, max: 100, step: 1 }],
+  ]],
+];
+const SCORING_TOGGLES = {
+  "scoring.derive_quality": { label: "Derive quality", hint: "Infer quality from the signal score when no explicit quality is reported." },
 };
 
 async function viewScoring() {
   const root = $("#view");
   const data = await api("/api/admin/scoring");
+  const settings = data.settings || {};
+  const role = state.user.role;
   root.innerHTML = `
-    ${pageHead("Lead Scoring", "Deterministic 0–100 lead score plus the additive signal score. Weights apply to every new analysis.")}
+    ${pageHead("Lead scoring", "Weights, signals and thresholds of the deterministic score. Changes apply to the next analysis — collected leads are untouched.", "")}
+    ${SCORING_GROUPS.map(([group, keys]) => `
+      <div class="adm-card">
+        <div class="adm-card-title">${esc(group)}</div>
+        ${keys.map(([key, m]) => `
+          <div class="adm-settings-row" data-key="${key}">
+            <div class="adm-settings-text">
+              <div class="adm-cell-main">${esc(m.label)}</div>
+              <div class="adm-hint">${esc(m.hint)}</div>
+            </div>
+            <input class="adm-input" type="number" min="${m.min}" max="${m.max}" step="${m.step}" value="${settings[key] ?? m.min}" data-setting="${key}" ${role === "viewer" ? "disabled" : ""}>
+          </div>`).join("")}
+      </div>`).join("")}
     <div class="adm-card">
-      ${settingsForm(Object.keys(SCORE_LABELS), SCORE_LABELS, data.settings, { hints: SCORE_HINTS })}
+      <div class="adm-card-title">Behavior</div>
+      ${Object.entries(SCORING_TOGGLES).map(([key, m]) => `
+        <div class="adm-toggle-row">
+          <div><div class="adm-cell-main">${esc(m.label)}</div><div class="adm-hint">${esc(m.hint)}</div></div>
+          <label class="adm-switch"><input type="checkbox" data-setting="${key}" ${settings[key] ? "checked" : ""} ${role === "viewer" ? "disabled" : ""}><span></span></label>
+        </div>`).join("")}
     </div>`;
-  bindSettingsSave(root, "/api/admin/scoring", viewScoring);
+  if (role !== "viewer") {
+    const all = [...SCORING_GROUPS.flatMap(([, keys]) => keys), ...Object.entries(SCORING_TOGGLES)];
+    const metaOf = (key) => Object.fromEntries(all)[key];
+    $$("input[data-setting]", root).forEach((input) => {
+      let timer;
+      const commit = async () => {
+        const key = input.dataset.setting;
+        const m = metaOf(key);
+        const val = parseFloat(input.value);
+        if (isNaN(val) || val < m.min || val > m.max) { toast(`${m.label} out of range`, "warn"); return; }
+        try {
+          await api("/api/admin/scoring", { method: "PUT", body: { [key]: val } });
+          toast(`${m.label} → ${val}`, "ok");
+        } catch (err) { toast(err.message, "error"); }
+      };
+      input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(commit, 600); });
+    });
+    $$(".adm-switch input", root).forEach((el) => el.addEventListener("change", async () => {
+      try {
+        await api("/api/admin/scoring", { method: "PUT", body: { [el.dataset.setting]: el.checked } });
+        toast(`${metaOf(el.dataset.setting).label} → ${el.checked ? "on" : "off"}`, "ok");
+      } catch (err) { toast(err.message, "error"); el.checked = !el.checked; }
+    }));
+  }
 }
 
-/* ──────────────────────────────── COMMENT INTELLIGENCE ────────────── */
-const CI_LABELS = {
-  "ci.detect_phone": "Detect phone numbers",
-  "ci.detect_email": "Detect emails",
-  "ci.detect_budget": "Detect budgets",
-  "ci.detect_location": "Detect locations",
-  "ci.detect_urgency": "Detect urgency",
-  "ci.detect_buying_intent": "Detect buying intent",
-  "ci.detect_selling_intent": "Detect selling intent",
-  "ci.ignore_emoji_only": "Filter emoji-only comments",
-  "ci.ignore_spam": "Filter spam patterns",
-  "ci.ignore_low_value": "Filter low-value comments",
-  "ci.min_lead_score": "Min lead score to count as lead",
+/* ───────────────────────────────── CI ─────────────────────────────── */
+const CI_TOGGLES = {
+  "ci.detect_phone": { label: "Phone", hint: "Extract phone numbers." },
+  "ci.detect_email": { label: "Email", hint: "Extract email addresses." },
+  "ci.detect_budget": { label: "Budget", hint: "Detect budget mentions." },
+  "ci.detect_location": { label: "Location", hint: "Detect location mentions." },
+  "ci.detect_urgency": { label: "Urgency", hint: "Detect urgency." },
+  "ci.detect_buying_intent": { label: "Buying intent", hint: "Detect buying intent." },
+  "ci.detect_selling_intent": { label: "Selling intent", hint: "Detect selling intent (off by default to preserve lead filtering)." },
+  "ci.ignore_emoji_only": { label: "Ignore emoji-only", hint: "Skip comments that are only emoji." },
+  "ci.ignore_spam": { label: "Ignore spam", hint: "Skip spam-looking comments." },
+  "ci.ignore_low_value": { label: "Ignore low value", hint: "Skip low-value comments." },
 };
-const CI_HINTS = {
-  "ci.min_lead_score": "Comments scoring below this are not marked is_lead (0 = no threshold).",
-};
-const CI_FILTERS = { platform: "", intent: "", isLead: "", contact: false, minConf: "", q: "" };
 
 async function viewCI() {
   const root = $("#view");
-  const f = CI_FILTERS;
-  const qs = qsOf({
-    platform: f.platform, intent: f.intent,
-    is_lead: f.isLead, q: f.q,
-    contact: f.contact ? "true" : "",
-    min_confidence: f.minConf,
-    offset: state.filters.ciOffset || 0, limit: 25,
-  });
-  const [settings, data] = await Promise.all([
-    api("/api/admin/comment-intelligence"),
-    api(`/api/admin/comments?${qs}`),
-  ]);
   const role = state.user.role;
-  const sm = data.summary || {};
-  const intentOpts = Object.keys(sm.intents || {});
-  const chip = (label, value) => `
-    <div class="adm-stat"><div class="adm-stat-label">${label}</div><div class="adm-stat-value">${value.toLocaleString()}</div></div>`;
+  const hashParams = new URLSearchParams(location.hash.split("?")[1] || "");
+  const qs = new URLSearchParams({
+    platform: hashParams.get("platform") || "",
+    intent: hashParams.get("intent") || "",
+    quality: hashParams.get("quality") || "",
+    limit: 40,
+  });
+  const [data, ci] = await Promise.all([
+    api(`/api/admin/comments?${qs}`),
+    api("/api/admin/comment-intelligence"),
+  ]);
+  const items = data.items || [];
+  const summary = data.summary || {};
+  const settings = ci.settings || {};
+  const badge = (text, cls) => text ? `<span class="adm-badge ${cls || "gray plain"}">${esc(text)}</span>` : "";
   root.innerHTML = `
-    ${pageHead("Comment Intelligence", "Real analyzed comments with the signals the pipeline extracted. Filters hit the live ai_comments collection.")}
-    <div class="adm-stats">
-      ${chip("Total comments", sm.total ?? 0)}
-      ${chip("Analyzed", sm.analyzed ?? 0)}
-      ${chip("With contact info", sm.contacts ?? 0)}
-      ${chip("Potential leads", sm.leads ?? 0)}
-      ${chip("High value (score ≥ 80)", sm.high_value ?? 0)}
-      <div class="adm-stat"><div class="adm-stat-label">Avg confidence</div><div class="adm-stat-value">${sm.avg_confidence !== null && sm.avg_confidence !== undefined ? `${(sm.avg_confidence * 100).toFixed(0)}%` : "—"}</div></div>
-      <div class="adm-stat"><div class="adm-stat-label">Avg lead score</div><div class="adm-stat-value">${sm.avg_score !== null && sm.avg_score !== undefined ? sm.avg_score : "—"}</div></div>
-    </div>
-    <div class="adm-card" style="margin-bottom:16px">
-      <div class="adm-card-title">Signal detection settings</div>
-      ${settingsForm(Object.keys(CI_LABELS), CI_LABELS, settings.settings, { hints: CI_HINTS })}
+    ${pageHead("Contact Intelligence", "What the engine decided about real comments — intent, quality, confidence, contact details.", `
+      <span class="adm-badge violet">${fmtNum(summary.analyzed ?? 0)} analyzed</span>
+      <span class="adm-badge gold">${fmtNum(summary.leads ?? 0)} leads</span>`)}
+    <div class="adm-grid-2">
+      <div class="adm-card">
+        <div class="adm-card-title">Pipeline <span class="adm-hint">(all-time)</span></div>
+        <div class="adm-stats cols-3">
+          <div class="adm-stat"><div class="adm-stat-label">Total</div><div class="adm-stat-value">${fmtNum(summary.total ?? 0)}</div></div>
+          <div class="adm-stat"><div class="adm-stat-label">Analyzed</div><div class="adm-stat-value">${fmtNum(summary.analyzed ?? 0)}</div></div>
+          <div class="adm-stat"><div class="adm-stat-label">Leads</div><div class="adm-stat-value gold">${fmtNum(summary.leads ?? 0)}</div></div>
+          <div class="adm-stat"><div class="adm-stat-label">Contacts</div><div class="adm-stat-value">${fmtNum(summary.contacts ?? 0)}</div></div>
+          <div class="adm-stat"><div class="adm-stat-label">High value</div><div class="adm-stat-value">${fmtNum(summary.high_value ?? 0)}</div></div>
+          <div class="adm-stat"><div class="adm-stat-label">Avg confidence</div><div class="adm-stat-value">${summary.avg_confidence !== null && summary.avg_confidence !== undefined ? (summary.avg_confidence * 100).toFixed(0) + "%" : "—"}</div></div>
+        </div>
+        ${summary.intents && Object.keys(summary.intents).length ? `
+          <div class="adm-bar-list" style="margin-top:12px">
+            ${Object.entries(summary.intents).sort((a, b) => b[1] - a[1]).map(([intent, count]) => `
+              <div class="adm-bar-row">
+                <div class="adm-bar-top"><span class="adm-cell-main">${badge(intent, "violet")}</span><span class="adm-cell-sub">${fmtNum(count)}</span></div>
+                <div class="adm-bar-track"><div class="adm-bar-fill" style="width:${Math.max(2, (count / Math.max(1, ...Object.values(summary.intents))) * 100).toFixed(1)}%"></div></div>
+              </div>`).join("")}
+          </div>` : ""}
+      </div>
+      <div class="adm-card">
+        <div class="adm-card-title">Detection settings <span class="adm-hint">(instant save)</span></div>
+        ${Object.entries(CI_TOGGLES).map(([key, m]) => `
+          <div class="adm-toggle-row">
+            <div><div class="adm-cell-main">${esc(m.label)}</div><div class="adm-hint">${esc(m.hint)}</div></div>
+            <label class="adm-switch"><input type="checkbox" data-setting="${key}" ${settings[key] ? "checked" : ""} ${role === "viewer" ? "disabled" : ""}><span></span></label>
+          </div>`).join("")}
+        <div class="adm-settings-row" data-key="ci.min_lead_score">
+          <div class="adm-settings-text">
+            <div class="adm-cell-main">Minimum lead score</div>
+            <div class="adm-hint">Comments below this score are not treated as leads.</div>
+          </div>
+          <input class="adm-input" type="number" min="0" max="100" step="1" value="${settings["ci.min_lead_score"] ?? 0}" data-setting="ci.min_lead_score" ${role === "viewer" ? "disabled" : ""}>
+        </div>
+      </div>
     </div>
     <div class="adm-card">
-      <div class="adm-filters">
-        <input class="adm-input" id="cPlat" placeholder="Platform" list="platOpts" value="${esc(f.platform)}">
-        <input class="adm-input" id="cIntent" placeholder="Intent" list="intentOpts" value="${esc(f.intent)}">
-        <datalist id="intentOpts">${intentOpts.map((i) => `<option>${esc(i)}</option>`).join("")}</datalist>
-        <select class="adm-select" id="cLead">
-          <option value="">Any lead status</option>
-          <option value="true" ${f.isLead === "true" ? "selected" : ""}>Only leads</option>
-          <option value="false" ${f.isLead === "false" ? "selected" : ""}>Non-leads only</option>
+      <div class="adm-card-title">Feed <span class="adm-hint">(${items.length} shown · click a row for the lead detail)</span></div>
+      <div class="adm-feed-filters" id="ciFilters">
+        <select class="adm-input" data-filter="platform">
+          <option value="">all platforms</option>
+          ${["facebook", "instagram", "linkedin", "youtube"].map((p) => `<option value="${p}" ${hashParams.get("platform") === p ? "selected" : ""}>${p}</option>`).join("")}
         </select>
-        <input class="adm-input" id="cConf" placeholder="Min confidence (0–1)" value="${esc(f.minConf)}" style="max-width:150px">
-        <label class="adm-flex" style="gap:8px;align-items:center">
-          <input type="checkbox" id="cContact" ${f.contact ? "checked" : ""}>
-          <span class="adm-hint">with contact info</span>
-        </label>
-        <input class="adm-input" id="cQ" placeholder="Text / name / phone / email…" value="${esc(f.q)}">
-        <button class="adm-btn primary" id="applyCI">Filter</button>
-        <button class="adm-btn" id="clearCI">Clear</button>
+        <select class="adm-input" data-filter="intent">
+          <option value="">all intents</option>
+          ${Object.keys(summary.intents || {}).map((i) => `<option value="${esc(i)}" ${hashParams.get("intent") === i ? "selected" : ""}>${esc(i)}</option>`).join("")}
+        </select>
+        <select class="adm-input" data-filter="quality">
+          <option value="">all qualities</option>
+          ${["high", "medium", "low"].map((q) => `<option value="${q}" ${hashParams.get("quality") === q ? "selected" : ""}>${q}</option>`).join("")}
+        </select>
       </div>
-      <div class="adm-note">${data.total.toLocaleString()} comment(s) match the filters.</div>
-      <div class="adm-table-wrap"><table class="adm-table">
-        <thead><tr><th>Commenter</th><th>Comment</th><th>Platform</th><th>Intent</th><th>Score</th><th>Confidence</th><th>Contact</th><th>Lead</th><th>Analyzed</th></tr></thead>
-        <tbody>
-          ${data.items.length ? data.items.map((c) => `
-            <tr class="adm-row-link" data-comment="${esc(c._id)}">
-              <td><div class="adm-cell-main">${esc(c.commenter_name || "—")}</div>
-                <div class="adm-cell-sub">${esc(c.page_name || "")}</div></td>
-              <td><div class="adm-cell-sub" style="max-width:300px">${esc((c.comment_text || "").slice(0, 130))}</div></td>
-              <td>${platformBadge(c.platform)}</td>
-              <td>${c.intent ? `<span class="adm-badge cyan">${esc(c.intent)}</span>` : "—"}</td>
-              <td>${scorePill(c.lead_score)}</td>
-              <td>${c.confidence !== undefined && c.confidence !== null ? `${(Number(c.confidence) * 100).toFixed(0)}%` : "—"}</td>
-              <td>${c.phone || c.email || c.whatsapp
-                ? `<div class="adm-cell-sub">${[c.phone, c.whatsapp, c.email].filter(Boolean).map((v) => esc(String(v))).join(" · ")}</div>`
-                : `<span class="adm-badge">none</span>`}</td>
-              <td>${c.is_lead ? `<span class="adm-badge green">lead</span>` : `<span class="adm-badge">no</span>`}</td>
-              <td>${relativeTime(c.analyzed_at)}</td>
-            </tr>`).join("")
-          : `<tr><td colspan="9">${emptyState("♜", "No comments match these filters.")}</td></tr>`}
-        </tbody>
-      </table></div>
-      ${pagerHtml(data.total, data.offset, data.limit, (dir) => {
-        const off = data.offset + dir * data.limit;
-        state.filters.ciOffset = Math.max(0, off);
-        viewCI();
-      })}
+      <div class="adm-feed">
+        ${items.length ? items.map((it) => `
+          <div class="adm-feed-item" data-nav="leads/details:${esc(it._id)}">
+            <div class="adm-feed-head">
+              <span class="adm-cell-main">${esc(it.commenter_name || "—")}</span>
+              ${badge(it.platform)}
+              ${it.is_lead ? `<span class="adm-badge gold">lead</span>` : ""}
+              <span class="adm-feed-time">${it.analyzed_at ? fmtTime(new Date(it.analyzed_at)) : ""}</span>
+            </div>
+            <div class="adm-feed-body">
+              ${badge(it.intent, "violet")}
+              ${badge(it.lead_quality, "gray plain")}
+              <span class="adm-score-pill">${it.lead_score ?? 0}</span>
+              ${it.confidence !== undefined && it.confidence !== null ? `<span class="adm-cell-sub">conf ${(it.confidence * 100).toFixed(0)}%</span>` : ""}
+            </div>
+            <div class="adm-feed-reason">${esc(String(it.comment_text || "").slice(0, 240))}</div>
+            ${(it.phone || it.email) ? `<div class="adm-feed-contacts"><span class="adm-badge green plain">✆ ${esc(it.phone || "")}</span>${it.email ? `<span class="adm-badge green plain">@ ${esc(it.email)}</span>` : ""}</div>` : ""}
+          </div>`).join("") : emptyState("ci", "No comments match these filters.")}
+      </div>
     </div>`;
-  bindSettingsSave(root, "/api/admin/comment-intelligence", viewCI);
-  const apply = () => {
-    state.filters.ciOffset = 0;
-    f.platform = $("#cPlat").value.trim();
-    f.intent = $("#cIntent").value.trim();
-    f.isLead = $("#cLead").value;
-    f.minConf = $("#cConf").value.trim();
-    f.contact = $("#cContact").checked;
-    f.q = $("#cQ").value.trim();
-    viewCI();
-  };
-  $("#applyCI").onclick = apply;
-  $("#clearCI").onclick = () => {
-    Object.assign(f, { platform: "", intent: "", isLead: "", contact: false, minConf: "", q: "" });
-    state.filters.ciOffset = 0;
-    viewCI();
-  };
-  $$("[data-comment]", root).forEach((row) => {
-    row.onclick = () => openCommentDetail(
-      data.items.find((c) => c._id === row.dataset.comment));
-  });
+  $$("#ciFilters select", root).forEach((sel) => sel.addEventListener("change", () => {
+    const params = new URLSearchParams();
+    $$("#ciFilters select", root).forEach((s) => { if (s.value) params.set(s.dataset.filter, s.value); });
+    navigate(`#/ci${params.toString() ? "?" + params.toString() : ""}`);
+  }));
+  bindNav(root);
+  if (role !== "viewer") {
+    $$(".adm-switch input", root).forEach((el) => el.addEventListener("change", async () => {
+      try {
+        await api("/api/admin/comment-intelligence", { method: "PUT", body: { [el.dataset.setting]: el.checked } });
+        toast(`${CI_TOGGLES[el.dataset.setting].label} → ${el.checked ? "on" : "off"}`, "ok");
+      } catch (err) { toast(err.message, "error"); el.checked = !el.checked; }
+    }));
+    const minInput = root.querySelector('[data-setting="ci.min_lead_score"]');
+    if (minInput) {
+      let timer;
+      minInput.addEventListener("input", () => {
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+          const val = parseInt(minInput.value, 10);
+          if (isNaN(val) || val < 0 || val > 100) { toast("Range 0–100", "warn"); return; }
+          try {
+            await api("/api/admin/comment-intelligence", { method: "PUT", body: { "ci.min_lead_score": val } });
+            toast(`Minimum lead score → ${val}`, "ok");
+          } catch (err) { toast(err.message, "error"); }
+        }, 600);
+      });
+    }
+  }
 }
 
-function openCommentDetail(c) {
-  const contacts = [c.phone, c.whatsapp, c.email].filter(Boolean);
-  const href = (v) => String(v).includes("@") ? `mailto:${encodeURIComponent(String(v))}` : `tel:${encodeURIComponent(String(v))}`;
-  openModal(`Comment — ${esc(c.commenter_name || "Unknown")}`, `
-    <div class="adm-kv">
-      <dt>Commenter</dt><dd><div class="adm-cell-main">${esc(c.commenter_name || "—")}</div></dd>
-      <dt>Page</dt><dd>${esc(c.page_name || "—")}</dd>
-      <dt>Platform</dt><dd>${platformBadge(c.platform)}</dd>
-      <dt>Comment</dt><dd><div style="max-width:520px;font-size:13px;line-height:1.5">${esc((c.comment_text || "").slice(0, 1200))}</div></dd>
-      <dt>Post</dt><dd>${c.post_url ? `<a class="adm-link" href="${esc(c.post_url)}" target="_blank" rel="noopener">open post ↗</a>` : "—"}</dd>
-      <dt>Lead score</dt><dd>${scorePill(c.lead_score)}${c.signal_score !== undefined ? ` <span class="adm-hint">signal ${esc(c.signal_score)}</span>` : ""}</dd>
-      <dt>Quality</dt><dd>${qualityBadge(c.lead_quality)}</dd>
-      <dt>Priority</dt><dd><span class="adm-badge">${esc(c.priority || "—")}</span></dd>
-      <dt>Confidence</dt><dd>${c.confidence !== undefined && c.confidence !== null ? `${(Number(c.confidence) * 100).toFixed(0)}%` : "—"}</dd>
-      <dt>Intent</dt><dd>${esc(c.intent || "—")}</dd>
-      <dt>Is lead</dt><dd>${c.is_lead ? `<span class="adm-badge green">yes</span>` : `<span class="adm-badge">no</span>`}</dd>
-      ${c.budget ? `<dt>Budget</dt><dd>${esc(c.budget)}</dd>` : ""}
-      ${c.requirement ? `<dt>Requirement</dt><dd>${esc(c.requirement)}</dd>` : ""}
-      ${c.urgency ? `<dt>Urgency</dt><dd>${esc(c.urgency)}</dd>` : ""}
-      ${c.location ? `<dt>Location</dt><dd>${esc(c.location)}</dd>` : ""}
-      <dt>Analyzed</dt><dd>${fmtTime(c.analyzed_at)} by <span class="adm-badge ${c.analyzed_by === "gemini" ? "violet" : "cyan"}">${esc(c.analyzed_by || "—")}</span></dd>
-      ${contacts.length ? `<dt>Contact</dt><dd>${contacts.map((v) => `
-        <div style="margin-bottom:4px;display:flex;gap:8px;align-items:center">
-          <span class="adm-code">${esc(String(v))}</span>
-          <a class="adm-btn small" href="${href(v)}">Open</a>
-        </div>`).join("")}</dd>` : ""}
-    </div>`, `
-    <button class="adm-btn" data-close>Close</button>
-    <a class="adm-btn primary" href="#/leads/details:${esc(c._id)}">Open as lead</a>`);
-  $("#modalBackdrop").onclick = (e) => { if (e.target.id === "modalBackdrop") closeModal(); };
-  $("[data-close]", $("#modalBox")).onclick = closeModal;
-}
-
-/* ──────────────────────────────── DATABASE ────────────────────────── */
+/* ─────────────────────────────── DATABASE ────────────────────────── */
 async function viewDatabase() {
   const root = $("#view");
   const data = await api("/api/admin/database");
-  const fmtBytes = (b) => {
-    const n = Number(b);
-    if (isNaN(n)) return "—";
-    if (n > 1e9) return `${(n / 1e9).toFixed(2)} GB`;
-    if (n > 1e6) return `${(n / 1e6).toFixed(1)} MB`;
-    if (n > 1e3) return `${(n / 1e3).toFixed(1)} KB`;
-    return `${n} B`;
-  };
+  const stats = data.db_stats || {};
+  const collections = data.collections || [];
+  const maxBytes = Math.max(1, ...collections.map((c) => c.size || 0));
+  const ok = !stats.error;
   root.innerHTML = `
-    ${pageHead("Database", "Live MongoDB statistics for the LeadAI database.")}
-    ${data.db_stats.error ? `<div class="adm-note">dbStats unavailable: ${esc(data.db_stats.error)}</div>` : `
-    <div class="adm-stats">
-      <div class="adm-stat"><div class="adm-stat-label">Database</div><div class="adm-stat-value">${esc(data.db_stats.db || "—")}</div></div>
-      <div class="adm-stat"><div class="adm-stat-label">Documents</div><div class="adm-stat-value">${Number(data.db_stats.objects || 0).toLocaleString()}</div></div>
-      <div class="adm-stat"><div class="adm-stat-label">Data size</div><div class="adm-stat-value">${fmtBytes(data.db_stats.dataSize)}</div></div>
-      <div class="adm-stat"><div class="adm-stat-label">Storage size</div><div class="adm-stat-value">${fmtBytes(data.db_stats.storageSize)}</div></div>
-      <div class="adm-stat"><div class="adm-stat-label">Indexes</div><div class="adm-stat-value">${Number(data.db_stats.indexes || 0)}</div></div>
-    </div>`}
+    ${pageHead("Database", "MongoDB state behind the scrapers — documents, indexes and size. Nothing here is deletable from the UI.", "")}
+    <div class="adm-card">
+      <div class="adm-card-title">Connection <span class="adm-hint">(dbStats command)</span></div>
+      ${stats.error ? `<div class="adm-note adm-note-warn">${esc(stats.error)}</div>` : `
+      <div class="adm-kv">
+        <div class="adm-kv-row"><dt>Status</dt><dd><span class="adm-status-word ${ok ? "ok" : "error"}">${ok ? "connected" : "error"}</span></dd></div>
+        <div class="adm-kv-row"><dt>Database</dt><dd><span class="adm-code">${esc(stats.db || "—")}</span></dd></div>
+        <div class="adm-kv-row"><dt>Collections</dt><dd>${fmtNum(stats.collections ?? collections.length)}</dd></div>
+        <div class="adm-kv-row"><dt>Documents</dt><dd>${fmtNum(stats.objects)}</dd></div>
+        <div class="adm-kv-row"><dt>Data size</dt><dd>${fmtBytes(stats.dataSize)}</dd></div>
+        <div class="adm-kv-row"><dt>Storage size</dt><dd>${fmtBytes(stats.storageSize)}</dd></div>
+        <div class="adm-kv-row"><dt>Indexes</dt><dd>${fmtNum(stats.indexes)} (${fmtBytes(stats.indexSize)})</dd></div>
+        <div class="adm-kv-row"><dt>Avg object</dt><dd>${fmtBytes(stats.avgObjSize)}</dd></div>
+      </div>`}
+    </div>
     <div class="adm-card">
       <div class="adm-card-title">Collections</div>
       <div class="adm-table-wrap"><table class="adm-table">
-        <thead><tr><th>Collection</th><th>Documents</th><th>Indexes</th></tr></thead>
+        <thead><tr><th>Collection</th><th>Documents</th><th>Size</th><th>Indexes</th></tr></thead>
         <tbody>
-          ${data.collections.map((c) => `
+          ${collections.map((c) => `
             <tr>
-              <td><span class="adm-code">${esc(c.name)}</span></td>
-              <td>${c.documents.toLocaleString()}</td>
-              <td>${c.indexes.length ? c.indexes.map((i) => `
-                <span class="adm-badge" title="${esc(i.name)} (${i.keys.join(", ")})">${esc(i.name)}${i.unique ? " · unique" : ""}</span>`).join(" ") : "—"}</td>
+              <td><div class="adm-cell-main">${esc(c.name)}</div></td>
+              <td>${fmtNum(c.documents)}</td>
+              <td>
+                <div class="adm-bar-row" style="min-width:160px">
+                  <div class="adm-bar-top" style="gap:8px"><span class="adm-cell-sub">${fmtBytes(c.size)}</span></div>
+                  <div class="adm-bar-track" style="height:6px"><div class="adm-bar-fill" style="width:${Math.max(2, ((c.size || 0) / maxBytes) * 100).toFixed(1)}%"></div></div>
+                </div>
+              </td>
+              <td>${(c.indexes || []).length}</td>
             </tr>`).join("")}
         </tbody>
       </table></div>
     </div>`;
-  $("#view").innerHTML = root.innerHTML;
 }
 
 /* ──────────────────────────────── LOGS ────────────────────────────── */
-const LOG_FILTERS = { level: "", q: "" };
-
 async function viewLogs() {
   const root = $("#view");
-  const f = LOG_FILTERS;
   const hashParams = new URLSearchParams(location.hash.split("?")[1] || "");
-  if (hashParams.has("q")) f.q = hashParams.get("q") || "";
-  const qs = new URLSearchParams({ level: f.level, q: f.q, lines: 2000, offset: 0 });
+  const q = hashParams.get("q") || "";
+  const lvl = hashParams.get("level") || "";
+  const qs = new URLSearchParams({ lines: 250, q, level: lvl });
   const data = await api(`/api/admin/logs?${qs}`);
-  const role = state.user.role;
-  root.innerHTML = `
-    ${pageHead("Logs", "Tail of the server log (logs/app.log), DEBUG level and up.", `
-      ${role !== "viewer" ? `<a class="adm-btn" href="/api/admin/logs/download">⇩ Download full log</a>` : ""}`)}
-    <div class="adm-card">
-      <div class="adm-filters">
-        <select class="adm-select" id="logLevel">
-          <option value="">All levels</option>
-          ${["DEBUG", "INFO", "WARNING", "ERROR"].map((l) => `<option value="${l}" ${f.level === l ? "selected" : ""}>${l}</option>`).join("")}
-        </select>
-        <input class="adm-input" id="logQ" placeholder="Filter text…" value="${esc(f.q)}">
-        <button class="adm-btn primary" id="applyLogs">Filter</button>
-      </div>
-      <div class="adm-note">${data.total.toLocaleString()} matching line(s)</div>
-      <div class="adm-table-wrap"><pre class="adm-log" id="logPre" style="
-        margin:0; padding:14px; font-family:'JetBrains Mono',ui-monospace,monospace; font-size:12px;
-        line-height:1.55; color:var(--text-2); max-height:560px; overflow:auto; white-space:pre-wrap; word-break:break-word;
-      ">${data.lines.map((ln) => esc(ln)).join("") || "— no log lines match —"}</pre></div>
+  const entries = data.lines || [];
+  const levelClass = (lv) => ({ ERROR: "error", WARNING: "warn", INFO: "info", DEBUG: "debug" }[lv] || "info");
+  const lineHtml = (l) => `
+    <div class="adm-log-line" data-level="${esc(l.level || "")}">
+      <span class="adm-log-level ${levelClass(l.level)}">${esc(l.level || "—")}</span>
+      <span class="adm-log-time">${esc(String(l).slice(0, 23))}</span>
+      <span class="adm-log-msg">${esc(String(l).slice(24))}</span>
     </div>`;
-  const apply = () => {
-    f.level = $("#logLevel").value;
-    f.q = $("#logQ").value.trim();
-    viewLogs();
+  root.innerHTML = `
+    ${pageHead("Logs", "Raw application log lines (UTC). Error and warning lines are highlighted; every line stays copyable.", `
+      <label class="adm-check"><input type="checkbox" id="logAuto" checked> autoscroll</label>
+      <button class="adm-btn" id="logRefresh">${icon("refresh", 14)} Refresh</button>`)}
+    <div class="adm-log-filter">
+      <input class="adm-input" id="logQ" placeholder="Filter text…" value="${esc(q)}">
+      <select class="adm-input" id="logLevel">
+        <option value="">all levels</option>
+        ${["ERROR", "WARNING", "INFO", "DEBUG"].map((lv) => `<option value="${lv}" ${lvl === lv ? "selected" : ""}>${lv}</option>`).join("")}
+      </select>
+      <button class="adm-btn primary" id="logApply">Apply</button>
+    </div>
+    <div class="adm-terminal" id="logBox">
+      ${entries.length ? entries.map((l) => lineHtml(l)).join("") : `<div class="adm-empty">No log lines match.</div>`}
+    </div>`;
+  const box = $("#logBox");
+  const load = async () => {
+    const params = new URLSearchParams({ lines: 250, q: $("#logQ").value.trim(), level: $("#logLevel").value });
+    try {
+      const d = await api(`/api/admin/logs?${params}`);
+      box.innerHTML = (d.lines || []).length ? d.lines.map((l) => lineHtml(l)).join("") : `<div class="adm-empty">No log lines match.</div>`;
+      if ($("#logAuto").checked) box.scrollTop = box.scrollHeight;
+    } catch (err) { toast(err.message, "error"); }
   };
-  $("#applyLogs").onclick = apply;
-  $("#logLevel").onchange = apply;
-  const pre = $("#logPre");
-  if (pre) {
-    // Make run ids inside log lines clickable links to the job report.
-    pre.innerHTML = data.lines.map((ln) => {
-      let out = esc(ln);
-      out = out.replace(/\b((?:URL|FB|IG|LI|YT)\d{10,})\b/g,
-        (m) => `<a href="#/jobs/details:${m}" class="adm-link">${m}</a>`);
-      return out;
-    }).join("") || "— no log lines match —";
-  }
+  $("#logRefresh").onclick = load;
+  $("#logApply").onclick = () => {
+    navigate(`#/logs?q=${encodeURIComponent($("#logQ").value.trim())}&level=${encodeURIComponent($("#logLevel").value)}`);
+  };
+  $("#logQ").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#logApply").onclick(); });
+  if ($("#logAuto").checked) box.scrollTop = box.scrollHeight;
 }
 
-/* ──────────────────────────────── EXPORTS ─────────────────────────── */
+/* ─────────────────────────────── EXPORTS ──────────────────────────── */
+const EXPORT_SCOPES = [
+  { scope: "jobs", label: "Jobs", hint: "Search runs: run id, query, platform, status, phases and timestamps." },
+  { scope: "pages", label: "Pages", hint: "Collected pages, sorted by followers.", platform: true },
+  { scope: "posts", label: "Posts", hint: "Collected posts, sorted by publish date.", platform: true },
+  { scope: "leads", label: "Leads", hint: "AI-analyzed comments that are leads, sorted by score. Includes phone/email when extracted." },
+];
+
 async function viewExports() {
   const root = $("#view");
   const role = state.user.role;
-  const csvUrl = (scope, extra = "") => `/api/admin/export/${scope}.csv?${extra}`;
-  const history = await api("/api/admin/audit-logs?category=exports&limit=10");
-  const rows = history.items || [];
   root.innerHTML = `
-    ${pageHead("Exports", role === "viewer" ? "CSV exports require the manager role." : "Download filtered CSV exports generated live from the real database. Every download is recorded in the audit log.")}
+    ${pageHead("Exports", "Live CSV downloads generated from the current database on every request. Nothing is stored or queued.", "")}
     <div class="adm-grid-2">
+      ${EXPORT_SCOPES.map((e) => `
+        <div class="adm-card">
+          <div class="adm-card-title">${esc(e.label)} <span class="adm-hint">(.csv)</span></div>
+          <p class="adm-hint">${esc(e.hint)}</p>
+          <div class="adm-btn-row" style="margin-top:10px">
+            <a class="adm-btn primary" href="/api/admin/export/${e.scope}.csv" ${role === "viewer" ? "onclick='return false'" : ""}>${icon("exports", 14)} Download ${esc(e.label)} CSV</a>
+          </div>
+        </div>`).join("")}
       <div class="adm-card">
-        <div class="adm-card-title">Pages</div>
-        <p style="color:var(--text-2);font-size:13px;margin:0 0 12px">All stored pages across every run.</p>
-        <div class="adm-btn-row">
-          <a class="adm-btn primary" href="${csvUrl("pages")}" ${role === "viewer" ? "onclick='return false'" : ""}>⇩ Export Pages CSV</a>
+        <div class="adm-card-title">Application log</div>
+        <p class="adm-hint">The raw app.log file (plain text).</p>
+        <div class="adm-btn-row" style="margin-top:10px">
+          <a class="adm-btn" href="/api/admin/logs/download" ${role === "viewer" ? "onclick='return false'" : ""}>${icon("logs", 14)} Download app.log</a>
         </div>
       </div>
-      <div class="adm-card">
-        <div class="adm-card-title">Posts</div>
-        <p style="color:var(--text-2);font-size:13px;margin:0 0 12px">All stored posts across every run.</p>
-        <div class="adm-btn-row">
-          <a class="adm-btn primary" href="${csvUrl("posts")}" ${role === "viewer" ? "onclick='return false'" : ""}>⇩ Export Posts CSV</a>
-        </div>
-      </div>
-      <div class="adm-card">
-        <div class="adm-card-title">Jobs</div>
-        <p style="color:var(--text-2);font-size:13px;margin:0 0 12px">All search runs with their status, phase and page counts.</p>
-        <div class="adm-btn-row">
-          <a class="adm-btn primary" href="${csvUrl("jobs")}" ${role === "viewer" ? "onclick='return false'" : ""}>⇩ Export Jobs CSV</a>
-        </div>
-      </div>
-      <div class="adm-card">
-        <div class="adm-card-title">Leads</div>
-        <div class="adm-field" style="margin-bottom:10px">
-          <label>Platform filter (optional)</label>
-          <input class="adm-input" id="leadPlat" placeholder="facebook / instagram / linkedin / youtube">
-        </div>
-        <div class="adm-btn-row">
-          <a class="adm-btn primary" id="leadCsvLink" href="${csvUrl("leads")}" ${role === "viewer" ? "onclick='return false'" : ""}>⇩ Export Leads CSV</a>
-        </div>
-      </div>
-    </div>
-    <div class="adm-card">
-      <div class="adm-card-title">Recent exports <span class="adm-hint">(from the audit log — every download is recorded)</span></div>
-      ${rows.length ? `
-        <div class="adm-table-wrap"><table class="adm-table">
-          <thead><tr><th>When</th><th>User</th><th>Scope</th><th>Format</th><th>Rows</th></tr></thead>
-          <tbody>
-            ${rows.map((e) => `
-              <tr>
-                <td>${fmtTime(new Date(e.at * 1000))}</td>
-                <td>${esc(e.user || "—")}</td>
-                <td><span class="adm-code">${esc((e.details || {}).scope || "—")}</span></td>
-                <td><span class="adm-badge cyan">${esc((e.details || {}).format || "csv")}</span></td>
-                <td>${(e.details || {}).rows ?? "—"}</td>
-              </tr>`).join("")}
-          </tbody>
-        </table></div>`
-      : emptyState("⇩", "No exports yet — the first download appears here.")}
     </div>`;
-  const leadLink = $("#leadCsvLink");
-  if (leadLink) {
-    $("#leadPlat").onchange = () => {
-      const p = $("#leadPlat").value.trim();
-      leadLink.href = csvUrl("leads", p ? `platform=${encodeURIComponent(p)}` : "");
-    };
-  }
 }
 
 /* ──────────────────────────────── USERS ───────────────────────────── */
 async function viewUsers() {
   const root = $("#view");
   const data = await api("/api/admin/users");
+  const users = data.users || [];
+  const role = state.user.role;
+  const roleBadge = (r) => r === "super_admin" ? `<span class="adm-badge gold">super admin</span>` : r === "manager" ? `<span class="adm-badge green">manager</span>` : `<span class="adm-badge gray plain">${esc(r)}</span>`;
   root.innerHTML = `
-    ${pageHead("Users", "Admin accounts and roles. Viewer = read-only, Manager = operations, Super Admin = everything.", `
-      <button class="adm-btn primary" id="addUserBtn">+ Add User</button>`)}
+    ${pageHead("Users", "Admin panel accounts and their roles.", `
+      <button class="adm-btn primary" id="addUser" ${role === "super_admin" ? "" : "disabled"}>${icon("plus", 14)} Create user</button>`)}
     <div class="adm-card">
       <div class="adm-table-wrap"><table class="adm-table">
-        <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Enabled</th><th>Last login</th><th></th></tr></thead>
+        <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          ${data.users.map((u) => `
+          ${users.map((u) => `
             <tr>
-              <td><div class="adm-cell-main">${esc(u.email)} ${u.env_account ? `<span class="adm-badge amber">env</span>` : ""}</div></td>
-              <td>${esc(u.name || "—")}</td>
-              <td><span class="adm-badge ${u.role === "super_admin" ? "violet" : u.role === "manager" ? "blue" : ""}">${esc(u.role)}</span></td>
-              <td>${u.enabled ? `<span class="adm-badge green">enabled</span>` : `<span class="adm-badge red">disabled</span>`}</td>
-              <td>${u.last_login ? relativeTime(u.last_login) : "—"}</td>
-              <td>
-                <div class="adm-btn-row">
-                  <button class="adm-btn small" data-edit data-id="${esc(u._id || "")}" data-email="${esc(u.email)}" data-name="${esc(u.name || "")}" data-role="${esc(u.role)}" data-enabled="${u.enabled ? 1 : 0}" ${u.env_account ? "disabled" : ""}>Edit</button>
-                  <button class="adm-btn small danger" data-del data-id="${esc(u._id || "")}" data-email="${esc(u.email)}" ${u.env_account ? "disabled" : ""}>✕</button>
-                </div>
+              <td><span class="adm-avatar">${esc(initials(u.name))}</span> <span class="adm-cell-main">${esc(u.name)}</span> ${u.env_account ? `<span class="adm-badge gray plain">env</span>` : ""}</td>
+              <td>${esc(u.email)}</td>
+              <td>${roleBadge(u.role)}</td>
+              <td><span class="adm-badge ${u.enabled ? "green" : "gray plain"}">${u.enabled ? "active" : "disabled"}</span></td>
+              <td class="adm-cell-actions">
+                ${u.email !== state.user.email ? (role === "super_admin" ? `
+                  <button class="adm-btn small ghost" data-edit data-id="${esc(u._id)}" data-name="${esc(u.name)}" data-email="${esc(u.email)}" data-role="${esc(u.role)}" data-enabled="${u.enabled}">${icon("edit", 12)} Edit</button>
+                  <button class="adm-btn small danger" data-delete data-id="${esc(u._id)}" data-email="${esc(u.email)}">Delete</button>` : "") : `<span class="adm-badge gray plain">you</span>`}
               </td>
             </tr>`).join("")}
         </tbody>
       </table></div>
     </div>`;
-  const userForm = (u, isEdit) => openModal(
-    isEdit ? `Edit user — ${esc(u.email)}` : "Add admin user",
-    `
-      <div class="adm-form-grid">
-        <div class="adm-field"><label>Email</label><input class="adm-input" id="uEmail" value="${esc(u.email)}" ${isEdit ? "disabled" : ""}></div>
-        <div class="adm-field"><label>Name</label><input class="adm-input" id="uName" value="${esc(u.name || "")}"></div>
-        <div class="adm-field"><label>Role</label>
-          <select class="adm-select" id="uRole">
-            ${["viewer", "manager", "super_admin"].map((r) => `<option value="${r}" ${u.role === r ? "selected" : ""}>${r}</option>`).join("")}
-          </select></div>
-        <div class="adm-field"><label>${isEdit ? "New password (leave empty to keep)" : "Password"}</label>
-          <input class="adm-input" type="password" id="uPass" placeholder="min 8 characters"></div>
-      </div>`,
-    `<button class="adm-btn" data-close>Cancel</button>
-     <button class="adm-btn primary" id="uSave">${isEdit ? "Save" : "Create"}</button>`);
-  const doSave = async (isEdit) => {
-    const email = $("#uEmail").value.trim();
-    const name = $("#uName").value.trim();
-    const role = $("#uRole").value;
-    const password = $("#uPass").value;
-    const body = { name, role };
-    if (!isEdit) {
-      body.email = email;
-      body.password = password;
-    } else if (password) {
-      body.password = password;
-    }
-    try {
-      const id = $("#uSave").dataset.id;
-      if (isEdit) {
-        await api(`/api/admin/users/${id}`, { method: "PATCH", body });
-      } else {
-        await api("/api/admin/users", { method: "POST", body });
-      }
-      closeModal();
-      toast(isEdit ? "User updated" : "User created", "ok");
-      viewUsers();
-    } catch (err) { toast(err.message, "error"); }
-  };
-  $("#addUserBtn").onclick = () => {
-    userForm({ email: "", name: "", role: "viewer" }, false);
-    $("#uSave").onclick = () => doSave(false);
-    $("#modalBackdrop").onclick = (e) => { if (e.target.id === "modalBackdrop") closeModal(); };
-    $("[data-close]", $("#modalBox")).onclick = closeModal;
-  };
-  $$("[data-edit]", root).forEach((btn) => {
-    btn.onclick = () => {
-      userForm({
-        email: btn.dataset.email, name: btn.dataset.name,
-        role: btn.dataset.role, enabled: btn.dataset.enabled === "1",
-      }, true);
-      $("#uSave").dataset.id = btn.dataset.id;
-      $("#uSave").onclick = () => doSave(true);
-      $("#modalBackdrop").onclick = (e) => { if (e.target.id === "modalBackdrop") closeModal(); };
-      $("[data-close]", $("#modalBox")).onclick = closeModal;
-    };
-  });
-  $$("[data-del]", root).forEach((btn) => {
-    btn.onclick = () => confirmModal(
-      "Delete user", `Remove <b>${esc(btn.dataset.email)}</b>? Their sessions stop working immediately.`,
-      async () => {
-        await api(`/api/admin/users/${btn.dataset.id}`, { method: "DELETE" });
-        toast("User deleted", "ok");
-        viewUsers();
-      }, "Delete User");
-  });
+  const openUserModal = (u) => openModal(
+    `<div class="adm-card-title">${u ? "Edit user" : "Create user"}</div>
+     <div class="adm-field"><label>Name</label><input class="adm-input" id="userName" value="${u ? esc(u.name) : ""}"></div>
+     <div class="adm-field"><label>Email</label><input class="adm-input" id="userEmail" value="${u ? esc(u.email) : ""}" ${u ? "readonly" : ""}></div>
+     <div class="adm-field"><label>Role</label>
+       <select class="adm-input" id="userRole">
+         <option value="viewer" ${u && u.role === "viewer" ? "selected" : ""}>viewer</option>
+         <option value="manager" ${u && u.role === "manager" ? "selected" : ""}>manager</option>
+         <option value="super_admin" ${u && u.role === "super_admin" ? "selected" : ""}>super_admin</option>
+       </select>
+     </div>
+     ${u ? `
+       <label class="adm-check"><input type="checkbox" id="userEnabled" ${u.enabled ? "checked" : ""}> enabled</label>
+       <div class="adm-field" style="margin-top:10px"><label>New password <span class="adm-hint">(optional)</span></label><input class="adm-input" id="userPassword" type="password" placeholder="8+ characters"></div>` : `
+       <div class="adm-field"><label>Password</label><input class="adm-input" id="userPassword" type="password" placeholder="8+ characters"></div>`}`,
+    [
+      { label: "Cancel", cls: "", close: true },
+      { label: u ? "Save" : "Create", cls: "primary", action: async (box) => {
+        const name = box.querySelector("#userName").value;
+        const roleVal = box.querySelector("#userRole").value;
+        const password = box.querySelector("#userPassword").value;
+        try {
+          if (u) {
+            const body = { name, role: roleVal, enabled: box.querySelector("#userEnabled").checked };
+            if (password) body.password = password;
+            await api(`/api/admin/users/${encodeURIComponent(u._id)}`, { method: "PATCH", body });
+            toast("User updated", "ok");
+          } else {
+            if (password.length < 8) { toast("Password must be at least 8 characters", "warn"); return; }
+            await api("/api/admin/users", { method: "POST", body: { name, email: box.querySelector("#userEmail").value, role: roleVal, password } });
+            toast("User created", "ok");
+          }
+          closeModal();
+          viewUsers();
+        } catch (err) { toast(err.message, "error"); }
+      } },
+    ]);
+  $("#addUser").onclick = () => openUserModal(null);
+  $$("[data-edit]", root).forEach((el) => el.onclick = () => openUserModal({ _id: el.dataset.id, name: el.dataset.name, email: el.dataset.email, role: el.dataset.role, enabled: el.dataset.enabled === "true" }));
+  $$("[data-delete]", root).forEach((el) => el.onclick = () => confirmModal(
+    "Delete user", `${el.dataset.email} will lose access immediately.`,
+    async () => { await api(`/api/admin/users/${encodeURIComponent(el.dataset.id)}`, { method: "DELETE" }); toast("User deleted", "ok"); viewUsers(); },
+    "Delete"));
 }
 
-/* ──────────────────────────────── SECURITY ────────────────────────── */
+/* ─────────────────────────────── SECURITY ────────────────────────── */
+const SECURITY_TOGGLES = {
+  "security.login_protection": { label: "Login protection", hint: "Rate-limit and lock out failing logins." },
+  "security.audit_logging": { label: "Audit logging", hint: "Record every admin action to the audit log." },
+};
+
 async function viewSecurity() {
   const root = $("#view");
   const data = await api("/api/admin/security");
-  const set = data.settings;
-  const timeoutHours = set["security.session_timeout_hours"];
+  const settings = data.settings || {};
+  const role = state.user.role;
+  const isSuper = role === "super_admin";
   root.innerHTML = `
-    ${pageHead("Security", "Session policy, brute-force protection and password management.", `
-      <span class="adm-badge green">signed in as ${esc(data.me.email)} (${esc(data.me.role)})</span>`)}
-    <div class="adm-grid-2">
-      <div class="adm-card">
-        <div class="adm-card-title">Session policy</div>
-        <div class="adm-form-grid">
-          <div class="adm-field">
-            <label>Idle timeout (hours)</label>
-            <input class="adm-input" type="number" id="secTimeout" value="${esc(timeoutHours ?? "")}" min="1">
-            <span class="adm-hint">Env default: ${data.session_timeout_hours_env}h (cookie lifetime). Applies to admin-panel sessions.</span>
-          </div>
-          <div class="adm-field">
-            <label>Brute-force login protection</label>
-            <div class="adm-flex">
-              <label class="adm-toggle">
-                <input type="checkbox" id="secLoginProtect" ${set["security.login_protection"] ? "checked" : ""}>
-                <span class="adm-toggle-slider"></span>
-              </label>
-              <span class="adm-hint">${data.login_protection_active ? "active (5 fails / 60s per IP)" : "disabled"}</span>
-            </div>
-          </div>
-          <div class="adm-field">
-            <label>Audit logging</label>
-            <div class="adm-flex">
-              <label class="adm-toggle">
-                <input type="checkbox" id="secAudit" ${set["security.audit_logging"] ? "checked" : ""}>
-                <span class="adm-toggle-slider"></span>
-              </label>
-              <span class="adm-hint">Records every admin action to the audit log.</span>
-            </div>
-          </div>
+    ${pageHead("Security", "Session lifetime, login protection and account controls.", `
+      ${isSuper ? `<button class="adm-btn danger" id="revokeSessions">${icon("refresh", 14)} Revoke all sessions</button>` : ""}`)}
+    <div class="adm-card">
+      <div class="adm-card-title">Session & authentication</div>
+      <div class="adm-settings-row" data-key="security.session_timeout_hours">
+        <div class="adm-settings-text">
+          <div class="adm-cell-main">Session timeout (hours)</div>
+          <div class="adm-hint">Idle sessions are invalidated after this many hours. Env default: ${esc(data.session_timeout_hours_env ?? "—")}h.</div>
         </div>
-        <div class="adm-btn-row" style="margin-top:16px">
-          <button class="adm-btn primary" id="saveSec">Save</button>
-          <button class="adm-btn danger" id="revokeAll">Revoke all sessions</button>
-        </div>
+        <input class="adm-input" type="number" min="1" max="720" step="1" value="${settings["security.session_timeout_hours"] ?? 24}" data-setting="security.session_timeout_hours" ${role === "viewer" ? "disabled" : ""}>
       </div>
-      <div class="adm-card">
-        <div class="adm-card-title">Change password</div>
-        <div class="adm-field" style="margin-bottom:12px">
-          <label>New password</label>
-          <input class="adm-input" type="password" id="newPass" placeholder="min 8 characters">
-          <span class="adm-hint">If you are the .env admin, this creates a managed override — the .env password stays valid as a recovery fallback.</span>
-        </div>
-        <button class="adm-btn primary" id="changePass">Update Password</button>
+      ${Object.entries(SECURITY_TOGGLES).map(([key, m]) => `
+        <div class="adm-toggle-row">
+          <div><div class="adm-cell-main">${esc(m.label)}</div><div class="adm-hint">${esc(m.hint)}</div></div>
+          <label class="adm-switch"><input type="checkbox" data-setting="${key}" ${settings[key] ? "checked" : ""} ${role === "viewer" ? "disabled" : ""}><span></span></label>
+        </div>`).join("")}
+      <div class="adm-kv" style="margin-top:14px">
+        <div class="adm-kv-row"><dt>Login protection</dt><dd><span class="adm-badge ${data.login_protection_active ? "green" : "amber"}">${data.login_protection_active ? "active" : "disabled"}</span></dd></div>
+        <div class="adm-kv-row"><dt>Session epoch</dt><dd><span class="adm-code">${esc(String(settings["security.session_epoch"] ?? 0))}</span> <span class="adm-hint">(bumped when sessions are revoked)</span></dd></div>
       </div>
+    </div>
+    <div class="adm-card">
+      <div class="adm-card-title">Account</div>
+      <div class="adm-kv">
+        <div class="adm-kv-row"><dt>Signed in as</dt><dd>${esc(data.me.email)} <span class="adm-badge ${data.me.role === "super_admin" ? "gold" : "green"}">${esc(data.me.role)}</span></dd></div>
+      </div>
+      <div class="adm-field" style="margin-bottom:12px;max-width:420px">
+        <label>New password for your account</label>
+        <input class="adm-input" id="secPassword" type="password" placeholder="8+ characters" ${isSuper ? "" : "disabled"}>
+      </div>
+      <button class="adm-btn primary" id="changePassword" ${isSuper ? "" : "disabled"}>${icon("key", 14)} Change password</button>
     </div>`;
-  $("#saveSec").onclick = async () => {
-    const body = {
-      "security.session_timeout_hours": Number($("#secTimeout").value) || 0,
-      "security.login_protection": $("#secLoginProtect").checked,
-      "security.audit_logging": $("#secAudit").checked,
+  if (role !== "viewer") {
+    $$(".adm-switch input", root).forEach((el) => el.addEventListener("change", async () => {
+      try {
+        await api("/api/admin/security", { method: "PUT", body: { [el.dataset.setting]: el.checked } });
+        toast(`${SECURITY_TOGGLES[el.dataset.setting].label} → ${el.checked ? "on" : "off"}`, "ok");
+      } catch (err) { toast(err.message, "error"); el.checked = !el.checked; }
+    }));
+    const hoursInput = root.querySelector('[data-setting="security.session_timeout_hours"]');
+    if (hoursInput) {
+      let timer;
+      hoursInput.addEventListener("input", () => {
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+          const val = parseInt(hoursInput.value, 10);
+          if (isNaN(val) || val < 1 || val > 720) { toast("Range 1–720 hours", "warn"); return; }
+          try {
+            await api("/api/admin/security", { method: "PUT", body: { "security.session_timeout_hours": val } });
+            toast(`Session timeout → ${val}h`, "ok");
+          } catch (err) { toast(err.message, "error"); }
+        }, 600);
+      });
+    }
+  }
+  if (isSuper) {
+    $("#revokeSessions").onclick = () => confirmModal(
+      "Revoke all sessions", "Every admin cookie becomes invalid. You will need to sign in again.",
+      async () => { await api("/api/admin/security/revoke-sessions", { method: "POST" }); toast("All sessions revoked", "ok"); },
+      "Revoke");
+    $("#changePassword").onclick = async () => {
+      const pw = $("#secPassword").value.trim();
+      if (pw.length < 8) { toast("Password must be at least 8 characters", "warn"); return; }
+      try {
+        await api("/api/admin/security/change-password", { method: "POST", body: { password: pw } });
+        toast("Password updated — sign in again with the new password", "ok");
+        $("#secPassword").value = "";
+      } catch (err) { toast(err.message, "error"); }
     };
-    try {
-      await api("/api/admin/security", { method: "PUT", body });
-      toast("Security settings saved", "ok");
-      viewSecurity();
-    } catch (err) { toast(err.message, "error"); }
-  };
-  $("#revokeAll").onclick = () => confirmModal(
-    "Revoke all sessions", "Every signed-in session (including your other browsers) is invalidated immediately. You stay signed in.",
-    async () => {
-      await api("/api/admin/security/revoke-sessions", { method: "POST" });
-      toast("All sessions revoked", "ok");
-      viewSecurity();
-    }, "Revoke All");
-  $("#changePass").onclick = async () => {
-    const password = $("#newPass").value;
-    try {
-      await api("/api/admin/security/change-password", { method: "POST", body: { password } });
-      toast("Password updated — sign in again", "ok");
-      setTimeout(() => { location.href = "/login"; }, 1200);
-    } catch (err) { toast(err.message, "error"); }
-  };
+  }
 }
 
-/* ──────────────────────────────── FEATURES ────────────────────────── */
-const FEATURE_LABELS = {
-  "features.url_search.enabled": "URL search (user app)",
-  "features.exports.enabled": "CSV exports",
-  "platform.facebook.enabled": "Facebook",
-  "platform.instagram.enabled": "Instagram",
-  "platform.linkedin.enabled": "LinkedIn",
-  "platform.youtube.enabled": "YouTube",
+/* ─────────────────────────────── FEATURES ─────────────────────────── */
+const FEATURE_META = {
+  "features.url_search.enabled": { label: "URL search", hint: "Allow searching by direct URL in the user app." },
+  "features.exports.enabled": { label: "Exports", hint: "Allow CSV export endpoints." },
+};
+const PLATFORM_META = {
+  facebook: "Facebook",
+  instagram: "Instagram",
+  linkedin: "LinkedIn",
+  youtube: "YouTube",
 };
 
 async function viewFeatures() {
   const root = $("#view");
   const data = await api("/api/admin/features");
+  const settings = data.settings || {};
+  const role = state.user.role;
+  const platformKeys = Object.keys(settings).filter((k) => k.startsWith("platform."));
   root.innerHTML = `
-    ${pageHead("Features", "Global feature toggles. Disabling URL search blocks new searches in the user app; disabling exports blocks every CSV download.")}
+    ${pageHead("Features", "Feature switches and platform availability. Toggling is instant and persisted.", "")}
     <div class="adm-card">
-      ${settingsForm(Object.keys(FEATURE_LABELS), FEATURE_LABELS, data.settings)}
+      <div class="adm-card-title">Features</div>
+      ${Object.entries(FEATURE_META).map(([key, m]) => `
+        <div class="adm-toggle-row">
+          <div><div class="adm-cell-main">${esc(m.label)}</div><div class="adm-hint">${esc(m.hint)}</div></div>
+          <label class="adm-switch"><input type="checkbox" data-setting="${key}" ${settings[key] ? "checked" : ""} ${role === "viewer" ? "disabled" : ""}><span></span></label>
+        </div>`).join("")}
+    </div>
+    <div class="adm-card">
+      <div class="adm-card-title">Platforms</div>
+      ${platformKeys.map((key) => {
+        const platform = key.split(".")[1];
+        const name = PLATFORM_META[platform] || platform;
+        return `
+        <div class="adm-toggle-row">
+          <div><div class="adm-cell-main">${esc(name)}</div><div class="adm-hint">Scraping on ${esc(platform)} is ${settings[key] ? "enabled" : "disabled"}.</div></div>
+          <label class="adm-switch"><input type="checkbox" data-setting="${key}" ${settings[key] ? "checked" : ""} ${role === "viewer" ? "disabled" : ""}><span></span></label>
+        </div>`;
+      }).join("")}
     </div>`;
-  bindSettingsSave(root, "/api/admin/features", viewFeatures);
+  if (role !== "viewer") {
+    $$(".adm-switch input", root).forEach((el) => el.addEventListener("change", async () => {
+      try {
+        await api("/api/admin/features", { method: "PUT", body: { [el.dataset.setting]: el.checked } });
+        toast(`${el.dataset.setting} → ${el.checked ? "on" : "off"}`, "ok");
+      } catch (err) { toast(err.message, "error"); el.checked = !el.checked; }
+    }));
+  }
 }
 
-/* ──────────────────────────────── MAINTENANCE ─────────────────────── */
+/* ────────────────────────────── MAINTENANCE ───────────────────────── */
 async function viewMaintenance() {
   const root = $("#view");
-  const [status, maint] = await Promise.all([
-    api("/api/admin/dashboard"),
-    api("/api/admin/maintenance"),
-  ]);
-  const enabled = status.status.maintenance;
+  const data = await api("/api/admin/maintenance");
+  const role = state.user.role;
   root.innerHTML = `
-    ${pageHead("Maintenance", "Maintenance mode blocks the user app with a 503 while the admin panel keeps working. Signed-in admins always pass.")}
+    ${pageHead("Maintenance", "Planned downtime control. The notice is shown in the user app while maintenance is active.", "")}
     <div class="adm-card">
-      <div class="adm-flex">
-        <label class="adm-toggle">
-          <input type="checkbox" id="maintEnabled" ${enabled ? "checked" : ""}>
-          <span class="adm-toggle-slider"></span>
-        </label>
-        <span class="adm-badge ${enabled ? "amber" : ""}">${enabled ? "Maintenance ACTIVE — user app blocked" : "Maintenance off — user app live"}</span>
+      <div class="adm-card-title">Maintenance mode</div>
+      <div class="adm-toggle-row">
+        <div>
+          <div class="adm-cell-main">Maintenance active</div>
+          <div class="adm-hint">${data.enabled ? "Search requests are rejected and users see the notice." : "Search and login behave normally."}</div>
+        </div>
+        <label class="adm-switch"><input type="checkbox" id="maintenanceToggle" ${data.enabled ? "checked" : ""} ${role === "viewer" ? "disabled" : ""}><span></span></label>
       </div>
-      <div class="adm-field" style="margin-top:16px">
-        <label>Maintenance message</label>
-        <textarea class="adm-textarea" id="maintMsg">${esc(maint.message || "")}</textarea>
-        <span class="adm-hint">Shown to users when maintenance mode is on.</span>
-      </div>
-      <div class="adm-btn-row" style="margin-top:14px">
-        <button class="adm-btn primary" id="maintSave">${enabled ? "Update" : "Enable Maintenance Mode"}</button>
-      </div>
+      ${data.enabled ? `
+        <div class="adm-note adm-note-warn" style="margin-top:12px">${esc(data.message || "Maintenance mode is on.")}</div>
+        <div class="adm-field" style="margin-top:12px"><label>Notice</label><input class="adm-input" id="maintenanceMessage" value="${esc(data.message || "")}"><span class="adm-hint">Shown to users while maintenance is active.</span></div>
+        <button class="adm-btn primary" id="saveMessage" ${role === "viewer" ? "disabled" : ""}>Save notice</button>` : ""}
     </div>`;
-  $("#maintSave").onclick = async () => {
-    try {
-      await api("/api/admin/maintenance", {
-        method: "POST",
-        body: { enabled: $("#maintEnabled").checked, message: $("#maintMsg").value },
-      });
-      toast($("#maintEnabled").checked ? "Maintenance mode enabled" : "Maintenance mode disabled", "ok");
-      viewMaintenance();
-    } catch (err) { toast(err.message, "error"); }
-  };
+  if (role !== "viewer") {
+    $("#maintenanceToggle").addEventListener("change", async () => {
+      try {
+        await api("/api/admin/maintenance", { method: "POST", body: { enabled: $("#maintenanceToggle").checked } });
+        toast("Maintenance " + ($("#maintenanceToggle").checked ? "enabled" : "disabled"), "ok");
+        viewMaintenance();
+      } catch (err) { toast(err.message, "error"); }
+    });
+    const saveBtn = $("#saveMessage");
+    if (saveBtn) saveBtn.onclick = async () => {
+      try {
+        await api("/api/admin/maintenance", { method: "POST", body: { enabled: true, message: $("#maintenanceMessage").value } });
+        toast("Notice saved", "ok");
+      } catch (err) { toast(err.message, "error"); }
+    };
+  }
 }
 
-/* ──────────────────────────────── HEALTH ──────────────────────────── */
+/* ─────────────────────────────── HEALTH ───────────────────────────── */
 async function viewHealth() {
   const root = $("#view");
   const data = await api("/api/admin/health");
-  const c = data.checks;
+  const checks = data.checks || {};
+  const entries = Object.entries(checks);
+  const isOk = (c) => c.ok !== undefined ? c.ok : true;
+  const allOk = entries.filter(([, c]) => c.ok !== undefined).every(([, c]) => c.ok);
+  const checkedAt = data.checked_at ? new Date(data.checked_at * 1000) : new Date();
   root.innerHTML = `
-    ${pageHead("Health", "Live component checks.", `
-      <span class="adm-badge ${data.overall === "ok" ? "green" : "red"}">${data.overall}</span>
-      <button class="adm-btn" id="recheck">↻ Re-check</button>`)}
-    ${data.checked_at ? `<div class="adm-note">Last checked ${fmtTime(new Date(data.checked_at * 1000))}</div>` : ""}
+    ${pageHead("Health", "Live health checks of every subsystem behind LeadAI.", "")}
+    <div class="adm-health-hero">
+      <span class="adm-status-word ${allOk ? "ok" : "error"}" style="font-size:2.2em">${esc(data.overall || (allOk ? "ok" : "degraded"))}</span>
+      <span class="adm-hint">checked ${fmtTime(checkedAt)}</span>
+    </div>
     <div class="adm-grid-2">
-      <div class="adm-card">
-        <div class="adm-card-title">MongoDB</div>
-        <div class="adm-kv">
-          <dt>Status</dt><dd>${c.mongo.ok ? `<span class="adm-badge green">connected</span>` : `<span class="adm-badge red">${esc(c.mongo.error || "down")}</span>`}</dd>
-          <dt>Ping latency</dt><dd>${c.mongo.latency_ms !== undefined && c.mongo.latency_ms !== null ? `${c.mongo.latency_ms} ms` : "—"}</dd>
-        </div>
-      </div>
-      <div class="adm-card">
-        <div class="adm-card-title">Apify</div>
-        <div class="adm-kv">
-          <dt>Token</dt><dd>${c.apify.ok ? `<span class="adm-badge green">${esc(c.apify.token_hint)}</span>` : `<span class="adm-badge red">not configured</span>`}</dd>
-          <dt>Last test</dt><dd>${c.apify.last_test_ok === null ? "never run" : c.apify.last_test_ok ? "✓ ok" : "✕ failed"}</dd>
-        </div>
-      </div>
-      <div class="adm-card">
-        <div class="adm-card-title">Gemini</div>
-        <div class="adm-kv">
-          <dt>API key</dt><dd>${c.gemini.ok ? `<span class="adm-badge green">configured</span>` : `<span class="adm-badge amber">not set — rule fallback active</span>`}</dd>
-        </div>
-      </div>
-      <div class="adm-card">
-        <div class="adm-card-title">Log file</div>
-        <div class="adm-kv">
-          <dt>Present</dt><dd>${c.logs.ok ? `<span class="adm-badge green">${esc(c.logs.path)}</span>` : `<span class="adm-badge amber">missing</span>`}</dd>
-          <dt>Maintenance</dt><dd>${c.maintenance.enabled ? `<span class="adm-badge amber">active</span>` : `<span class="adm-badge">off</span>`}</dd>
-        </div>
-      </div>
+      ${entries.map(([name, c]) => `
+        <div class="adm-card">
+          <div class="adm-card-title"><span class="adm-status-dot ${isOk(c) ? "ok" : "error"}"></span> ${esc(name)}</div>
+          <div class="adm-kv">
+            ${c.ok !== undefined ? `<div class="adm-kv-row"><dt>Status</dt><dd><span class="adm-badge ${c.ok ? "green" : "red"}">${c.ok ? "ok" : "failed"}</span></dd></div>` : ""}
+            ${c.latency_ms !== undefined ? `<div class="adm-kv-row"><dt>Latency</dt><dd>${c.latency_ms} ms</dd></div>` : ""}
+            ${c.token_hint ? `<div class="adm-kv-row"><dt>Token</dt><dd><span class="adm-code">${esc(c.token_hint)}</span></dd></div>` : ""}
+            ${c.last_test_ok !== undefined && c.last_test_ok !== null ? `<div class="adm-kv-row"><dt>Last test</dt><dd><span class="adm-badge ${c.last_test_ok ? "green" : "red"}">${c.last_test_ok ? "passed" : "failed"}</span></dd></div>` : ""}
+            ${c.enabled !== undefined ? `<div class="adm-kv-row"><dt>Maintenance</dt><dd><span class="adm-badge ${c.enabled ? "amber" : "gray plain"}">${c.enabled ? "active" : "off"}</span></dd></div>` : ""}
+            ${c.path ? `<div class="adm-kv-row"><dt>Path</dt><dd><span class="adm-code">${esc(c.path)}</span></dd></div>` : ""}
+            ${c.error ? `<div class="adm-kv-row"><dt>Error</dt><dd class="adm-cell-sub" style="color:var(--red)">${esc(c.error)}</dd></div>` : ""}
+          </div>
+        </div>`).join("")}
     </div>`;
-  $("#recheck").onclick = viewHealth;
 }
 
-/* ──────────────────────────────── AUDIT LOG ───────────────────────── */
-const AUDIT_FILTERS = { category: "", q: "" };
-
+/* ──────────────────────────────── AUDIT ───────────────────────────── */
 async function viewAudit() {
   const root = $("#view");
-  const f = AUDIT_FILTERS;
-  const qs = new URLSearchParams({
-    category: f.category, q: f.q,
-    offset: state.filters.auditOffset || 0, limit: 50,
-  });
-  const data = await api(`/api/admin/audit-logs?${qs}`);
-  root.innerHTML = `
-    ${pageHead("Audit Log", "Every admin action, in chronological order. Secrets are never logged.")}
-    <div class="adm-card">
-      <div class="adm-filters">
-        <select class="adm-select" id="auditCat">
-          <option value="">All categories</option>
-          ${data.categories.map((c) => `<option value="${esc(c)}" ${f.category === c ? "selected" : ""}>${esc(c)}</option>`).join("")}
-        </select>
-        <input class="adm-input" id="auditQ" placeholder="Action / user…" value="${esc(f.q)}">
-        <button class="adm-btn primary" id="applyAudit">Filter</button>
-      </div>
-      <div class="adm-table-wrap"><table class="adm-table">
-        <thead><tr><th>When</th><th>Action</th><th>Category</th><th>User</th><th>Result</th><th>Details</th></tr></thead>
-        <tbody>
-          ${data.items.length ? data.items.map((e) => `
-            <tr>
-              <td>${fmtTime(new Date(e.at * 1000))}</td>
-              <td><span class="adm-code">${esc(e.action)}</span></td>
-              <td><span class="adm-badge violet">${esc(e.category)}</span></td>
-              <td>${esc(e.user || "—")}${e.ip ? `<div class="adm-cell-sub">${esc(e.ip)}</div>` : ""}</td>
-              <td>${e.success ? `<span class="adm-badge green">ok</span>` : `<span class="adm-badge red">failed</span>`}</td>
-              <td><div class="adm-cell-sub">${esc(JSON.stringify(e.details || {}).slice(0, 160))}</div></td>
-            </tr>`).join("")
-          : `<tr><td colspan="6">${emptyState("◈", "No audit entries.")}</td></tr>`}
-        </tbody>
-      </table></div>
-      ${pagerHtml(data.total, data.offset, data.limit, (dir) => {
-        const off = data.offset + dir * data.limit;
-        state.filters.auditOffset = Math.max(0, off);
-        viewAudit();
-      })}
-    </div>`;
-  const apply = () => {
-    state.filters.auditOffset = 0;
-    f.category = $("#auditCat").value;
-    f.q = $("#auditQ").value.trim();
-    viewAudit();
+  const data = await api("/api/admin/audit-logs?limit=60");
+  const items = data.items || [];
+  const detailText = (e) => {
+    const d = e.details;
+    if (!d || typeof d !== "object" || !Object.keys(d).length) return "";
+    const parts = Object.entries(d).map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`);
+    return parts.join(" · ");
   };
-  $("#applyAudit").onclick = apply;
-  $("#auditCat").onchange = apply;
+  root.innerHTML = `
+    ${pageHead("Audit log", "Every admin action, chronologically. Immutable — this list cannot be cleared.", `
+      <span class="adm-badge gray plain">${fmtNum(data.total || items.length)} events</span>`)}
+    <div class="adm-feed">
+      ${items.length ? items.map((e) => `
+        <div class="adm-feed-item">
+          <div class="adm-feed-head">
+            <span class="adm-avatar" style="width:26px;height:26px">${esc(initials(e.user || "system"))}</span>
+            <span class="adm-cell-main">${esc(e.user || "system")}</span>
+            <span class="adm-badge gray plain">${esc(e.category || "")}</span>
+            <span class="adm-badge ${e.success === false ? "red" : "gray plain"}">${esc(e.action)}</span>
+            <span class="adm-feed-time" title="${new Date(e.at * 1000).toISOString()}">${fmtTime(new Date(e.at * 1000))}</span>
+          </div>
+          ${detailText(e) ? `<div class="adm-feed-reason">${esc(detailText(e))}</div>` : ""}
+        </div>`).join("") : emptyState("audit", "No audit events recorded yet.")}
+    </div>`;
 }
 
-/* ──────────────────────────────── Boot ────────────────────────────── */
+/* ──────────────────────────────── BOOT ────────────────────────────── */
 document.addEventListener("DOMContentLoaded", boot);
+boot();
+

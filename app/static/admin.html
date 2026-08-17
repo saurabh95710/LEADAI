@@ -4,96 +4,153 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LeadAI Admin — Control Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500;1,9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/admin.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎛️</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
 </head>
 <body class="admin-body">
   <div class="adm-shell">
     <aside class="adm-sidebar" id="sidebar">
       <div class="adm-brand">
-        <div class="adm-brand-mark">◆</div>
-        <div>
+        <div class="adm-brand-mark">✦</div>
+        <div class="adm-brand-text">
           <div class="adm-brand-name">LeadAI</div>
           <div class="adm-brand-sub">Admin Control Center</div>
         </div>
+        <button class="adm-brand-collapse" id="sidebarCollapse" aria-label="Collapse sidebar" title="Collapse sidebar">◀</button>
       </div>
       <nav class="adm-nav" id="nav">
-        <a class="adm-nav-item" data-view="dashboard" href="#/dashboard">
-          <span class="adm-nav-ico">▤</span>Dashboard</a>
-        <a class="adm-nav-item" data-view="jobs" href="#/jobs">
-          <span class="adm-nav-ico">⇶</span>Jobs</a>
-        <a class="adm-nav-item" data-view="failed" href="#/failed">
-          <span class="adm-nav-ico">✕</span>Failed Jobs</a>
-        <a class="adm-nav-item" data-view="leads" href="#/leads">
-          <span class="adm-nav-ico">◎</span>Leads</a>
-        <a class="adm-nav-item" data-view="analytics" href="#/analytics">
-          <span class="adm-nav-ico">◔</span>Analytics</a>
-        <div class="adm-nav-sep">Platforms &amp; Data Sources</div>
-        <a class="adm-nav-item" data-view="platforms" href="#/platforms">
-          <span class="adm-nav-ico">⬡</span>Platforms</a>
-        <a class="adm-nav-item" data-view="apify" href="#/apify">
-          <span class="adm-nav-ico">⬢</span>Apify</a>
-        <a class="adm-nav-item" data-view="actors" href="#/actors">
-          <span class="adm-nav-ico">⚙</span>Actors</a>
-        <a class="adm-nav-item" data-view="usage" href="#/usage">
-          <span class="adm-nav-ico">¥</span>Usage &amp; Cost</a>
-        <a class="adm-nav-item" data-view="environment" href="#/environment">
-          <span class="adm-nav-ico">⌬</span>Environment</a>
-        <div class="adm-nav-sep">AI &amp; Lead Engine</div>
-        <a class="adm-nav-item" data-view="ai" href="#/ai">
-          <span class="adm-nav-ico">✦</span>AI / Gemini</a>
-        <a class="adm-nav-item" data-view="scoring" href="#/scoring">
-          <span class="adm-nav-ico">≈</span>Lead Scoring</a>
-        <a class="adm-nav-item" data-view="ci" href="#/ci">
-          <span class="adm-nav-ico">♜</span>Comment Intelligence</a>
-        <div class="adm-nav-sep">Operations</div>
-        <a class="adm-nav-item" data-view="limits" href="#/limits">
-          <span class="adm-nav-ico">⇕</span>Scraping &amp; Global Limits</a>
-        <a class="adm-nav-item" data-view="database" href="#/database">
-          <span class="adm-nav-ico">▥</span>Database</a>
-        <a class="adm-nav-item" data-view="logs" href="#/logs">
-          <span class="adm-nav-ico">≣</span>Logs</a>
-        <a class="adm-nav-item" data-view="health" href="#/health">
-          <span class="adm-nav-ico">♥</span>Health</a>
-        <a class="adm-nav-item" data-view="exports" href="#/exports">
-          <span class="adm-nav-ico">⇩</span>Exports</a>
-        <div class="adm-nav-sep">Administration</div>
-        <a class="adm-nav-item" data-view="users" href="#/users">
-          <span class="adm-nav-ico">👤</span>Users</a>
-        <a class="adm-nav-item" data-view="security" href="#/security">
-          <span class="adm-nav-ico">🔒</span>Security</a>
-        <a class="adm-nav-item" data-view="features" href="#/features">
-          <span class="adm-nav-ico">⚑</span>Features</a>
-        <a class="adm-nav-item" data-view="maintenance" href="#/maintenance">
-          <span class="adm-nav-ico">☄</span>Maintenance</a>
-        <a class="adm-nav-item" data-view="audit" href="#/audit">
-          <span class="adm-nav-ico">◈</span>Audit Log</a>
+        <div class="adm-nav-section">Main</div>
+        <a class="adm-nav-item" data-view="dashboard" href="#/dashboard" data-tip="Dashboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+          <span class="adm-nav-label">Dashboard</span></a>
+        <a class="adm-nav-item" data-view="jobs" href="#/jobs" data-tip="Jobs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          <span class="adm-nav-label">Jobs</span></a>
+        <a class="adm-nav-item" data-view="failed" href="#/failed" data-tip="Failed Jobs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          <span class="adm-nav-label">Failed Jobs</span></a>
+        <a class="adm-nav-item" data-view="leads" href="#/leads" data-tip="Leads">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span class="adm-nav-label">Leads</span></a>
+        <a class="adm-nav-item" data-view="analytics" href="#/analytics" data-tip="Analytics">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+          <span class="adm-nav-label">Analytics</span></a>
+
+        <div class="adm-nav-section">Platforms &amp; Data Sources</div>
+        <a class="adm-nav-item" data-view="platforms" href="#/platforms" data-tip="Platforms">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          <span class="adm-nav-label">Platforms</span></a>
+        <a class="adm-nav-item" data-view="apify" href="#/apify" data-tip="Apify">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8 4.5v9L12 20l-8-4.5v-9L12 2z"/><line x1="12" y1="11" x2="12" y2="20"/><polyline points="4 6.5 12 11 20 6.5"/></svg>
+          <span class="adm-nav-label">Apify</span></a>
+        <a class="adm-nav-item" data-view="actors" href="#/actors" data-tip="Actors">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span class="adm-nav-label">Actors</span></a>
+        <a class="adm-nav-item" data-view="usage" href="#/usage" data-tip="Usage &amp; Cost">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          <span class="adm-nav-label">Usage &amp; Cost</span></a>
+        <a class="adm-nav-item" data-view="environment" href="#/environment" data-tip="Environment">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          <span class="adm-nav-label">Environment</span></a>
+
+        <div class="adm-nav-section">AI &amp; Lead Engine</div>
+        <a class="adm-nav-item" data-view="ai" href="#/ai" data-tip="AI / Gemini">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.8L20 10l-6.1 1.2L12 17l-1.9-5.8L4 10l6.1-1.2L12 3z"/><path d="M19 15l.9 2.7L23 19l-3.1.9L19 23l-.9-3.1L15 19l3.1-1.3L19 15z"/></svg>
+          <span class="adm-nav-label">AI / Gemini</span></a>
+        <a class="adm-nav-item" data-view="scoring" href="#/scoring" data-tip="Lead Scoring">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          <span class="adm-nav-label">Lead Scoring</span></a>
+        <a class="adm-nav-item" data-view="ci" href="#/ci" data-tip="Comment Intelligence">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M9 10h6"/><path d="M9 14h4"/></svg>
+          <span class="adm-nav-label">Comment Intelligence</span></a>
+
+        <div class="adm-nav-section">Operations</div>
+        <a class="adm-nav-item" data-view="limits" href="#/limits" data-tip="Limits">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+          <span class="adm-nav-label">Limits</span></a>
+        <a class="adm-nav-item" data-view="database" href="#/database" data-tip="Database">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          <span class="adm-nav-label">Database</span></a>
+        <a class="adm-nav-item" data-view="logs" href="#/logs" data-tip="Logs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          <span class="adm-nav-label">Logs</span></a>
+        <a class="adm-nav-item" data-view="health" href="#/health" data-tip="Health">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          <span class="adm-nav-label">Health</span></a>
+        <a class="adm-nav-item" data-view="exports" href="#/exports" data-tip="Exports">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span class="adm-nav-label">Exports</span></a>
+
+        <div class="adm-nav-section">Administration</div>
+        <a class="adm-nav-item" data-view="users" href="#/users" data-tip="Users">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span class="adm-nav-label">Users</span></a>
+        <a class="adm-nav-item" data-view="security" href="#/security" data-tip="Security">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <span class="adm-nav-label">Security</span></a>
+        <a class="adm-nav-item" data-view="features" href="#/features" data-tip="Features">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4L12 2z"/><path d="M19 17l.7 1.9L22 20l-2.3.6L19 23l-.7-2.4L16 20l2.3-1.1L19 17z"/></svg>
+          <span class="adm-nav-label">Features</span></a>
+        <a class="adm-nav-item" data-view="maintenance" href="#/maintenance" data-tip="Maintenance">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span class="adm-nav-label">Maintenance</span></a>
+        <a class="adm-nav-item" data-view="audit" href="#/audit" data-tip="Audit Log">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          <span class="adm-nav-label">Audit Log</span></a>
       </nav>
       <div class="adm-sidebar-foot">
-        <a class="adm-nav-item" href="/" target="_blank">
-          <span class="adm-nav-ico">↗</span>Open App</a>
-        <button class="adm-nav-item adm-nav-btn" id="logoutBtn">
-          <span class="adm-nav-ico">⏻</span>Sign Out</button>
+        <a class="adm-nav-item" href="/" target="_blank" data-tip="Open App">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          <span class="adm-nav-label">Open App</span></a>
+        <button class="adm-nav-item adm-nav-btn" id="logoutBtn" data-tip="Sign Out">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          <span class="adm-nav-label">Sign Out</span></button>
       </div>
     </aside>
 
     <div class="adm-main">
       <header class="adm-topbar">
-        <button class="adm-burger" id="burger" aria-label="Toggle menu">☰</button>
-        <div class="adm-crumb" id="crumb">Admin</div>
+        <button class="adm-burger" id="burger" aria-label="Toggle menu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <div class="adm-crumb-wrap">
+          <div class="adm-crumb" id="crumb">Admin</div>
+          <div class="adm-crumb-sub" id="crumbSub">LeadAI · AI Lead Intelligence Platform</div>
+        </div>
         <div class="adm-top-right">
+          <div class="adm-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="adm-search-ico" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input class="adm-search-input" id="admSearchInput" type="search" placeholder="Search jobs, leads, pages…" aria-label="Global search" autocomplete="off">
+            <div class="adm-search-results" id="admSearchResults" hidden></div>
+          </div>
+          <button class="adm-icon-btn" id="admBell" aria-label="Notifications" title="Notifications">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span class="adm-dot-count" id="admBellCount" hidden>0</span>
+          </button>
+          <button class="adm-health-pill" id="healthPill" title="System health">
+            <span class="adm-health-dot" id="healthDot"></span>
+            <span class="adm-health-label" id="healthLabel">Health</span>
+          </button>
           <div class="adm-profile" id="admProfile">
-            <button class="adm-profile-btn" id="admProfileBtn">
-              <span class="adm-user" id="admUser">—</span>
-              <span class="adm-role-badge" id="admRole">—</span>
-              <span class="adm-profile-caret">▾</span>
+            <button class="adm-profile-btn" id="admProfileBtn" aria-haspopup="menu" aria-expanded="false" title="Account">
+              <span class="adm-avatar" id="admAvatar">A</span>
+              <span class="adm-profile-meta">
+                <span class="adm-user" id="admUser">—</span>
+                <span class="adm-role-badge" id="admRole">—</span>
+              </span>
+              <span class="adm-profile-caret">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+              </span>
             </button>
-            <div class="adm-dropdown" id="admDropdown" hidden>
-              <a class="adm-dropdown-item" href="/" target="_blank">↗ Open App</a>
-              <a class="adm-dropdown-item" href="#/users" id="ddUsers" hidden>👤 Users</a>
-              <a class="adm-dropdown-item" href="#/security" id="ddSecurity">🔒 Security</a>
+            <div class="adm-dropdown" id="admDropdown" hidden role="menu">
+              <a class="adm-dropdown-item" href="/" target="_blank">Open App</a>
+              <a class="adm-dropdown-item" href="#/users" id="ddUsers" hidden>Users</a>
+              <a class="adm-dropdown-item" href="#/security" id="ddSecurity">Security</a>
               <div class="adm-dropdown-sep"></div>
-              <button class="adm-dropdown-item" id="ddLogout">⏻ Sign out</button>
+              <button class="adm-dropdown-item" id="ddLogout">Sign out</button>
             </div>
           </div>
         </div>
@@ -105,6 +162,9 @@
       </main>
     </div>
   </div>
+
+  <div class="adm-drawer-backdrop" id="drawerBackdrop" hidden></div>
+  <aside class="adm-drawer" id="drawer" hidden aria-label="Details drawer"></aside>
 
   <div class="adm-toasts" id="toasts"></div>
   <div class="adm-modal-backdrop" id="modalBackdrop" hidden>
