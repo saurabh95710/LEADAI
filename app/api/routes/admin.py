@@ -696,9 +696,8 @@ async def env_set(name: str, body: Dict[str, Any],
                   admin: dict = Depends(require_viewer)):
     if not ev.known_name(name):
         raise HTTPException(status_code=404, detail=f"Unknown env var: {name}")
-    if ev.is_secret(name) and admin.get("role") != "super_admin":
-        raise HTTPException(status_code=403,
-                            detail="Only super admin can change secret env vars")
+    # Secrets are editable like everything else here: the guard password on
+    # the whole section is the protection, so no extra role gate.
     value = body.get("value")
     if value is None or value == "":
         raise HTTPException(status_code=400, detail="value is required")
@@ -714,9 +713,6 @@ async def env_set(name: str, body: Dict[str, Any],
 async def env_delete(name: str, admin: dict = Depends(require_viewer)):
     if not ev.known_name(name):
         raise HTTPException(status_code=404, detail=f"Unknown env var: {name}")
-    if ev.is_secret(name) and admin.get("role") != "super_admin":
-        raise HTTPException(status_code=403,
-                            detail="Only super admin can reset secret env vars")
     if not ev.envvar_info(name)["overridden"]:
         return {"success": True, "message": "No override to remove"}
     ok = ev.delete_envvar_override(name)
@@ -726,7 +722,7 @@ async def env_delete(name: str, admin: dict = Depends(require_viewer)):
     return {"success": True, "entry": ev.envvar_info(name)}
 
 
-@router.post("/env/password", dependencies=[Depends(require_super),
+@router.post("/env/password", dependencies=[Depends(require_manager),
                                             Depends(require_env_unlocked)])
 async def env_change_password(body: Dict[str, Any]):
     """Change the recovery admin password: hash it server-side, store as an

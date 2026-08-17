@@ -145,3 +145,10 @@ override stored here is the same `apify.token` row the Apify view and the
 scrapers read (single source of truth).
 
 Test suite: **79 passed** (14 envvar + 6 guard/unlock tests).
+### Secrets are editable too
+
+With the guard password as the section's protection, secret vars
+(`APIFY_API_TOKEN`, `GEMINI_API_KEY`, `ADMIN_PASSWORD_HASH`,
+`SESSION_SECRET`) are editable like everything else (manager+; no extra
+role gate). Note: changing `SESSION_SECRET` invalidates all active sessions
+immediately (re-login required) — the panel says so on the row.

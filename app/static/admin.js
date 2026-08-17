@@ -1006,8 +1006,8 @@ async function viewEnvironment() {
   root.innerHTML = `
     ${pageHead("Environment", "Live environment variables. An override row wins; otherwise the real .env value applies; otherwise the documented default. Changes take effect immediately unless marked 'needs restart'.", `
       <button class="adm-btn" id="envLockBtn">🔒 Lock now</button>`)}
-    <div class="adm-note">Secrets are never displayed — only a masked hint. Every value below is editable (manager+; secrets need super admin). Overrides are stored in the database and survive restarts; they do not rewrite your .env file. The section stays open for ${lock.unlock_minutes} minutes after unlocking.</div>
-    ${state.user.role === "super_admin" ? `
+    <div class="adm-note">Secrets are never displayed — only a masked hint. Every value below is editable (manager+; the guard password is the protection). Overrides are stored in the database and survive restarts; they do not rewrite your .env file. The section stays open for ${lock.unlock_minutes} minutes after unlocking.</div>
+    ${canWrite ? `
     <div class="adm-card" style="margin-bottom:16px">
       <div class="adm-card-title">Recovery admin password</div>
       <div class="adm-field" style="margin-bottom:12px">
@@ -1032,8 +1032,8 @@ async function viewEnvironment() {
                 <td>${v.restart ? `<span class="adm-badge amber">needs restart</span>` : `<span class="adm-badge green">applies now</span>`}${v.secret ? `<span class="adm-badge">secret</span>` : ""}</td>
                 <td>${canWrite
                   ? `<div class="adm-btn-row" style="gap:6px">
-                      <button class="adm-btn" data-env-edit="${esc(v.name)}" ${v.secret && state.user.role !== "super_admin" ? "disabled" : ""}>Edit</button>
-                      ${v.overridden ? `<button class="adm-btn danger" data-env-reset="${esc(v.name)}" ${v.secret && state.user.role !== "super_admin" ? "disabled" : ""}>Reset</button>` : ""}
+                      <button class="adm-btn" data-env-edit="${esc(v.name)}">Edit</button>
+                      ${v.overridden ? `<button class="adm-btn danger" data-env-reset="${esc(v.name)}">Reset</button>` : ""}
                     </div>`
                   : `<span class="adm-badge">read only</span>`}</td>
               </tr>`).join("")}
