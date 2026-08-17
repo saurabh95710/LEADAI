@@ -82,8 +82,20 @@
         <button class="adm-burger" id="burger" aria-label="Toggle menu">☰</button>
         <div class="adm-crumb" id="crumb">Admin</div>
         <div class="adm-top-right">
-          <div class="adm-user" id="admUser">—</div>
-          <a class="adm-role-badge" id="admRole" href="#/users">—</a>
+          <div class="adm-profile" id="admProfile">
+            <button class="adm-profile-btn" id="admProfileBtn">
+              <span class="adm-user" id="admUser">—</span>
+              <span class="adm-role-badge" id="admRole">—</span>
+              <span class="adm-profile-caret">▾</span>
+            </button>
+            <div class="adm-dropdown" id="admDropdown" hidden>
+              <a class="adm-dropdown-item" href="/" target="_blank">↗ Open App</a>
+              <a class="adm-dropdown-item" href="#/users" id="ddUsers" hidden>👤 Users</a>
+              <a class="adm-dropdown-item" href="#/security" id="ddSecurity">🔒 Security</a>
+              <div class="adm-dropdown-sep"></div>
+              <button class="adm-dropdown-item" id="ddLogout">⏻ Sign out</button>
+            </div>
+          </div>
         </div>
       </header>
       <main class="adm-content" id="view">

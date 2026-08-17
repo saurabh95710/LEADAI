@@ -428,3 +428,50 @@ table.adm-table { width: 100%; border-collapse: collapse; font-size: 13.2px; min
   .adm-content { padding: 16px; }
   .adm-stats { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 }
+
+/* ── Interactive elements ──────────────────────────────────────────── */
+.adm-stat.clickable { cursor: pointer; transition: border-color 0.2s var(--ease), transform 0.15s var(--ease); }
+.adm-stat.clickable:hover { border-color: var(--blue); transform: translateY(-2px); }
+
+.adm-row-link { cursor: pointer; transition: background 0.15s var(--ease); }
+.adm-row-link:hover { background: rgba(79, 140, 255, 0.06); }
+.adm-row-link td:first-child { position: relative; }
+
+.adm-kv-row { display: contents; cursor: pointer; }
+.adm-kv-row:hover dt { color: var(--blue); }
+
+.adm-link { color: var(--blue); text-decoration: none; }
+.adm-link:hover { text-decoration: underline; }
+
+.adm-bar.failed { background: var(--red); opacity: 0.85; }
+
+/* ── Profile dropdown (top-right) ──────────────────────────────────── */
+.adm-profile { position: relative; }
+.adm-profile-btn {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 999px; padding: 6px 14px 6px 16px; cursor: pointer;
+  transition: border-color 0.2s var(--ease);
+}
+.adm-profile-btn:hover { border-color: var(--blue); }
+.adm-profile-caret { color: var(--text-3); font-size: 10px; }
+
+.adm-dropdown {
+  position: absolute; right: 0; top: calc(100% + 8px);
+  min-width: 210px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-2);
+  padding: 6px;
+  z-index: 40;
+}
+.adm-dropdown-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; text-align: left;
+  padding: 9px 12px; font-size: 13px; color: var(--text);
+  background: none; border: 0; border-radius: 7px;
+  cursor: pointer; text-decoration: none;
+}
+.adm-dropdown-item:hover { background: rgba(79, 140, 255, 0.1); color: #fff; }
+.adm-dropdown-sep { height: 1px; background: var(--border); margin: 6px 8px; }

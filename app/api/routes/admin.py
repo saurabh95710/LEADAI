@@ -94,6 +94,34 @@ def _lead_statuses() -> List[str]:
     return ["new", "contacted", "qualified", "converted", "ignored"]
 
 
+def _score_bucket(score: Optional[Any]) -> str:
+    """Lead-score bucket label used by the analytics distribution."""
+    if score is None:
+        return "no score"
+    try:
+        score = float(score)
+    except (TypeError, ValueError):
+        return "no score"
+    if score >= 80:
+        return "80–100"
+    if score >= 60:
+        return "60–79"
+    if score >= 40:
+        return "40–59"
+    if score >= 20:
+        return "20–39"
+    return "0–19"
+
+
+def _contact_query() -> dict:
+    """$or filter for docs carrying a real (non-empty) contact string."""
+    return {"$or": [
+        {"phone": {"$regex": r"\S"}},
+        {"email": {"$regex": r"\S"}},
+        {"whatsapp": {"$regex": r"\S"}},
+    ]}
+
+
 async def _count(db, coll: str, query: Optional[dict] = None) -> int:
     try:
         return await db[coll].count_documents(query or {})
@@ -229,7 +257,40 @@ async def job_detail(run_id: str):
     doc = await db.search_history.find_one({"run_id": run_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Search run not found")
-    return {"job": _serialize_oid(doc)}
+    counts: Dict[str, Any] = {"pages": 0, "posts": 0, "comments": 0,
+                              "analyzed": 0, "leads": 0}
+    try:
+        page_ids = [p["_id"] async for p in
+                    db.facebook_pages.find({"search_run_id": run_id},
+                                           {"_id": 1})]
+        counts["pages"] = len(page_ids)
+        post_query: Dict[str, Any] = {}
+        if page_ids:
+            post_query["$or"] = [
+                {"page_ref": {"$in": [str(pid) for pid in page_ids]}},
+                {"collection_run_id": run_id},
+            ]
+        else:
+            post_query["collection_run_id"] = run_id
+        post_ids = [p["_id"] async for p in
+                    db.facebook_posts.find(post_query, {"_id": 1})]
+        counts["posts"] = len(post_ids)
+        comment_refs = []
+        if post_ids:
+            comment_ids = [c["_id"] async for c in
+                           db.facebook_comments.find({"post_ref": {
+                               "$in": [str(pid) for pid in post_ids]}}, {"_id": 1})]
+            comment_refs = [str(cid) for cid in comment_ids]
+            counts["comments"] = len(comment_refs)
+        if comment_refs:
+            counts["analyzed"] = await _count(
+                db, "ai_comments", {"comment_ref": {"$in": comment_refs}})
+            counts["leads"] = await _count(
+                db, "ai_comments",
+                {"comment_ref": {"$in": comment_refs}, "is_lead": True})
+    except Exception as e:
+        logger.warning("job_detail child counts failed for %s: %s", run_id, e)
+    return {"job": _serialize_oid(doc), "counts": counts}
 
 
 async def _retry_job(run_id: str, admin: dict) -> Dict[str, Any]:
@@ -410,6 +471,19 @@ async def list_leads(
     }
 
 
+@router.get("/leads/{lead_id}", dependencies=[Depends(require_viewer)])
+async def get_lead(lead_id: str):
+    db = await _db()
+    try:
+        oid = ObjectId(lead_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid lead id")
+    lead = await db.ai_comments.find_one({"_id": oid})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return {"lead": _serialize_oid(lead)}
+
+
 @router.patch("/leads/{lead_id}", dependencies=[Depends(require_manager)])
 async def update_lead(lead_id: str, body: Dict[str, Any]):
     db = await _db()
@@ -468,13 +542,33 @@ async def bulk_leads(body: Dict[str, Any]):
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/analytics", dependencies=[Depends(require_viewer)])
-async def analytics(days: int = Query(14, ge=1, le=90)):
+async def analytics(
+    days: Optional[int] = Query(None, ge=1, le=365),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+):
     db = await _db()
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    if from_date or to_date:
+        start = _iso(from_date) if from_date else None
+        end = _iso(to_date) if to_date else None
+        if end is not None:
+            end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
+        since = start or datetime.now(timezone.utc) - timedelta(days=30)
+    else:
+        since = datetime.now(timezone.utc) - timedelta(days=days or 14)
+        end = None
+    range_filter: Dict[str, Any] = {}
+    analyzed_range: Dict[str, Any] = {}
+    if since:
+        range_filter["$gte"] = since
+    if end:
+        range_filter["$lte"] = end
+    created_match = {"created_at": range_filter} if range_filter else {}
+    analyzed_match = {"analyzed_at": range_filter} if range_filter else {}
 
     jobs_series = []
     async for doc in db.search_history.aggregate([
-        {"$match": {"created_at": {"$gte": since}}},
+        {"$match": created_match},
         {"$group": {"_id": {
             "$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}},
             "count": {"$sum": 1},
@@ -487,20 +581,38 @@ async def analytics(days: int = Query(14, ge=1, le=90)):
             "failed": doc.get("failed", 0),
         })
 
+    leads_series = []
+    async for doc in db.ai_comments.aggregate([
+        {"$match": {"is_lead": True, **analyzed_match}},
+        {"$group": {"_id": {
+            "$dateToString": {"format": "%Y-%m-%d", "date": "$analyzed_at"}},
+            "count": {"$sum": 1}}},
+        {"$sort": {"_id": 1}},
+    ]):
+        leads_series.append({"date": doc["_id"], "leads": doc.get("count", 0)})
+
     quality = {}
     async for doc in db.ai_comments.aggregate([
+        {"$match": analyzed_match},
         {"$group": {"_id": "$lead_quality", "count": {"$sum": 1}}}]):
         quality[doc["_id"] or "none"] = doc["count"]
 
     leads_by_platform = {}
     async for doc in db.ai_comments.aggregate([
-        {"$match": {"is_lead": True}},
+        {"$match": {"is_lead": True, **analyzed_match}},
         {"$group": {"_id": "$platform", "count": {"$sum": 1}}}]):
         leads_by_platform[doc["_id"] or "unknown"] = doc["count"]
 
+    score_buckets = {}
+    async for doc in db.ai_comments.aggregate([
+        {"$match": {"is_lead": True, **analyzed_match}},
+        {"$group": {"_id": "$lead_score", "count": {"$sum": 1}}}]):
+        bucket = _score_bucket(doc["_id"])
+        score_buckets[bucket] = score_buckets.get(bucket, 0) + doc["count"]
+
     top_pages = []
     async for doc in db.ai_comments.aggregate([
-        {"$match": {"is_lead": True}},
+        {"$match": {"is_lead": True, **analyzed_match}},
         {"$group": {"_id": "$page_name", "leads": {"$sum": 1}}},
         {"$sort": {"leads": -1}},
         {"$limit": 10},
@@ -509,16 +621,70 @@ async def analytics(days: int = Query(14, ge=1, le=90)):
 
     statuses = {}
     async for doc in db.search_history.aggregate([
+        {"$match": created_match},
         {"$group": {"_id": "$status", "count": {"$sum": 1}}}]):
         statuses[doc["_id"] or "unknown"] = doc["count"]
 
+    total_jobs = sum(statuses.values())
+    completed_jobs = statuses.get("completed", 0)
+    failed_jobs = statuses.get("error", 0)
+
+    totals = {
+        "jobs": total_jobs,
+        "completed": completed_jobs,
+        "failed": failed_jobs,
+        "success_rate": round(completed_jobs / total_jobs * 100, 1)
+        if total_jobs else None,
+        "pages": await _count(db, "facebook_pages",
+                              {"collected_at": range_filter} if range_filter else {}),
+        "posts": await _count(db, "facebook_posts",
+                              {"collected_at": range_filter} if range_filter else {}),
+        "comments": await _count(db, "facebook_comments",
+                                 {"created_at": range_filter} if range_filter else {}),
+        "analyzed": await _count(db, "ai_comments", analyzed_match),
+        "leads": await _count(db, "ai_comments",
+                              {"is_lead": True, **analyzed_match}),
+    }
+
+    platform_perf = []
+    for platform in s.PLATFORMS:
+        plat_match = {"platform": platform, **created_match}
+        runs = await _count(db, "search_history", plat_match)
+        plat_completed = await _count(
+            db, "search_history",
+            {"platform": platform, "status": "completed", **created_match})
+        plat_failed = await _count(
+            db, "search_history",
+            {"platform": platform, "status": "error", **created_match})
+        plat_leads = await _count(
+            db, "ai_comments",
+            {"platform": platform, "is_lead": True, **analyzed_match})
+        platform_perf.append({
+            "platform": platform,
+            "runs": runs,
+            "completed": plat_completed,
+            "failed": plat_failed,
+            "success_rate": round(plat_completed / runs * 100, 1) if runs else None,
+            "leads": plat_leads,
+        })
+
     return {
+        "range": {
+            "from": since.isoformat() if since else None,
+            "to": end.isoformat() if end else None,
+            "days": (end - since).days if since and end else None,
+        },
         "jobs_series": jobs_series,
+        "leads_series": leads_series,
         "quality": quality,
+        "score_distribution": score_buckets,
         "leads_by_platform": leads_by_platform,
         "top_pages": top_pages,
         "job_statuses": statuses,
-        "lead_statuses": {st: await _count(db, "ai_comments", {"lead_status": st})
+        "totals": totals,
+        "platform_perf": platform_perf,
+        "lead_statuses": {st: await _count(db, "ai_comments",
+                                           {"lead_status": st, **analyzed_match})
                           for st in _lead_statuses()},
     }
 
@@ -942,6 +1108,170 @@ async def put_ci(body: Dict[str, Any]):
     return {"success": True, "changed": changed}
 
 
+# ── Comment browser: real ai_comments with filters + summary ───────────────
+
+@router.get("/comments", dependencies=[Depends(require_viewer)])
+async def list_comments(
+    platform: Optional[str] = Query(None),
+    intent: Optional[str] = Query(None),
+    quality: Optional[str] = Query(None),
+    is_lead: Optional[bool] = Query(None),
+    contact: bool = Query(False),
+    min_confidence: Optional[float] = Query(None, ge=0, le=1),
+    q: Optional[str] = Query(None),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=200),
+):
+    db = await _db()
+    query: Dict[str, Any] = {}
+    if platform:
+        query["platform"] = platform
+    if intent:
+        query["intent"] = intent
+    if quality:
+        query["lead_quality"] = quality
+    if is_lead is not None:
+        query["is_lead"] = is_lead
+    if contact:
+        query.update(_contact_query())
+    if min_confidence is not None:
+        query["confidence"] = {"$gte": min_confidence}
+    if q:
+        query["$or"] = [
+            {"comment_text": {"$regex": re.escape(q), "$options": "i"}},
+            {"commenter_name": {"$regex": re.escape(q), "$options": "i"}},
+            {"page_name": {"$regex": re.escape(q), "$options": "i"}},
+            {"phone": {"$regex": re.escape(q)}},
+            {"email": {"$regex": re.escape(q), "$options": "i"}},
+        ]
+    query.update(_date_filter(from_date, to_date))
+    offset, limit = _pagination(offset, limit)
+    rows = [doc async for doc in
+            db.ai_comments.find(query).sort("lead_score", -1)
+            .skip(offset).limit(limit)]
+    summary = {
+        "total": await _count(db, "ai_comments"),
+        "analyzed": await _count(db, "ai_comments", {"analyzed_at": {"$ne": None}}),
+        "leads": await _count(db, "ai_comments", {"is_lead": True}),
+        "contacts": await _count(db, "ai_comments", _contact_query()),
+        "high_value": await _count(db, "ai_comments",
+                                   {"is_lead": True, "lead_score": {"$gte": 80}}),
+        "intents": {},
+        "avg_confidence": None,
+        "avg_score": None,
+    }
+    async for doc in db.ai_comments.aggregate([
+        {"$group": {"_id": "$intent", "count": {"$sum": 1}}}]):
+        summary["intents"][doc["_id"] or "unknown"] = doc["count"]
+    async for doc in db.ai_comments.aggregate([
+        {"$group": {"_id": None, "conf": {"$avg": "$confidence"},
+                    "score": {"$avg": "$lead_score"}}}]):
+        summary["avg_confidence"] = round(doc.get("conf") or 0, 3)
+        summary["avg_score"] = round(doc.get("score") or 0, 1)
+    return {
+        "items": [_serialize_oid(r) for r in rows],
+        "total": await _count(db, "ai_comments", query),
+        "offset": offset, "limit": limit,
+        "summary": summary,
+    }
+
+
+# ── Pages & posts browser (admin scopes) ───────────────────────────────────
+
+@router.get("/pages", dependencies=[Depends(require_viewer)])
+async def list_admin_pages(
+    platform: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
+    contact: bool = Query(False),
+    run_id: Optional[str] = Query(None),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=200),
+):
+    db = await _db()
+    query: Dict[str, Any] = {}
+    if run_id:
+        query["search_run_id"] = run_id
+    if platform:
+        query["platform"] = platform
+    if q:
+        query["$or"] = [{"page_name": {"$regex": re.escape(q), "$options": "i"}},
+                        {"category": {"$regex": re.escape(q), "$options": "i"}},
+                        {"city": {"$regex": re.escape(q), "$options": "i"}}]
+    if contact:
+        query.update(_contact_query())
+    if from_date or to_date:
+        query["collected_at"] = _date_filter(from_date, to_date).get("created_at", {})
+    offset, limit = _pagination(offset, limit)
+    rows = [doc async for doc in
+            db.facebook_pages.find(query).sort([("lead_score", -1), ("followers", -1)])
+            .skip(offset).limit(limit)]
+    items = []
+    for r in rows:
+        serialized = _serialize_oid(r)
+        serialized["platform"] = r.get("platform") or _page_platform(r)
+        items.append(serialized)
+    return {
+        "items": items,
+        "total": await _count(db, "facebook_pages", query),
+        "offset": offset, "limit": limit,
+    }
+
+
+def _page_platform(page: dict) -> str:
+    source = page.get("source") or ""
+    if "instagram" in source.lower():
+        return "instagram"
+    if "linkedin" in source.lower():
+        return "linkedin"
+    if "youtube" in source.lower():
+        return "youtube"
+    return "facebook"
+
+
+@router.get("/posts", dependencies=[Depends(require_viewer)])
+async def list_admin_posts(
+    platform: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
+    run_id: Optional[str] = Query(None),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=200),
+):
+    db = await _db()
+    query: Dict[str, Any] = {}
+    if run_id:
+        query["$or"] = [{"collection_run_id": run_id}, {"search_run_id": run_id}]
+    if platform:
+        query["platform"] = platform
+    if q:
+        query["$or"] = [{"caption": {"$regex": re.escape(q), "$options": "i"}},
+                        {"description": {"$regex": re.escape(q), "$options": "i"}},
+                        {"page_name": {"$regex": re.escape(q), "$options": "i"}}]
+    if from_date or to_date:
+        query["published_date"] = _date_filter(from_date, to_date).get("created_at", {})
+    offset, limit = _pagination(offset, limit)
+    rows = [doc async for doc in
+            db.facebook_posts.find(query).sort("published_date", -1)
+            .skip(offset).limit(limit)]
+    items = []
+    for r in rows:
+        serialized = _serialize_oid(r)
+        if serialized.get("total_comment_count") is None:
+            serialized["total_comment_count"] = r.get("comments_count")
+        serialized["platform"] = r.get("platform") or _page_platform(r)
+        items.append(serialized)
+    return {
+        "items": items,
+        "total": await _count(db, "facebook_posts", query),
+        "offset": offset, "limit": limit,
+    }
+
+
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # FEATURES
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1099,6 +1429,7 @@ async def logs_download():
 @router.get("/export/{scope}.csv", dependencies=[Depends(require_manager)])
 async def admin_export(
     scope: str,
+    request: Request,
     platform: Optional[str] = Query(None),
     only_leads: bool = Query(True),
     q: Optional[str] = Query(None),
@@ -1110,25 +1441,28 @@ async def admin_export(
                                        _split_date_time)
     db = await _db()
     stamp = datetime.now().strftime("%Y%m%d")
+    exported = 0
     if scope == "pages":
         query: Dict[str, Any] = {}
         if platform:
             query["platform"] = platform
         rows = [doc async for doc in
                 db.facebook_pages.find(query).sort("followers", -1)]
+        exported = len(rows)
         for row in rows:
             row["platform"] = _resolve_platform(row)
-        return _csv_response(rows, PAGES_CSV, f"admin_pages_{stamp}.csv")
-    if scope == "posts":
+        response = _csv_response(rows, PAGES_CSV, f"admin_pages_{stamp}.csv")
+    elif scope == "posts":
         query = {"platform": platform} if platform else {}
         rows = [doc async for doc in
                 db.facebook_posts.find(query).sort("published_date", -1)]
+        exported = len(rows)
         for row in rows:
             if row.get("total_comment_count") is None:
                 row["total_comment_count"] = row.get("comments_count")
             row["platform"] = _resolve_platform(row)
-        return _csv_response(rows, POSTS_CSV, f"admin_posts_{stamp}.csv")
-    if scope == "leads":
+        response = _csv_response(rows, POSTS_CSV, f"admin_posts_{stamp}.csv")
+    elif scope == "leads":
         query: Dict[str, Any] = {"is_lead": only_leads}
         if platform:
             query["platform"] = platform
@@ -1142,12 +1476,33 @@ async def admin_export(
         query.update(_date_filter(from_date, to_date))
         rows = [doc async for doc in
                 db.ai_comments.find(query).sort("lead_score", -1)]
+        exported = len(rows)
         out = []
         for r in rows:
             date_part, time_part = _split_date_time(r.get("analyzed_at"))
             out.append({**r, "date": date_part, "time": time_part})
-        return _csv_response(out, COMMENTS_CSV, f"admin_leads_{stamp}.csv")
-    raise HTTPException(status_code=400, detail=f"Unknown scope: {scope}")
+        response = _csv_response(out, COMMENTS_CSV, f"admin_leads_{stamp}.csv")
+    elif scope == "jobs":
+        query = {"platform": platform} if platform else {}
+        if q:
+            query["$or"] = [{"query": {"$regex": re.escape(q), "$options": "i"}},
+                            {"run_id": {"$regex": re.escape(q), "$options": "i"}}]
+        query.update(_date_filter(from_date, to_date))
+        rows = [doc async for doc in
+                db.search_history.find(query).sort("created_at", -1)]
+        exported = len(rows)
+        columns = ["run_id", "query", "platform", "status", "phase", "message",
+                   "pages_found", "pages_stored", "created_at", "completed_at"]
+        response = _csv_response(
+            rows, columns, f"admin_jobs_{stamp}.csv")
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown scope: {scope}")
+    await a.aaudit("export.csv", "exports",
+                   user=current_admin_for_audit(request),
+                   ip=request.client.host if request.client else None,
+                   details={"scope": scope, "format": "csv", "rows": exported,
+                            "platform": platform or None})
+    return response
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1389,11 +1744,14 @@ def _login_protection_active() -> bool:
 async def health_check():
     db = get_async_db()
     checks = {}
-    # MongoDB ping
+    # MongoDB ping (with latency)
+    mongo_latency_ms = None
     try:
         if db is not None:
+            started = time.perf_counter()
             await db.command("ping")
-            checks["mongo"] = {"ok": True}
+            mongo_latency_ms = round((time.perf_counter() - started) * 1000, 1)
+            checks["mongo"] = {"ok": True, "latency_ms": mongo_latency_ms}
         else:
             checks["mongo"] = {"ok": False, "error": "No database client"}
     except Exception as e:
@@ -1416,4 +1774,6 @@ async def health_check():
     checks["maintenance"] = {"enabled": await s.aget_setting("maintenance.enabled")}
     all_ok = all(v.get("ok", False) for k, v in checks.items()
                  if k in ("mongo", "apify"))
-    return {"overall": "ok" if all_ok else "degraded", "checks": checks}
+    return {"overall": "ok" if all_ok else "degraded",
+            "checked_at": time.time(),
+            "checks": checks}
