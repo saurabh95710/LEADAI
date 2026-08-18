@@ -127,13 +127,41 @@ def _norm_youtube(parts) -> str:
     path = parts.path or "/"
     raw = path.rstrip("/") or "/"
     segs = [s for s in raw.split("/") if s]
+
+    # 1. Shortened video link: youtu.be/VIDEO_ID
     if host == "youtu.be":
-        # a single video is NOT a channel/page — user must paste the channel
+        if segs:
+            return f"https://www.youtube.com/watch?v={segs[0]}"
         raise UrlError("invalid", INVALID_MSG)
-    if len(segs) >= 2 and segs[0] in ("@", "channel", "user", "c", "handle"):
-        return _canonical("youtube", "/".join(segs[:2]))
-    if len(segs) == 1 and segs[0].startswith("@") and len(segs[0]) > 1:
+
+    if not segs:
+        raise UrlError("invalid", INVALID_MSG)
+
+    # 2. Watch video link: youtube.com/watch?v=VIDEO_ID
+    if segs[0].lower() == "watch":
+        params = dict(parse_qsl(parts.query))
+        vid = params.get("v")
+        if vid:
+            return f"https://www.youtube.com/watch?v={vid}"
+        raise UrlError("invalid", INVALID_MSG)
+
+    # 3. Shorts link: youtube.com/shorts/VIDEO_ID
+    if segs[0].lower() == "shorts" and len(segs) >= 2:
+        return f"https://www.youtube.com/watch?v={segs[1]}"
+
+    # 4. Handle: youtube.com/@handle or youtube.com/@handle/videos etc.
+    if segs[0].startswith("@"):
         return _canonical("youtube", segs[0])
+
+    # 5. Channel/User/Custom URLs: youtube.com/channel/UC..., youtube.com/c/Name, youtube.com/user/Name
+    if segs[0].lower() in ("channel", "user", "c", "handle"):
+        if len(segs) >= 2:
+            return _canonical("youtube", "/".join(segs[:2]))
+
+    # 6. Direct channel slug: youtube.com/ChannelName (legacy custom URL)
+    if len(segs) >= 1 and segs[0].lower() not in ("feed", "gaming", "music", "trending", "live", "premium", "browse"):
+        return _canonical("youtube", segs[0])
+
     raise UrlError("invalid", INVALID_MSG)
 
 

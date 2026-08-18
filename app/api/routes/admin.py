@@ -1,4 +1,4 @@
-﻿"""
+"""
 Admin Control Center API.
 
 Every endpoint under /api/admin is role-protected (viewer / manager /
@@ -83,6 +83,10 @@ def _pagination(offset: int, limit: int):
 def _serialize_oid(value: Any) -> Any:
     if isinstance(value, ObjectId):
         return str(value)
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
     if isinstance(value, dict):
         return {k: _serialize_oid(v) for k, v in value.items()}
     if isinstance(value, list):
@@ -442,6 +446,42 @@ async def dashboard(days: int = Query(30, ge=1, le=365),
         by_platform.append(stats)
 
     apify_token_hint = s.get_apify_token_hint()
+
+    # Keyword Filter (Comment Scraping & Keyword Intelligence) card:
+    # active rule + pipeline totals. Cost figures are never fabricated —
+    # only comment counts are reported.
+    comment_filter_block: Dict[str, Any] = {
+        "active_rule": None,
+        "active_rule_id": None,
+        "totals": {"comments": 0, "filtered": 0, "matched": 0,
+                   "not_matched": 0, "no_filter": 0, "coverage_pct": None},
+    }
+    try:
+        from app.pipeline import comment_filter as cfilter
+        active = await db[cfilter.RULES_COLLECTION].find_one({"active": True})
+        if active:
+            comment_filter_block["active_rule"] = _serialize_oid(active)
+            comment_filter_block["active_rule_id"] = str(active["_id"])
+        total = await _count(db, "facebook_comments")
+        matched = await _count(
+            db, "facebook_comments",
+            {"keyword_filter_status": cfilter.STATUS_MATCHED})
+        not_matched = await _count(
+            db, "facebook_comments",
+            {"keyword_filter_status": cfilter.STATUS_NOT_MATCHED})
+        no_filter = await _count(
+            db, "facebook_comments",
+            {"keyword_filter_status": cfilter.STATUS_NO_FILTER})
+        filtered = matched + not_matched + no_filter
+        comment_filter_block["totals"] = {
+            "comments": total, "filtered": filtered,
+            "matched": matched, "not_matched": not_matched,
+            "no_filter": no_filter,
+            "coverage_pct": round(filtered / total * 100, 1) if total else None,
+        }
+    except Exception as e:
+        logger.warning("dashboard comment_filter block failed: %s", e)
+
     return {
         "range": {
             "from": start.isoformat(), "to": end.isoformat(), "days": span,
@@ -468,6 +508,7 @@ async def dashboard(days: int = Query(30, ge=1, le=365),
         },
         "platforms": by_platform,
         "recent_jobs": recent,
+        "comment_filter": comment_filter_block,
         "status": {
             "database": True,
             "apify_token": bool(apify_token_hint),
@@ -552,11 +593,11 @@ async def list_jobs(
 ):
     db = await _db()
     query: Dict[str, Any] = {}
-    if status:
+    if status and isinstance(status, str):
         query["status"] = status
-    if platform:
+    if platform and isinstance(platform, str):
         query["platform"] = platform
-    if q:
+    if q and isinstance(q, str):
         query["$or"] = [{"query": {"$regex": re.escape(q), "$options": "i"}},
                         {"run_id": {"$regex": re.escape(q), "$options": "i"}}]
     query.update(_date_filter(from_date, to_date))
@@ -789,20 +830,35 @@ async def list_leads(
     query: Dict[str, Any] = {}
     if only_leads:
         query["is_lead"] = True
-    if platform:
+    if platform and isinstance(platform, str):
         query["platform"] = platform
-    if quality:
-        query["lead_quality"] = quality
-    if status:
+    if quality and isinstance(quality, str):
+        quality_map = {
+            "high": ["high", "hot"],
+            "hot": ["high", "hot"],
+            "medium": ["medium", "warm"],
+            "warm": ["medium", "warm"],
+            "low": ["low", "cold"],
+            "cold": ["low", "cold"],
+        }
+        targets = quality_map.get(str(quality).lower(), [quality])
+        cond = {"$or": [{"lead_quality": {"$in": targets}}, {"priority": {"$in": targets}}]}
+        if "$and" not in query:
+            query["$and"] = []
+        query["$and"].append(cond)
+    if status and isinstance(status, str):
         query["lead_status"] = status
-    if q:
-        query["$or"] = [
+    if q and isinstance(q, str):
+        q_cond = {"$or": [
             {"comment_text": {"$regex": re.escape(q), "$options": "i"}},
             {"commenter_name": {"$regex": re.escape(q), "$options": "i"}},
             {"phone": {"$regex": re.escape(q)}},
             {"email": {"$regex": re.escape(q), "$options": "i"}},
             {"page_name": {"$regex": re.escape(q), "$options": "i"}},
-        ]
+        ]}
+        if "$and" not in query:
+            query["$and"] = []
+        query["$and"].append(q_cond)
     query.update(_date_filter(from_date, to_date))
     offset, limit = _pagination(offset, limit)
     rows = [doc async for doc in
@@ -1513,26 +1569,43 @@ async def list_comments(
 ):
     db = await _db()
     query: Dict[str, Any] = {}
-    if platform:
+    if platform and isinstance(platform, str):
         query["platform"] = platform
-    if intent:
+    if intent and isinstance(intent, str):
         query["intent"] = intent
-    if quality:
-        query["lead_quality"] = quality
-    if is_lead is not None:
+    if quality and isinstance(quality, str):
+        quality_map = {
+            "high": ["high", "hot"],
+            "hot": ["high", "hot"],
+            "medium": ["medium", "warm"],
+            "warm": ["medium", "warm"],
+            "low": ["low", "cold"],
+            "cold": ["low", "cold"],
+        }
+        targets = quality_map.get(str(quality).lower(), [quality])
+        cond = {"$or": [{"lead_quality": {"$in": targets}}, {"priority": {"$in": targets}}]}
+        if "$and" not in query:
+            query["$and"] = []
+        query["$and"].append(cond)
+    if is_lead is not None and isinstance(is_lead, bool):
         query["is_lead"] = is_lead
-    if contact:
-        query.update(_contact_query())
-    if min_confidence is not None:
+    if contact is True:
+        if "$and" not in query:
+            query["$and"] = []
+        query["$and"].append(_contact_query())
+    if min_confidence is not None and isinstance(min_confidence, (int, float)):
         query["confidence"] = {"$gte": min_confidence}
-    if q:
-        query["$or"] = [
+    if q and isinstance(q, str):
+        q_cond = {"$or": [
             {"comment_text": {"$regex": re.escape(q), "$options": "i"}},
             {"commenter_name": {"$regex": re.escape(q), "$options": "i"}},
             {"page_name": {"$regex": re.escape(q), "$options": "i"}},
             {"phone": {"$regex": re.escape(q)}},
             {"email": {"$regex": re.escape(q), "$options": "i"}},
-        ]
+        ]}
+        if "$and" not in query:
+            query["$and"] = []
+        query["$and"].append(q_cond)
     query.update(_date_filter(from_date, to_date))
     offset, limit = _pagination(offset, limit)
     rows = [doc async for doc in

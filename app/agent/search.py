@@ -508,34 +508,43 @@ def map_comment_item(item: Dict[str, Any], post_doc: Dict[str, Any]) -> Optional
     """Raw comments-scraper item → facebook_comments doc."""
     if not isinstance(item, dict) or item.get("error"):
         return None
-    comment_id = str(item.get("id") or item.get("commentId") or "").strip() or None
+    comment_id = str(item.get("id") or item.get("commentId") or item.get("cid") or item.get("pk") or "").strip() or None
     post_url = str(item.get("postUrl") or post_doc.get("post_url") or "").strip()
     comment_url = str(item.get("url") or item.get("commentUrl") or "").strip()
-    if not comment_url and comment_id:
+    if not comment_url and comment_id and post_url:
         comment_url = post_url.split("?")[0] + f"?comment_id={comment_id}"
     if not comment_url:
-        return None
-    # the facebook-comments-scraper actor names these differently per run
+        comment_url = post_url or "https://facebook.com"
+
     author = item.get("author")
     if isinstance(author, str):
-        author = {}
+        author = {"name": author}
     if not isinstance(author, dict):
         author = {}
+
+    text = str(_first(item.get("text"), item.get("comment"),
+                      item.get("body"), item.get("commentText"),
+                      item.get("message"), item.get("content")) or "").strip() or None
+    if not text and not comment_id:
+        return None
+
+    author_name = str(_first(item.get("profileName"),
+                             item.get("authorName"), author.get("name"),
+                             item.get("userName"), item.get("author")) or "User").strip() or None
+
     return {
         "comment_id": comment_id,
         "comment_url": comment_url,
-        "platform": post_doc.get("platform") or "unknown",
-        "author_name": str(_first(item.get("profileName"),
-                                  item.get("authorName"), author.get("name")) or "").strip() or None,
+        "platform": post_doc.get("platform") or "facebook",
+        "author_name": author_name,
         "author_profile_url": str(_first(item.get("profileUrl"),
                                          item.get("authorUrl"),
                                          item.get("authorProfileUrl"),
                                          author.get("url"),
                                          author.get("profileUrl")) or "").strip() or None,
-        "text": str(_first(item.get("text"), item.get("comment"),
-                           item.get("body")) or "").strip() or None,
-        "published_date": str(_first(item.get("date"), item.get("publishedAt")) or "").strip() or None,
-        "reactions_count": _as_int(item.get("likesCount")) or _as_int(item.get("reactionsCount")),
+        "text": text,
+        "published_date": str(_first(item.get("date"), item.get("publishedAt"), item.get("timestamp")) or "").strip() or None,
+        "reactions_count": _as_int(item.get("likesCount")) or _as_int(item.get("reactionsCount")) or _as_int(item.get("likes")),
         "post_id": post_doc.get("post_id") or str(post_doc.get("_id") or ""),
         "post_url": post_url,
         "page_id": post_doc.get("page_id"),
@@ -700,20 +709,12 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
     total = post.get("total_comment_count")
     if total is None:
         total = post.get("comments_count")
-    if total is not None and total < min_comments:
-        message = (f"Not scraped — post has {total} comments (needs ≥ {min_comments})")
-        db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
-            "comments_status": "skipped", "comments_error": message,
-            "updated_at": utcnow()}})
-        return {"status": "skipped", "message": message}
 
     db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
         "comments_status": "running", "comments_error": None,
         "comments_started_at": utcnow(), "updated_at": utcnow()}})
 
     connector = ApifyConnector()
-    # route by platform: Facebook keeps the existing actor+mapping, all other
-    # platforms (Instagram/YouTube/LinkedIn) use their own scraper
     scraper = get_scraper(platform) if platform != "facebook" else None
     try:
         if scraper is None:
@@ -748,25 +749,30 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
     from app.pipeline.comment_ai import has_contact_info
     for item in items:
         doc = scraper.normalize_comment(item, post) if scraper else map_comment_item(item, post)
-        if not doc:
+        if not doc or not (doc.get("text") or doc.get("comment_id")):
             continue
         # every scraped comment is kept; comments carrying a phone number or
-        # email are flagged (has_contact) so they surface at the top of the
-        # comments view and can be AI-analyzed as leads
+        # email are flagged (has_contact) so they surface at the top
         doc["has_contact"] = bool(has_contact_info(doc.get("text")))
         if doc["has_contact"]:
             contact_stored += 1
-        # per-run dedup: a comment on a post collected again in a later run
-        # belongs to THAT run's post doc
-        existing = db.facebook_comments.find_one({"comment_url": doc["comment_url"], "post_ref": post_id})
+
+        # Multi-key deduplication so comments never overwrite each other
+        existing = None
+        if doc.get("comment_id"):
+            existing = db.facebook_comments.find_one({"post_ref": post_id, "comment_id": doc["comment_id"]})
+        if not existing and doc.get("comment_url") and doc.get("comment_url") != post.get("post_url"):
+            existing = db.facebook_comments.find_one({"post_ref": post_id, "comment_url": doc["comment_url"]})
+        if not existing and doc.get("text"):
+            existing = db.facebook_comments.find_one({"post_ref": post_id, "text": doc["text"], "author_name": doc.get("author_name")})
+
         if existing:
             db.facebook_comments.update_one({"_id": existing["_id"]}, {"$set": {
                 **{k: v for k, v in doc.items() if v is not None}, "updated_at": utcnow()}})
         else:
             db.facebook_comments.insert_one({**doc, "created_at": utcnow()})
         stored += 1
-        # keep the post's live scraped-comment count current while collecting
-        # (total_comment_count stays as Facebook reported it — never overwritten)
+
         db.facebook_posts.update_one({"_id": post["_id"]}, {
             "$set": {"scraped_comment_count": stored, "updated_at": utcnow()}})
 
@@ -789,7 +795,48 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
     if stored:
         try:
             from app.pipeline.comment_ai import analyze_comments_for_post
-            analyze_comments_for_post(str(post["_id"]))
+            from app.pipeline import comment_filter as cfilter
+
+            # Keyword Filter layer: effective rule = run config → active rule.
+            # Comments not matching are kept stored but skipped by the AI
+            # stage (no Gemini call, no ai_comments doc).
+            run_doc = db.search_history.find_one({"run_id": run_id}) \
+                if run_id else None
+            rule = cfilter.resolve_effective_rule(db, run_doc)
+            filter_summary = None
+            comment_refs = None
+            if rule:
+                filter_summary = cfilter.filter_comments_for_post(
+                    db, str(post["_id"]), rule,
+                    search_run_id=run_id,
+                    platform=post.get("platform"))
+                if cfilter.rule_is_empty(rule):
+                    comment_refs = None
+                else:
+                    comment_refs = filter_summary.get("matched_refs") or []
+                db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
+                    "keyword_filter": {
+                        "rule_id": filter_summary.get("rule_id"),
+                        "total": filter_summary.get("total", 0),
+                        "matched": filter_summary.get("matched", 0),
+                        "not_matched": filter_summary.get("not_matched", 0),
+                        "no_filter": filter_summary.get("no_filter", 0),
+                    }, "updated_at": utcnow()}})
+            analysis = analyze_comments_for_post(
+                str(post["_id"]), comment_refs=comment_refs,
+                filter_summary=filter_summary)
+            if run_id:
+                db.search_history.update_one({"run_id": run_id}, {"$set": {
+                    "comment_filter_summary": {
+                        "rule_id": (filter_summary or {}).get("rule_id"),
+                        "total": (filter_summary or {}).get("total", stored),
+                        "matched": (filter_summary or {}).get("matched",
+                                                              stored),
+                        "not_matched": (filter_summary or {}).get(
+                            "not_matched", 0),
+                        "no_filter": (filter_summary or {}).get(
+                            "no_filter", 0),
+                    }, "updated_at": utcnow()}})
         except Exception as e:
             analysis_error = str(e)
             logger.warning(f"[Agent] AI comment analysis failed: {e}")

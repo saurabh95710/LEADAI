@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from app.admin.envvars import get_envvar_str
 from app.config import get_settings
 from app.db.models import utcnow
 
@@ -267,30 +268,24 @@ def _rule_extraction(analysis: Dict[str, Any], text: str, lower: str) -> Dict[st
 # STAGE 2 — Gemini extraction
 # ─────────────────────────────────────────────────────────────────────────────
 
-COMMENT_SYSTEM_PROMPT = """You are a lead-intelligence analyst for Facebook business pages. \
-You are given ONE public comment and the caption of the post it appeared on. Decide whether \
-the comment contains meaningful lead information and extract it.
+COMMENT_SYSTEM_PROMPT = """You are a universal lead-intelligence and customer-intent analyst for social media business accounts across any industry (e-commerce, services, agency, SaaS, real estate, consulting, healthcare, education, retail, automotive, local business, B2B, etc.). \
+You are given ONE public comment and the caption of the post it appeared on. Analyze the commenter's intent, extract contact information and requirements, and score its value.
 
-A comment is MEANINGFUL when the person expresses actual interest or intent or gives \
-contactable information — e.g. asking for price/availability, wanting to buy, sell, rent, \
-book, visit, invest, offering a service, sharing a phone/WhatsApp/email, or a specific \
-requirement (budget, location, size, timeline).
+A comment is MEANINGFUL when the person:
+- Expresses interest, asks a question, or makes an inquiry (e.g. price, cost, rates, package, demo, features, availability, address, delivery, consultation)
+- Wants to buy, order, book, subscribe, enroll, hire, partner, invest, or request a service
+- Shares contact information (phone number, WhatsApp, email, social profile, website)
+- Mentions specific business requirements, budget, location, urgency, or timeline
 
-IGNORE (mark is_useful false) comments that are:
-- gracious filler: nice, awesome, beautiful, good, wow, thank you, amazing, great, \
-excellent, congratulations, love it, like it, and similar
-- emoji-only comments (hearts, thumbs up, fire, etc.)
-- spam (links, contests, "follow me", "dm me", lottery, etc.)
-- meaningless chatter / random words / single letters
+For simple comments without intent (e.g. pure emojis or spam), categorize accordingly with is_useful=false.
 
-NEVER invent or guess any value. Unknown values must be null. Numbers must be JSON numbers \
-(scores between 0 and 1).
+NEVER invent or guess contact information. Extract only what is present in the comment.
 
 Respond with STRICT JSON only — no markdown, no commentary:
 {
   "is_useful": true,
-  "reason": "one short sentence why",
-  "lead_type": "buyer" | "seller" | "broker" | "other" | "none",
+  "reason": "one concise sentence explaining the comment's intent and value",
+  "lead_type": "prospect" | "buyer" | "customer" | "inquiry" | "partner" | "seller" | "other" | "none",
   "confidence_score": 0.0 to 1.0,
   "priority": "high" | "medium" | "low",
   "lead_quality": "hot" | "warm" | "cold" | "none",
@@ -305,11 +300,11 @@ Respond with STRICT JSON only — no markdown, no commentary:
   "buyer": {"budget": string|null, "requirement": string|null, "product": string|null,
     "service_needed": string|null, "property_type": string|null, "vehicle_type": string|null,
     "business_type": string|null, "preferred_location": string|null, "timeline": string|null,
-    "urgency": string|null, "intent": "buying" | "selling" | "rent" | "investment" | "other"}
+    "urgency": string|null, "intent": "buying" | "pricing" | "inquiry" | "booking" | "service_request" | "product_inquiry" | "demo_request" | "selling" | "rent" | "investment" | "feedback" | "other"}
 }"""
 
-_INTENT_VALUES = {"buying", "selling", "rent", "investment", "other"}
-_LEAD_TYPE_VALUES = {"buyer", "seller", "broker", "other", "none"}
+_INTENT_VALUES = {"buying", "pricing", "inquiry", "booking", "service_request", "product_inquiry", "demo_request", "selling", "rent", "investment", "feedback", "other"}
+_LEAD_TYPE_VALUES = {"prospect", "buyer", "customer", "inquiry", "partner", "seller", "broker", "other", "none"}
 _PRIORITY_VALUES = {"high", "medium", "low"}
 _QUALITY_VALUES = {"hot", "warm", "cold", "none"}
 _SENTIMENT_VALUES = {"excited", "positive", "neutral", "negative"}
@@ -670,10 +665,18 @@ def _flat_extract(analysis: Dict[str, Any], text: Optional[str] = None) -> Dict[
     }
 
 
-def analyze_comments_for_post(post_ref: str, max_comments: int = 500) -> Dict[str, Any]:
+def analyze_comments_for_post(post_ref: str, max_comments: int = 500,
+                              comment_refs: Optional[List[str]] = None,
+                              filter_summary: Optional[Dict[str, Any]] = None
+                              ) -> Dict[str, Any]:
     """
     Analyze stored comments of one post and upsert results into `ai_comments`.
     Returns a summary; never raises.
+
+    ``comment_refs`` — when given (the Keyword/Filter layer matched only a
+    subset), ONLY those comments are analyzed; the rest keep their stored
+    filter status and are skipped entirely (no AI call, no ai_comments doc).
+    The summary then reports how many were filtered out.
     """
     from app.db.mongo import get_sync_db
 
@@ -703,12 +706,24 @@ def analyze_comments_for_post(post_ref: str, max_comments: int = 500) -> Dict[st
         .limit(max_comments)
     )
 
+    if comment_refs:
+        ref_set = set(comment_refs)
+        all_count = len(comments)
+        comments = [c for c in comments if str(c["_id"]) in ref_set]
+        filtered_out = all_count - len(comments)
+    else:
+        filtered_out = 0
+
     summary = {
         "status": "completed",
         "post_id": post_doc.get("post_id") or str(post_doc["_id"]),
         "post_ref": post_ref,
         "analyzed": 0, "useful": 0, "meaningless": 0, "displayed": 0,
         "analyzed_by_rules": 0, "analyzed_by_gemini": 0, "errors": 0,
+        "filtered_out": filtered_out,
+        "keyword_filter": filter_summary or
+        ({"enabled": True, "status": "completed", "matched": len(comments),
+          "not_matched": filtered_out} if comment_refs else None),
         "by_priority": {}, "by_intent": {},
     }
 

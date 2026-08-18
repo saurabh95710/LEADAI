@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Maintenance — LeadAI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500;1,9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
+  <style>
+    :root {
+      --bg: #f5f4fb;
+      --bg-grad: radial-gradient(120% 140% at 10% -10%, #fdeee0 0%, #f5f4fb 38%),
+                 radial-gradient(100% 120% at 100% 0%, #eaf1ff 0%, transparent 45%);
+      --surface: #ffffff;
+      --border: #e7e4f1;
+      --border-soft: #efedf7;
+      --text: #1c1a2b;
+      --text-dim: #66607f;
+      --amber: #f0a531;
+      --amber-deep: #d0821a;
+      --amber-soft: #fdf1de;
+      --shadow-md: 0 10px 30px rgba(60, 40, 120, 0.08);
+      --font-display: "Fraunces", Georgia, serif;
+      --font-ui: "Inter", system-ui, -apple-system, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-ui);
+      background: var(--bg-grad) fixed;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .m-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 42px 36px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+      box-shadow: var(--shadow-md);
+    }
+    .m-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      font-size: 24px;
+      color: #ffffff;
+      background: linear-gradient(135deg, var(--amber), var(--amber-deep));
+      box-shadow: 0 6px 18px rgba(240, 165, 49, 0.35);
+      margin: 0 auto 20px;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-size: 26px;
+      font-weight: 500;
+      font-style: italic;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+    p {
+      color: var(--text-dim);
+      font-size: 14px;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+    .m-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--amber-deep);
+      background: var(--amber-soft);
+      border: 1px solid rgba(240, 165, 49, 0.35);
+      padding: 5px 14px;
+      border-radius: 999px;
+    }
+  </style>
+</head>
+<body>
+  <div class="m-card">
+    <div class="m-icon" data-brand-logo="primary">✦</div>
+    <h1>System Maintenance</h1>
+    <p data-brand-maintenance-message>LeadAI is currently undergoing scheduled system updates. We'll be back online shortly.</p>
+    <div class="m-badge">● Maintenance in progress</div>
+  </div>
+  <script src="/static/config.js"></script>
+  <script>
+    if (window.AppConfig) AppConfig.load();
+  </script>
+</body>
+</html>

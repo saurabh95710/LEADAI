@@ -278,20 +278,24 @@ class InstagramScraper(SocialMediaScraper):
 
 class YouTubeScraper(SocialMediaScraper):
     platform = "youtube"
-    comments_supported = False  # video comments are not collected in URL mode
+    comments_supported = True
 
     @property
     def _actor_id(self) -> str:
         from app.admin.settings import get_actor_id
         return get_actor_id("youtube", "main")
 
+    @property
+    def _comments_actor_id(self) -> str:
+        from app.admin.settings import get_actor_id
+        return get_actor_id("youtube", "comments")
+
     def fetch_page_details(self, url: str,
                            should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
-        logger.info("[URL SEARCH] YouTube: scraping channel details")
+        logger.info("[URL SEARCH] YouTube: scraping channel/video details for %s", url)
         return self.connector.scrape_actor(
             self._actor_id,
-            {"startUrls": [{"url": url}], "maxResults": 1,
-             "extractFaqs": False, "extractChannelInfo": True},
+            {"startUrls": [{"url": url}], "maxResults": 1},
             "youtube-channel",
             keyword=url,
             should_abort=should_abort,
@@ -299,11 +303,11 @@ class YouTubeScraper(SocialMediaScraper):
 
     def fetch_posts(self, url: str, max_posts: int,
                     should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
-        logger.info("[URL SEARCH] YouTube: scraping videos (max %s)", max_posts)
+        logger.info("[URL SEARCH] YouTube: scraping videos (max %s) for %s", max_posts, url)
         return self.connector.scrape_actor(
             self._actor_id,
             {"startUrls": [{"url": url}], "maxResults": max_posts,
-             "onlyChannelVideos": True, "extractChannelInfo": False},
+             "downloadComments": False},
             "youtube-videos",
             keyword=url,
             should_abort=should_abort,
@@ -311,36 +315,64 @@ class YouTubeScraper(SocialMediaScraper):
 
     def fetch_comments(self, post_url: str, max_comments: int,
                        should_abort: Optional[callable] = None) -> List[Dict[str, Any]]:
-        return []
+        logger.info("[URL SEARCH] YouTube: scraping comments for %s (max %s)", post_url, max_comments)
+        items = self.connector.scrape_actor(
+            self._comments_actor_id,
+            {"startUrls": [{"url": post_url}], "maxComments": max(max_comments, 20)},
+            "youtube-comments",
+            keyword=post_url,
+            should_abort=should_abort,
+        )
+        comments: List[Dict[str, Any]] = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            raw_c = it.get("comments") or it.get("videoComments") or it.get("commentsList")
+            if isinstance(raw_c, list) and raw_c:
+                for c in raw_c:
+                    if isinstance(c, dict):
+                        comments.append({**c, "_parent_url": it.get("url") or post_url})
+            elif it.get("text") or it.get("commentText") or it.get("comment") or it.get("comment_text") or it.get("content"):
+                comments.append(it)
+        return comments or items
 
     def normalize_page(self, item: Dict[str, Any], run_id: str, url: str) -> Optional[Dict[str, Any]]:
         if not isinstance(item, dict):
             return None
         channel = item.get("channel") if isinstance(item.get("channel"), dict) else item
-        name = _pick(item, "channelTitle", "title") or _pick(channel, "title", "name")
+        name = (_pick(channel, "channelTitle", "channelName", "title", "name", "author")
+                or _pick(item, "channelTitle", "channelName", "author", "title"))
+        if not name:
+            name = _pick(item, "name", "channel")
         if not name:
             return None
+        page_id = str(_pick(item, "channelId", "channel_id") or _pick(channel, "id", "channelId") or "").strip() or None
+        subs = _pick(channel, "subscriberCount", "subscribers", "numberOfSubscribers", "subscribersCount", "channelSubscribers") or _pick(item, "subscriberCount", "subscribers", "numberOfSubscribers", "channelSubscribers")
+        avatar = _pick(channel, "avatar", "avatarUrl", "channelAvatar", "thumbnailUrl") or _pick(item, "avatar", "avatarUrl", "thumbnailUrl", "channelAvatar")
+        banner = _pick(channel, "bannerUrl", "banner", "channelBanner") or _pick(item, "bannerUrl", "banner")
+        about = _pick(item, "description", "about") or _pick(channel, "description", "about")
+        country = _pick(channel, "country") or _pick(item, "country")
         return {
-            "page_id": str(_pick(item, "channelId") or _pick(channel, "id") or "").strip() or None,
+            "page_id": page_id,
             "page_name": str(name).strip(),
             "facebook_url": url,
             "platform": "youtube",
             "category": None,
-            "about": _pick(item, "description") or _pick(channel, "description"),
-            "followers": _as_int(_pick(channel, "subscriberCount", "subscribers")),
+            "about": about,
+            "followers": _as_int(subs),
             "likes": None,
-            "verified": None,
+            "verified": bool(_pick(channel, "verified", "isVerified") or _pick(item, "verified", "isVerified")),
             "phone": None,
             "email": None,
             "whatsapp": None,
-            "website": None,
-            "address": _pick(channel, "country"),
+            "website": _pick(channel, "website", "url", "channelUrl") or _pick(item, "website", "channelUrl"),
+            "address": country,
             "city": None,
             "state": None,
-            "country": _pick(channel, "country"),
-            "profile_picture": str(_pick(channel, "avatar", "avatarUrl", "thumbnailUrl") or "").strip() or None,
-            "cover_image": str(_pick(channel, "bannerUrl", "banner") or "").strip() or None,
-            "source_type": "channel_url",
+            "country": country,
+            "profile_picture": str(avatar).strip() if avatar else None,
+            "cover_image": str(banner).strip() if banner else None,
+            "source_type": "channel_url" if "@" in url or "channel" in url else "video_url",
             "source_page_url": url,
             "search_run_id": run_id,
             "search_keyword": url,
@@ -352,14 +384,15 @@ class YouTubeScraper(SocialMediaScraper):
     def normalize_post(self, item: Dict[str, Any], page_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if not isinstance(item, dict):
             return None
-        post_url = str(_pick(item, "url", "link") or "").strip()
+        post_url = str(_pick(item, "url", "link", "videoUrl") or "").strip()
         if not post_url:
             vid = _pick(item, "id", "videoId")
             if vid:
                 post_url = f"https://www.youtube.com/watch?v={vid}"
         if not post_url:
             return None
-        caption = str(_pick(item, "title") or "").strip() or None
+        caption = str(_pick(item, "title", "caption", "name") or "").strip() or None
+        thumb = _pick(item, "thumbnailUrl", "thumbnail", "thumbnails")
         return {
             "post_id": str(_pick(item, "id", "videoId") or "").strip() or None,
             "post_url": post_url,
@@ -367,25 +400,54 @@ class YouTubeScraper(SocialMediaScraper):
             "page_name": page_doc.get("page_name"),
             "platform": "youtube",
             "caption": caption,
-            "images": [str(_pick(item, "thumbnailUrl", "thumbnails"))] if _pick(item, "thumbnailUrl", "thumbnails") else [],
+            "images": [str(thumb)] if thumb else [],
             "videos": [post_url],
             "external_links": [],
-            "published_date": str(_pick(item, "publishedAt", "date", "publishDate") or "").strip() or None,
+            "published_date": str(_pick(item, "publishedAt", "date", "publishDate", "uploadDate") or "").strip() or None,
             "likes_count": _as_int(_pick(item, "likeCount", "likes")),
-            "total_comment_count": _as_int(_pick(item, "commentCount", "videoCommentsCount")),
+            "total_comment_count": _as_int(_pick(item, "commentCount", "videoCommentsCount", "commentsCount")),
             "scraped_comment_count": None,
-            "comments_count": _as_int(_pick(item, "commentCount", "videoCommentsCount")),
+            "comments_count": _as_int(_pick(item, "commentCount", "videoCommentsCount", "commentsCount")),
             "shares_count": None,
             "is_relevant": True,
             "is_qualifying": False,
             "page_ref": str(page_doc["_id"]),
             "search_run_id": page_doc.get("search_run_id"),
             "provider": "apify",
-            "description": str(_pick(item, "description") or "").strip() or None,
+            "description": str(_pick(item, "description", "text") or "").strip() or None,
         }
 
     def normalize_comment(self, item: Dict[str, Any], post_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        return None
+        if not isinstance(item, dict):
+            return None
+        comment_id = str(_pick(item, "id", "commentId", "cid", "comment_id") or "").strip() or None
+        text = str(_pick(item, "text", "commentText", "content", "comment", "comment_text", "textDisplay", "snippet") or "").strip() or None
+        if not text and not comment_id:
+            return None
+        post_url = post_doc.get("post_url") or item.get("_parent_url") or ""
+        comment_url = str(_pick(item, "url", "commentUrl") or "").strip()
+        if not comment_url and post_url:
+            comment_url = f"{post_url}&lc={comment_id}" if comment_id else post_url
+        if not comment_url:
+            comment_url = post_url or "https://www.youtube.com"
+
+        author_name = str(_pick(item, "author", "authorName", "authorTitle", "commenterName", "user", "channelTitle", "authorText", "author_name", "authorChannelName", "commenter") or "YouTube User").strip()
+        author_url = _pick(item, "authorUrl", "authorProfileUrl", "authorChannelUrl", "channelUrl", "author_profile_url")
+        return {
+            "comment_id": comment_id,
+            "comment_url": comment_url,
+            "author_name": author_name,
+            "author_profile_url": author_url,
+            "text": text,
+            "published_date": str(_pick(item, "publishedAt", "date", "publishDate", "time", "publishedTimeText") or "").strip() or None,
+            "reactions_count": _as_int(_pick(item, "likeCount", "likes", "votes", "voteCount", "likesCount")),
+            "post_id": post_doc.get("post_id") or str(post_doc.get("_id") or ""),
+            "post_url": post_url,
+            "page_id": post_doc.get("page_id"),
+            "post_ref": str(post_doc["_id"]),
+            "search_run_id": post_doc.get("search_run_id"),
+            "platform": "youtube",
+        }
 
 
 class LinkedInScraper(SocialMediaScraper):

@@ -63,19 +63,39 @@ function esc(value) {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+function parseDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  let s = String(value).trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s)) {
+    s = s.replace(" ", "T") + "Z";
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function tzName() {
+  const cfg = (window.AppConfig && AppConfig.get()) || null;
+  const tz = (cfg && cfg.localization && cfg.localization.timezone) || "auto";
+  return tz === "auto" ? undefined : tz;
+}
+
 function fmtTime(value) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return esc(value);
-  return d.toLocaleString(undefined, {
-    year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit",
-  });
+  const d = parseDate(value);
+  if (!d) return value ? esc(String(value)) : "—";
+  const opts = {
+    year: "numeric", month: "short", day: "2-digit",
+    hour: "2-digit", minute: "2-digit",
+  };
+  const tz = tzName();
+  if (tz) opts.timeZone = tz;
+  return d.toLocaleString(undefined, opts);
 }
 
 function relativeTime(value) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return "—";
+  const d = parseDate(value);
+  if (!d) return "—";
   const secs = Math.max(0, (Date.now() - d.getTime()) / 1000);
   if (secs < 60) return "just now";
   if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
@@ -140,6 +160,14 @@ const ICONS = {
   refresh: '<path d="M20 12a8 8 0 11-2.3-5.7M20 4v4h-4"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   run: '<path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/>',
+  save: '<path d="M5 4h11l4 4v12a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1z"/><path d="M8 4v6h8V4M8 20v-6h8v6"/>',
+  upload: '<path d="M12 16V5M8 9l4-4 4 4"/><path d="M4 20h16"/>',
+  trash: '<path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 14h10l1-14"/><path d="M10 11v6M14 11v6"/>',
+  restore: '<path d="M4 12a8 8 0 101.5-4.9M4 4v4h4"/>',
+  download: '<path d="M12 4v11M8 11l4 4 4-4"/><path d="M4 20h16"/>',
+  history: '<path d="M4 12a8 8 0 101.5-4.9"/><path d="M4 4v4h4"/><path d="M12 8v4l3 2"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l3 3M14 9l2 2"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/>',
 };
 
 function icon(name, size = 16) {
@@ -170,7 +198,14 @@ function statusBadge(status) {
 }
 
 function platformBadge(p) {
-  return `<span class="adm-badge gray plain">${esc(p || "unknown")}</span>`;
+  const norm = String(p || "").toLowerCase();
+  let cls = "gray";
+  if (norm === "facebook") cls = "blue";
+  else if (norm === "instagram") cls = "pink";
+  else if (norm === "linkedin") cls = "blue";
+  else if (norm === "youtube") cls = "red";
+  else if (norm === "tiktok") cls = "teal";
+  return `<span class="adm-badge ${cls} plain">${esc(p || "unknown")}</span>`;
 }
 
 function qualityBadge(q) {
@@ -180,14 +215,14 @@ function qualityBadge(q) {
 }
 
 function leadStatusBadge(s) {
-  const map = { new: "amber", contacted: "gold", qualified: "green", converted: "green", ignored: "gray" };
+  const map = { new: "amber", contacted: "amber", qualified: "green", converted: "green", ignored: "gray" };
   return `<span class="adm-badge ${map[s] || "gray"}">${esc(s || "—")}</span>`;
 }
 
 function scorePill(score) {
   const n = Number(score);
   if (isNaN(n)) return `<span class="adm-badge gray plain">—</span>`;
-  return `<span class="adm-badge gold">${n}</span>`;
+  return `<span class="adm-badge amber">${n}</span>`;
 }
 
 function engineBadge(engine) {
@@ -285,6 +320,7 @@ const CRUMBS = {
   actors: "Platforms & Data Sources", usage: "Platforms & Data Sources",
   environment: "Platforms & Data Sources", ai: "AI & Lead Engine",
   scoring: "AI & Lead Engine", ci: "AI & Lead Engine",
+  "keyword-rules": "AI & Lead Engine",
   limits: "Operations", database: "Operations", logs: "Operations",
   health: "Operations", exports: "Operations",
   users: "Administration", security: "Administration", features: "Administration",
@@ -392,12 +428,12 @@ function sparkSvg(points, w = 110, h = 30) {
   const step = w / (vals.length - 1 || 1);
   const pts = vals.map((v, i) => `${(i * step).toFixed(1)},${(h - 3 - ((v - min) / span) * (h - 8)).toFixed(1)}`);
   return `<svg class="adm-kpi-spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
-    <polyline points="${pts.join(" ")}" fill="none" stroke="#e3b25c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+    <polyline points="${pts.join(" ")}" fill="none" stroke="#f0a531" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>
   </svg>`;
 }
 
 function areaSvg(labels, values, opts = {}) {
-  const { w = 860, h = 210, color = "#e3b25c", id = "goldArea" } = opts;
+  const { w = 860, h = 210, color = "#f0a531", id = "goldArea" } = opts;
   const vals = values.map(Number);
   const n = vals.length;
   const padL = 10, padR = 10, padT = 12, padB = 24;
@@ -411,23 +447,23 @@ function areaSvg(labels, values, opts = {}) {
   return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="trend chart">
     <defs>
       <linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="${color}" stop-opacity="0.28"/>
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.22"/>
         <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
       </linearGradient>
     </defs>
-    <g stroke="rgba(111,106,120,0.25)" stroke-width="1">
+    <g stroke="rgba(102,96,127,0.12)" stroke-width="1">
       ${[0.25, 0.5, 0.75].map((f) => `<line x1="${padL}" y1="${(padT + ih * f).toFixed(1)}" x2="${w - padR}" y2="${(padT + ih * f).toFixed(1)}"/>`).join("")}
     </g>
     <path d="${area}" fill="url(#${id})"/>
     <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
     ${ticks.map((i) => `
-      <text x="${x(i).toFixed(1)}" y="${h - 7}" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}" fill="#5f5b68" font-size="10" font-family="JetBrains Mono, monospace">${esc(labels[i] || "")}</text>`).join("")}
+      <text x="${x(i).toFixed(1)}" y="${h - 7}" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}" fill="#66607f" font-size="10" font-family="JetBrains Mono, monospace">${esc(labels[i] || "")}</text>`).join("")}
   </svg>`;
 }
 
 function dualAreaSvg(labels, primary, secondary, opts = {}) {
-  // primary → gold, secondary → muted gray
-  const { w = 860, h = 210, pColor = "#e3b25c", sColor = "#6f6a78", id = "dualGoldArea" } = opts;
+  // primary → amber, secondary → muted slate
+  const { w = 860, h = 210, pColor = "#f0a531", sColor = "#9c96b3", id = "dualGoldArea" } = opts;
   const n = primary.length;
   const padL = 10, padR = 10, padT = 12, padB = 24;
   const iw = w - padL - padR, ih = h - padT - padB;
@@ -439,22 +475,22 @@ function dualAreaSvg(labels, primary, secondary, opts = {}) {
   return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="dual trend chart">
     <defs>
       <linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="${pColor}" stop-opacity="0.28"/>
+        <stop offset="0%" stop-color="${pColor}" stop-opacity="0.22"/>
         <stop offset="100%" stop-color="${pColor}" stop-opacity="0.02"/>
       </linearGradient>
     </defs>
-    <g stroke="rgba(111,106,120,0.25)" stroke-width="1">
+    <g stroke="rgba(102,96,127,0.12)" stroke-width="1">
       ${[0.25, 0.5, 0.75].map((f) => `<line x1="${padL}" y1="${(padT + ih * f).toFixed(1)}" x2="${w - padR}" y2="${(padT + ih * f).toFixed(1)}"/>`).join("")}
     </g>
     <path d="${path(secondary)}" fill="none" stroke="${sColor}" stroke-width="1.6" stroke-dasharray="4 4" stroke-linecap="round"/>
     <path d="${path(primary)}" fill="none" stroke="${pColor}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
     ${ticks.map((i) => `
-      <text x="${x(i).toFixed(1)}" y="${h - 7}" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}" fill="#5f5b68" font-size="10" font-family="JetBrains Mono, monospace">${esc(labels[i] || "")}</text>`).join("")}
+      <text x="${x(i).toFixed(1)}" y="${h - 7}" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}" fill="#66607f" font-size="10" font-family="JetBrains Mono, monospace">${esc(labels[i] || "")}</text>`).join("")}
   </svg>`;
 }
 
 function vbarsSvg(labels, values, opts = {}) {
-  // Vertical gold bars with per-bar optional second (red) overlay.
+  // Vertical amber bars with per-bar optional second (red) overlay.
   const { w = 860, h = 200, id = "vbarGrad", overlay = null } = opts;
   const vals = values.map(Number);
   const n = vals.length;
@@ -468,11 +504,11 @@ function vbarsSvg(labels, values, opts = {}) {
   return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="bar chart">
     <defs>
       <linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#f2cd86"/>
-        <stop offset="100%" stop-color="#b8853a"/>
+        <stop offset="0%" stop-color="#f5b342"/>
+        <stop offset="100%" stop-color="#d0821a"/>
       </linearGradient>
     </defs>
-    <g stroke="rgba(111,106,120,0.25)" stroke-width="1">
+    <g stroke="rgba(102,96,127,0.12)" stroke-width="1">
       ${[0.25, 0.5, 0.75].map((f) => `<line x1="${padL}" y1="${(padT + ih * f).toFixed(1)}" x2="${w - padR}" y2="${(padT + ih * f).toFixed(1)}"/>`).join("")}
     </g>
     ${vals.map((v, i) => {
@@ -480,11 +516,11 @@ function vbarsSvg(labels, values, opts = {}) {
       const bh = (v / max) * ih;
       const bhO = ov && ov[i] ? (ov[i] / max) * ih : 0;
       return `
-        <rect x="${(cx - bw / 2).toFixed(1)}" y="${(padT + ih - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="url(#${id})"/>
-        ${ov && ov[i] ? `<rect x="${(cx - bw / 2).toFixed(1)}" y="${(padT + ih - bhO).toFixed(1)}" width="${bw.toFixed(1)}" height="${bhO.toFixed(1)}" rx="2" fill="#e8664f" opacity="0.85"/>` : ""}`;
+        <rect x="${(cx - bw / 2).toFixed(1)}" y="${(padT + ih - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="url(#${id})"/>
+        ${ov && ov[i] ? `<rect x="${(cx - bw / 2).toFixed(1)}" y="${(padT + ih - bhO).toFixed(1)}" width="${bw.toFixed(1)}" height="${bhO.toFixed(1)}" rx="3" fill="#e5484d" opacity="0.9"/>` : ""}`;
     }).join("")}
     ${ticks.map((i) => `
-      <text x="${(padL + i * step + step / 2).toFixed(1)}" y="${h - 7}" text-anchor="middle" fill="#5f5b68" font-size="10" font-family="JetBrains Mono, monospace">${esc(labels[i] || "")}</text>`).join("")}
+      <text x="${(padL + i * step + step / 2).toFixed(1)}" y="${h - 7}" text-anchor="middle" fill="#66607f" font-size="10" font-family="JetBrains Mono, monospace">${esc(labels[i] || "")}</text>`).join("")}
   </svg>`;
 }
 
@@ -565,6 +601,22 @@ function jobReportHtml(data, runId) {
           ${j.usageUsd !== undefined && j.usageUsd !== null ? `<div class="adm-kv-row"><dt>Apify cost</dt><dd>$${money(j.usageUsd)}</dd></div>` : ""}
           ${j.actorRunId ? `<div class="adm-kv-row"><dt>Apify run</dt><dd><span class="adm-code">${esc(j.actorRunId)}</span></dd></div>` : ""}
         </div>
+        ${(j.comment_filter || j.comment_filter_summary) ? `
+          <div class="adm-card-title" style="margin-top:16px">Keyword filter <span class="adm-hint">(comments filtered before AI)</span></div>
+          <div class="adm-kv">
+            ${j.comment_filter && j.comment_filter.mode ? (() => {
+              const cf = j.comment_filter;
+              const modeLabel = cf.mode === "preset"
+                ? (cf.rule_id ? "Saved rule" : `Preset · ${esc(cf.preset || "")}`)
+                : cf.mode === "custom" ? "Custom keywords" : esc(cf.mode || "");
+              return `<div class="adm-kv-row"><dt>Mode</dt><dd><span class="adm-badge violet plain">${modeLabel}</span></dd></div>`;
+            })() : ""}
+            ${j.comment_filter_summary ? `
+              <div class="adm-kv-row"><dt>Matched → AI</dt><dd><span class="adm-badge green">${fmtNum(j.comment_filter_summary.matched ?? 0)}</span> of ${fmtNum(j.comment_filter_summary.total ?? 0)}</dd></div>
+              <div class="adm-kv-row"><dt>Skipped (NOT_MATCHED)</dt><dd><span class="adm-badge red">${fmtNum(j.comment_filter_summary.not_matched ?? 0)}</span> <span class="adm-hint">kept stored, no AI call</span></dd></div>
+              ${j.comment_filter_summary.no_filter ? `<div class="adm-kv-row"><dt>No filter</dt><dd>${fmtNum(j.comment_filter_summary.no_filter)}</dd></div>` : ""}
+              ${j.comment_filter_summary.rule_id ? `<div class="adm-kv-row"><dt>Rule</dt><dd><a href="#/keyword-rules">${esc(j.comment_filter_summary.rule_id)}</a></dd></div>` : ""}` : ""}
+          </div>` : ""}
       </div>
     </div>
     <div class="adm-btn-row">
@@ -575,7 +627,78 @@ function jobReportHtml(data, runId) {
 }
 
 /* ──────────────────────────────── Auth / shell ────────────────────── */
+
+// Swap the sidebar mark between primary and compact logo (Global Settings)
+function swapBrandLogo(collapsed) {
+  const cfg = (window.AppConfig && AppConfig.get()) || null;
+  const mark = $("#brandMark");
+  if (!cfg || !mark || !mark.classList.contains("has-img")) return;
+  const img = mark.querySelector("img");
+  if (!img) return;
+  const src = collapsed && cfg.branding.logo_compact
+    ? cfg.branding.logo_compact
+    : cfg.branding.logo_primary;
+  if (img.getAttribute("src") !== src) img.setAttribute("src", src);
+}
+
+// Apply nav overrides from Global Settings: labels, ordering within each
+// section, and hidden views. Role-based visibility still applies on top.
+function applyNavOverrides() {
+  const cfg = (window.AppConfig && AppConfig.get()) || null;
+  const no = (cfg && cfg.appearance && cfg.appearance.nav_overrides) || {};
+  const entries = Object.keys(no).filter((v) => no[v] && typeof no[v] === "object");
+  if (!entries.length) return;
+  const nav = document.querySelector("#nav");
+  if (!nav) return;
+  const items = [...nav.querySelectorAll(".adm-nav-item")].filter(
+    (el) => el.dataset.view);
+  const byView = {};
+  items.forEach((el) => { byView[el.dataset.view] = el; });
+  // relabel / hide
+  entries.forEach((view) => {
+    const el = byView[view];
+    if (!el) return;
+    const o = no[view];
+    if (o.hidden) { el.style.display = "none"; return; }
+    if (o.label) {
+      const label = el.querySelector(".adm-nav-label");
+      if (label) label.textContent = o.label;
+      el.setAttribute("data-tip", o.label);
+    }
+  });
+  // re-order within each section (stable: unconfigured items keep position)
+  const orderOf = (view) => {
+    const o = no[view];
+    return o && typeof o.order === "number" ? o.order : Number.MAX_SAFE_INTEGER;
+  };
+  const groups = [];
+  let current = null;
+  [...nav.children].forEach((el) => {
+    if (el.classList.contains("adm-nav-section")) {
+      current = { header: el, items: [] };
+      groups.push(current);
+    } else if (el.classList.contains("adm-nav-item") && el.dataset.view) {
+      if (!current) { current = { header: null, items: [] }; groups.push(current); }
+      current.items.push(el);
+    }
+  });
+  groups.forEach((g) => {
+    if (g.items.length < 2) return;
+    const sorted = g.items
+      .filter((el) => (no[el.dataset.view] && no[el.dataset.view].hidden) ? false : true)
+      .sort((a, b) => orderOf(a.dataset.view) - orderOf(b.dataset.view) ||
+        (a.dataset.view < b.dataset.view ? -1 : 1));
+    g.items.forEach((el) => el.remove());
+    const anchor = g.header ? g.header.nextSibling : null;
+    sorted.forEach((el) => {
+      if (anchor) nav.insertBefore(el, anchor);
+      else nav.appendChild(el);
+    });
+  });
+}
+
 async function boot() {
+  const cfgP = window.AppConfig ? AppConfig.load() : Promise.resolve(null);
   let authErr = null;
   try {
     const res = await api("/api/auth/me");
@@ -583,29 +706,28 @@ async function boot() {
   } catch (err) {
     authErr = err;
   }
-  renderShell();
-  window.addEventListener("hashchange", () => {
-    const view = location.hash.replace("#/", "").split("?")[0] || "dashboard";
-    navigate(view);
-  });
-  if (state.user) {
-    const name = state.user.name || state.user.email;
-    $("#admUser").textContent = name;
-    const roleEl = $("#admRole");
-    roleEl.textContent = state.user.role || "viewer";
-    $("#admAvatar").textContent = initials(name);
-    navigate(location.hash.replace("#/", "").split("?")[0] || "dashboard");
-  } else {
+  if (!state.user) {
+    // Auth failed — show error state without trying to render shell
     $("#admUser").textContent = "—";
     $("#crumb").textContent = "Connection problem";
     errorState(
       authErr ? authErr.message : "Sign in required",
       () => { $("#view").innerHTML = skeleton(); boot(); },
       "admin");
+    return;
   }
+  await cfgP;
+  renderShell();
+  const name = state.user.name || state.user.email;
+  $("#admUser").textContent = name;
+  const roleEl = $("#admRole");
+  roleEl.textContent = state.user.role || "viewer";
+  $("#admAvatar").textContent = initials(name);
+  navigate(location.hash.replace("#/", "").split("?")[0] || "dashboard");
 }
 
 function renderShell() {
+  if (!state.user) return; // Guard: should not be called without authenticated user
   const role = state.user.role;
   $$("#nav .adm-nav-item").forEach((el) => {
     const view = el.dataset.view;
@@ -614,6 +736,14 @@ function renderShell() {
       el.style.display = role === "super_admin" ? "" : "none";
     }
   });
+  // Global Settings: nav overrides (labels / order / hidden)
+  applyNavOverrides();
+  // Sidebar collapsed-by-default — only when the user has no saved preference
+  const cfg = (window.AppConfig && AppConfig.get()) || null;
+  if (cfg && cfg.appearance.sidebar_collapsed_default &&
+      localStorage.getItem("admSidebar") === null) {
+    localStorage.setItem("admSidebar", "1");
+  }
   const doLogout = async () => {
     try { await api("/api/auth/logout", { method: "POST" }); } catch (err) {}
     location.href = "/login";
@@ -621,17 +751,50 @@ function renderShell() {
   $("#logoutBtn").onclick = doLogout;
   $("#burger").onclick = () => $("#sidebar").classList.toggle("open");
 
-  // Sidebar collapse (persisted; collapses to an icon rail on wide screens)
+  // Sidebar collapse toggle (manual toggle, persisted in localStorage)
   const collapseBtn = $("#sidebarCollapse");
-  if (collapseBtn) {
-    if (localStorage.getItem("admSidebar") === "1") {
+  const brandMark = $("#brandMark");
+  const footerToggle = $("#sidebarToggleFooter");
+  const footerLabel = $("#sidebarToggleFooterLabel");
+
+  const setSidebarState = (collapsed) => {
+    if (collapsed) {
       document.body.classList.add("sidebar-collapsed");
+      if (collapseBtn) { collapseBtn.textContent = "▶"; collapseBtn.title = "Expand sidebar"; }
+      if (footerLabel) footerLabel.textContent = "Expand sidebar";
+      if (footerToggle) footerToggle.setAttribute("data-tip", "Expand sidebar");
+      if (brandMark) brandMark.title = "Click to expand sidebar";
+    } else {
+      document.body.classList.remove("sidebar-collapsed");
+      if (collapseBtn) { collapseBtn.textContent = "◀"; collapseBtn.title = "Collapse sidebar"; }
+      if (footerLabel) footerLabel.textContent = "Collapse sidebar";
+      if (footerToggle) footerToggle.setAttribute("data-tip", "Collapse sidebar");
+      if (brandMark) brandMark.title = "Click to collapse sidebar";
     }
-    collapseBtn.onclick = () => {
-      const collapsed = document.body.classList.toggle("sidebar-collapsed");
-      localStorage.setItem("admSidebar", collapsed ? "1" : "0");
-    };
-  }
+    swapBrandLogo(collapsed);
+    localStorage.setItem("admSidebar", collapsed ? "1" : "0");
+  };
+
+  const toggleSidebar = () => {
+    const isCollapsed = document.body.classList.contains("sidebar-collapsed");
+    setSidebarState(!isCollapsed);
+  };
+
+  // Restore saved state (default to Expanded / Maximized)
+  const savedCollapsed = localStorage.getItem("admSidebar") === "1";
+  setSidebarState(savedCollapsed);
+
+  if (collapseBtn) collapseBtn.onclick = toggleSidebar;
+  if (brandMark) brandMark.onclick = toggleSidebar;
+  if (footerToggle) footerToggle.onclick = toggleSidebar;
+
+  // Keyboard shortcut Ctrl+B or [ (when not in an input)
+  document.addEventListener("keydown", (e) => {
+    if ((e.key === "[" || (e.ctrlKey && e.key.toLowerCase() === "b")) && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) {
+      e.preventDefault();
+      toggleSidebar();
+    }
+  });
 
   // Profile dropdown (top-right)
   const profileBtn = $("#admProfileBtn");
@@ -709,12 +872,12 @@ function renderShell() {
     });
   }
 
-  // Bell → /api/admin/alerts (last 24h)
+  // Bell → /api/admin/alerts (real live notifications)
   const bell = $("#admBell");
   const bellCount = $("#admBellCount");
-  const dropdown2 = $("#admDropdown");
+  const notifDropdown = $("#admNotifDropdown");
   let bellOpen = false;
-  if (bell) {
+  if (bell && notifDropdown) {
     const loadAlerts = async () => {
       try {
         const data = await api("/api/admin/alerts");
@@ -722,41 +885,40 @@ function renderShell() {
         bellCount.textContent = alerts.length;
         bellCount.hidden = alerts.length === 0;
         bell.dataset.alerts = JSON.stringify(alerts);
-      } catch (err) { /* health pill covers this */ }
+      } catch (err) { /* health pill handles network error */ }
     };
     loadAlerts();
-    setInterval(loadAlerts, 120000);
+    setInterval(loadAlerts, 60000);
     bell.onclick = (e) => {
       e.stopPropagation();
       bellOpen = !bellOpen;
-      if (!bellOpen) { dropdown2.hidden = true; return; }
-      dropdown2.hidden = false;
+      if (!bellOpen) { notifDropdown.hidden = true; return; }
+      notifDropdown.hidden = false;
       let alerts = [];
       try { alerts = JSON.parse(bell.dataset.alerts || "[]"); } catch (err) {}
-      dropdown2.className = "adm-dropdown wide";
-      dropdown2.innerHTML = alerts.length ? `
-        <div class="adm-notif-head"><span>Notifications</span><span class="adm-hint">24h</span></div>
+      notifDropdown.innerHTML = alerts.length ? `
+        <div class="adm-notif-head"><span>Live Notifications</span><span class="adm-hint">${alerts.length} active</span></div>
         ${alerts.map((a) => `
-          <div class="adm-notif-item" data-alert-nav="${esc(a.route || "")}">
+          <div class="adm-notif-item" data-alert-nav="${esc(a.route || "")}" role="button" tabindex="0">
             <span class="adm-notif-dot ${a.severity === "ok" ? "ok" : a.severity === "warn" ? "warn" : a.severity === "info" ? "info" : "err"}"></span>
-            <div>
+            <div style="flex:1;min-width:0">
               <div class="adm-notif-title">${esc(a.title)}</div>
               <div class="adm-notif-msg">${esc(a.message)}</div>
             </div>
           </div>`).join("")}`
-        : `<div class="adm-notif-head"><span>Notifications</span></div>
-           <div class="adm-search-empty">All quiet — nothing in the last 24h.</div>`;
-      $$("[data-alert-nav]", dropdown2).forEach((item) => {
+        : `<div class="adm-notif-head"><span>Live Notifications</span></div>
+           <div class="adm-search-empty">All systems normal — no active alerts.</div>`;
+      $$("[data-alert-nav]", notifDropdown).forEach((item) => {
         item.onclick = () => {
-          dropdown2.hidden = true;
+          notifDropdown.hidden = true;
           bellOpen = false;
           if (item.dataset.alertNav) navigate(item.dataset.alertNav);
         };
       });
     };
     document.addEventListener("click", (e) => {
-      if (!e.target.closest("#admBell") && !e.target.closest("#admDropdown")) {
-        dropdown2.hidden = true;
+      if (!e.target.closest("#admBell") && !e.target.closest("#admNotifDropdown")) {
+        notifDropdown.hidden = true;
         bellOpen = false;
       }
     });
@@ -789,12 +951,33 @@ function renderShell() {
       if (!$("#modalBackdrop").hidden) closeModal();
     }
   });
+
+  // hashchange: registered once here inside renderShell so it is never duplicated
+  window.addEventListener("hashchange", () => {
+    const hash = location.hash.replace(/^#\/?/, "");
+    navigate(hash);
+  });
+
+  // Warn before closing/reloading with unsaved Global Settings changes
+  window.addEventListener("beforeunload", (e) => {
+    if (!SETT.dirty) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
 }
 
 function navigate(view, params = null) {
-  const match = /^([a-z-]+)(?:\/([a-zA-Z0-9]+):(.+))?$/.exec(view) ||
-    /^([a-z-]+)(?:\/([a-zA-Z0-9]+)\/(.+))?$/.exec(view);
-  const base = (match && match[1]) || view;
+  const clean = String(view || "dashboard").replace(/^#\/?/, "");
+  if (SETT.dirty && clean.split("?")[0] !== "settings") {
+    confirmModal("Discard unsaved changes?",
+      "You have unsaved Global Settings changes. Leave without saving?",
+      () => { SETT.dirty = false; navigate(clean, params); }, "Discard");
+    return;
+  }
+  const [routePart, queryPart] = clean.split("?");
+  const match = /^([a-z-]+)(?:\/([a-zA-Z0-9]+):(.+))?$/.exec(routePart) ||
+    /^([a-z-]+)(?:\/([a-zA-Z0-9]+)\/(.+))?$/.exec(routePart);
+  const base = (match && match[1]) || routePart || "dashboard";
   const paramType = match && match[2];
   const paramValue = match && match[3];
   const renderers = {
@@ -806,6 +989,7 @@ function navigate(view, params = null) {
     exports: viewExports, users: viewUsers, security: viewSecurity,
     features: viewFeatures, maintenance: viewMaintenance, health: viewHealth,
     audit: viewAudit, pages: viewPages, posts: viewPosts,
+    "keyword-rules": viewKeywordRules, settings: viewSettings,
   };
   const labels = {
     dashboard: "Dashboard", jobs: "Jobs", failed: "Failed Jobs", leads: "Leads",
@@ -813,9 +997,11 @@ function navigate(view, params = null) {
     actors: "Actors", usage: "Usage & Cost", environment: "Environment",
     limits: "Scraping & Global Limits",
     ai: "AI / Gemini", scoring: "Lead Scoring", ci: "Comment Intelligence",
+    "keyword-rules": "Keyword Rules",
     database: "Database", logs: "Logs", exports: "Exports", users: "Users",
     security: "Security", features: "Features", maintenance: "Maintenance",
     health: "Health", audit: "Audit Log", pages: "Pages", posts: "Posts",
+    settings: "Global Settings",
   };
   let target = null;
   if (paramType) {
@@ -829,7 +1015,7 @@ function navigate(view, params = null) {
   if (!target) {
     target = viewNotFound;
     state.view = "notfound";
-    location.hash = `#/${view}`;
+    location.hash = `#/${clean}`;
     $$("#nav .adm-nav-item").forEach((el) => el.classList.remove("active"));
     $("#crumb").textContent = "Not found";
     $("#crumbSub").textContent = "";
@@ -838,16 +1024,26 @@ function navigate(view, params = null) {
     target().catch((err) => errorState(err.message, () => navigate(state.view), "404"));
     return;
   }
+  // Close any open modal or drawer when navigating
+  if ($("#modalBackdrop") && !$("#modalBackdrop").hidden) closeModal();
+  if ($("#drawer") && !$("#drawer").hidden) closeDrawer();
   state.view = base;
   if (params) {
-    const qs = new URLSearchParams(params);
-    location.hash = `#/${base}${qs.toString() ? "?" + qs.toString() : ""}`;
-  } else if (!location.hash.startsWith(`#/${view}`)) {
-    location.hash = `#/${view}`;
+    const qs = typeof params === "string" ? params : new URLSearchParams(params).toString();
+    const newHash = `#/${routePart}${qs ? "?" + qs : ""}`;
+    if (location.hash !== newHash) location.hash = newHash;
+  } else {
+    const newHash = `#/${clean}`;
+    if (location.hash !== newHash) location.hash = newHash;
   }
   $$("#nav .adm-nav-item").forEach((el) => el.classList.toggle("active", el.dataset.view === base));
   $("#crumb").textContent = labels[base] || base;
-  $("#crumbSub").textContent = "LeadAI · AI Lead Intelligence Platform";
+  const cfg = (window.AppConfig && AppConfig.get()) || null;
+  const navOv = (cfg && cfg.appearance && cfg.appearance.nav_overrides) || {};
+  const override = navOv[base];
+  if (override && override.label) $("#crumb").textContent = override.label;
+  $("#crumbSub").textContent =
+    ((cfg && cfg.app.name) || "LeadAI") + " · " + ((cfg && cfg.app.tagline) || "AI Lead Intelligence");
   const viewEl = $("#view");
   viewEl.innerHTML = skeleton();
   target().catch((err) => {
@@ -882,8 +1078,25 @@ function bindNav(root) {
 /* ──────────────────────────────── DASHBOARD ───────────────────────── */
 let DASH_RANGE = { days: 30, from: "", to: "" };
 
+// Global Settings: dashboard widget visibility / ordering
+function dashWidget(id) {
+  const cfg = (window.AppConfig && AppConfig.get()) || null;
+  const w = (cfg && cfg.appearance && cfg.appearance.dashboard_widgets) || {};
+  const o = w[id] || {};
+  return { show: o.show !== false, order: typeof o.order === "number" ? o.order : null };
+}
+
+function dashStyle(id) {
+  const w = dashWidget(id);
+  const parts = [];
+  if (!w.show) parts.push("display:none");
+  if (w.order !== null) parts.push("order:" + w.order);
+  return parts.join(";");
+}
+
 async function viewDashboard() {
   const root = $("#view");
+  root.classList.add("adm-dash-flex");
   const r = DASH_RANGE;
   const params = new URLSearchParams();
   if (r.from || r.to) {
@@ -922,7 +1135,7 @@ async function viewDashboard() {
   root.innerHTML = `
     ${pageHead("Dashboard", "Live overview of the LeadAI platform — every number is real data from the database.", `
       <a class="adm-btn primary" href="/" target="_blank">${icon("plus", 14)} New Search</a>`)}
-    <div class="adm-hero">
+    <div class="adm-hero" data-widget="hero" style="${dashStyle("hero")}">
       <div class="adm-hero-num">${Number(leads.value).toLocaleString()}</div>
       <div class="adm-hero-main">
         <div class="adm-hero-label">Leads in range</div>
@@ -954,7 +1167,7 @@ async function viewDashboard() {
         <button class="adm-range-btn" id="dashApply">Apply</button>
       </div>
     </div>
-    <div class="adm-kpi-grid">
+    <div class="adm-kpi-grid" data-widget="kpis" style="${dashStyle("kpis")}">
       ${data.kpis.map((k) => `
         <div class="adm-kpi" data-nav="${kpiNav[k.key][0]}" data-nav-params='${JSON.stringify(kpiNav[k.key][1])}'>
           <div class="adm-kpi-top">
@@ -967,7 +1180,7 @@ async function viewDashboard() {
         </div>`).join("")}
     </div>
     <div class="adm-grid-2">
-      <div class="adm-card">
+      <div class="adm-card" data-widget="activity" style="${dashStyle("activity")}">
         <div class="adm-card-title">Activity <span class="adm-hint">(leads gold · searches muted)</span></div>
         <div class="adm-chart">
           ${dualAreaSvg(act.labels || [], act.leads || [], act.searches || [])}
@@ -977,7 +1190,7 @@ async function viewDashboard() {
           <span class="adm-legend-item"><span class="adm-legend-dot" style="background:var(--gray)"></span>Searches</span>
         </div>
       </div>
-      <div class="adm-card">
+      <div class="adm-card" data-widget="leads_by_platform" style="${dashStyle("leads_by_platform")}">
         <div class="adm-card-title">Leads by platform <span class="adm-hint">(click a row)</span></div>
         ${data.leads_by_platform.length ? data.leads_by_platform.map((p, i) => `
           <div class="adm-bar-row" data-nav="platforms/details:${esc(p.platform)}">
@@ -990,7 +1203,7 @@ async function viewDashboard() {
       </div>
     </div>
     <div class="adm-grid-2">
-      <div class="adm-card">
+      <div class="adm-card" data-widget="alerts" style="${dashStyle("alerts")}">
         <div class="adm-card-title">Alerts <span class="adm-hint">(click to open)</span></div>
         ${alerts.length ? alerts.map((a) => `
           <div class="adm-alert-row" data-nav="${esc(a.route || "health")}">
@@ -1001,7 +1214,7 @@ async function viewDashboard() {
             </div>
           </div>`).join("") : emptyState("health", "All quiet — no alerts for this window.")}
       </div>
-      <div class="adm-card">
+      <div class="adm-card" data-widget="system_status" style="${dashStyle("system_status")}">
         <div class="adm-card-title">System status <span class="adm-hint">(click a row to open its page)</span></div>
         <div class="adm-kv">
           <div class="adm-kv-row" data-nav="database"><dt>Database</dt><dd><span class="adm-badge ${data.status.database ? "green" : "red"}">${data.status.database ? "connected" : "down"}</span></dd></div>
@@ -1018,7 +1231,39 @@ async function viewDashboard() {
         </div>
       </div>
     </div>
-    <div class="adm-card">
+    <div class="adm-card" data-widget="keyword_filter" style="${dashStyle("keyword_filter")}">
+      <div class="adm-card-head-row">
+        <div class="adm-card-title">Keyword filter <span class="adm-hint">(runs before AI — click to manage rules)</span></div>
+        <a class="adm-btn small" href="#/keyword-rules">${icon("ci", 14)} Manage rules</a>
+      </div>
+      ${(() => {
+        const kf = data.comment_filter || {};
+        const t = kf.totals || {};
+        const active = kf.active_rule;
+        return `
+        ${active
+          ? `<div class="adm-banner violet" style="margin-bottom:12px">
+              <div>
+                <div class="adm-cell-main">Active rule — <strong>${esc(active.name || "—")}</strong> applies to new scrapes without their own filter.</div>
+                <div class="adm-hint">${esc((active.match_mode || "any").toUpperCase())} · ${(active.include_keywords || []).length} keywords · ${(active.categories || []).length} categories</div>
+              </div>
+              <a class="adm-btn small" href="#/keyword-rules">Configure</a>
+            </div>`
+          : `<div class="adm-banner" style="margin-bottom:12px">
+              <div>
+                <div class="adm-cell-main"><strong>No active rule</strong> — every comment is processed (NO_FILTER).</div>
+                <div class="adm-hint">Create and activate a rule to filter comments before the AI stage.</div>
+              </div>
+            </div>`}
+        <div class="adm-stats cols-4">
+          <div class="adm-stat"><div class="adm-stat-label">Comments</div><div class="adm-stat-value">${fmtNum(t.comments ?? 0)}</div></div>
+          <div class="adm-stat"><div class="adm-stat-label">Matched → AI</div><div class="adm-stat-value gold">${fmtNum(t.matched ?? 0)}</div></div>
+          <div class="adm-stat"><div class="adm-stat-label">Skipped (NOT_MATCHED)</div><div class="adm-stat-value">${fmtNum(t.not_matched ?? 0)}</div></div>
+          <div class="adm-stat"><div class="adm-stat-label">Filter coverage</div><div class="adm-stat-value">${t.coverage_pct !== null && t.coverage_pct !== undefined ? t.coverage_pct + "%" : "—"}</div></div>
+        </div>`;
+      })()}
+    </div>
+    <div class="adm-card" data-widget="recent_jobs" style="${dashStyle("recent_jobs")}">
       <div class="adm-card-title">Recent jobs <span class="adm-hint">(click a row for the full report)</span></div>
       ${data.recent_jobs.length ? `
         <div class="adm-table-wrap"><table class="adm-table">
@@ -2653,24 +2898,33 @@ async function viewCI() {
   const root = $("#view");
   const role = state.user.role;
   const hashParams = new URLSearchParams(location.hash.split("?")[1] || "");
-  const qs = new URLSearchParams({
+  const qs = qsOf({
     platform: hashParams.get("platform") || "",
     intent: hashParams.get("intent") || "",
     quality: hashParams.get("quality") || "",
     limit: 40,
   });
-  const [data, ci] = await Promise.all([
+  const [data, ci, krStats] = await Promise.all([
     api(`/api/admin/comments?${qs}`),
     api("/api/admin/comment-intelligence"),
+    api("/api/comment-filters/stats").catch(() => null),
   ]);
   const items = data.items || [];
   const summary = data.summary || {};
   const settings = ci.settings || {};
+  const kr = krStats ? (krStats.totals || {}) : {};
   const badge = (text, cls) => text ? `<span class="adm-badge ${cls || "gray plain"}">${esc(text)}</span>` : "";
   root.innerHTML = `
     ${pageHead("Contact Intelligence", "What the engine decided about real comments — intent, quality, confidence, contact details.", `
       <span class="adm-badge violet">${fmtNum(summary.analyzed ?? 0)} analyzed</span>
       <span class="adm-badge gold">${fmtNum(summary.leads ?? 0)} leads</span>`)}
+    ${kr.comments ? `
+      <div class="adm-banner violet" style="padding:10px 14px">
+        <div style="flex:1">
+          <span class="adm-cell-main">Keyword filter: <strong>${fmtNum(kr.matched ?? 0)}</strong> matched → AI · <strong>${fmtNum(kr.not_matched ?? 0)}</strong> skipped (kept stored) · ${kr.coverage_pct != null ? `${kr.coverage_pct}% coverage` : ""}</span>
+        </div>
+        <a class="adm-btn small" href="#/keyword-rules">Manage rules</a>
+      </div>` : ""}
     <div class="adm-grid-2">
       <div class="adm-card">
         <div class="adm-card-title">Pipeline <span class="adm-hint">(all-time)</span></div>
@@ -2744,9 +2998,12 @@ async function viewCI() {
       </div>
     </div>`;
   $$("#ciFilters select", root).forEach((sel) => sel.addEventListener("change", () => {
-    const params = new URLSearchParams();
-    $$("#ciFilters select", root).forEach((s) => { if (s.value) params.set(s.dataset.filter, s.value); });
-    navigate(`#/ci${params.toString() ? "?" + params.toString() : ""}`);
+    const params = qsOf({
+      platform: root.querySelector('[data-filter="platform"]').value,
+      intent: root.querySelector('[data-filter="intent"]').value,
+      quality: root.querySelector('[data-filter="quality"]').value,
+    });
+    navigate(`ci${params.toString() ? "?" + params.toString() : ""}`);
   }));
   bindNav(root);
   if (role !== "viewer") {
@@ -2772,6 +3029,368 @@ async function viewCI() {
       });
     }
   }
+}
+
+/* ─────────────────────────────── KEYWORD RULES ────────────────────── */
+/* Comment Scraping & Keyword Intelligence: the keyword filter layer that
+   runs BEFORE AI analysis. Rules select which comments enter the lead
+   pipeline; filtered-out comments stay stored (NOT_MATCHED) and skip AI. */
+
+const KR_TABS = { rules: "Rules", comments: "Filtered comments", keywords: "Top keywords" };
+let KR_TAB = "rules";
+const KR_CF = { status: "all", q: "", keyword: "", offset: 0, limit: 25 };
+
+function krModeBadge(mode) {
+  const map = { any: "any", all: "all", category: "category", advanced: "advanced" };
+  return `<span class="adm-badge violet plain">${map[mode] || mode}</span>`;
+}
+
+function krChips(values, cls = "") {
+  const list = Array.isArray(values) ? values : [];
+  if (!list.length) return '<span class="adm-hint">—</span>';
+  return `<span class="adm-chips">${list.slice(0, 8).map((v) =>
+    `<span class="adm-chip ${cls}">${esc(v)}</span>`).join("")}${list.length > 8 ? `<span class="adm-chip muted">+${list.length - 8}</span>` : ""}</span>`;
+}
+
+function krCatName(key, catalog) {
+  const cat = (catalog.categories || []).find((c) => c.key === key);
+  if (cat) return `${cat.icon || ""} ${cat.name}`;
+  const pre = (catalog.presets || []).find((p) => p.key === key);
+  if (pre) return `${pre.icon || ""} ${pre.name}`;
+  const custom = (catalog.custom_categories || []).find((c) => c.key === key || String(c._id) === key);
+  return custom ? `${custom.icon || "🏷️"} ${custom.name}` : key;
+}
+
+async function viewKeywordRules() {
+  const root = $("#view");
+  const role = state.user.role;
+  const canManage = role !== "viewer";
+  const data = await api("/api/comment-filters/rules");
+  let stats = null;
+  try { stats = await api("/api/comment-filters/stats"); } catch (err) { /* stats optional */ }
+  const rules = data.rules || [];
+  const catalog = data.catalog || { categories: [], presets: [], match_modes: [] };
+  const activeId = data.active_rule_id;
+  window.__KR_RULES = rules;
+  const t = stats ? (stats.totals || {}) : {};
+  const ai = stats ? (stats.ai_saved || {}) : {};
+
+  const tabBtn = (key, label) =>
+    `<button class="adm-pill ${KR_TAB === key ? "active" : ""}" data-kr-tab="${key}">${label}</button>`;
+
+  root.innerHTML = `
+    ${pageHead("Keyword Rules", "Keyword & category filtering runs before AI analysis: only matching comments enter the lead pipeline. Filtered-out comments stay stored and skip the AI stage.", canManage ? `
+      <button class="adm-btn primary" id="krNewRule">${icon("plus", 14)} New Rule</button>` : "")}
+    ${activeId ? `
+      <div class="adm-banner violet">
+        <div>
+          <div class="adm-cell-main">Active rule — <strong>${esc((data.active_rule || {}).name || "—")}</strong> applies to new scrapes that don't set their own filter.</div>
+          <div class="adm-hint">${krChips((data.active_rule || {}).include_keywords)}</div>
+        </div>
+        ${canManage ? `<button class="adm-btn small" data-kr-deactivate="${esc(activeId)}">Deactivate</button>` : ""}
+      </div>`
+    : `<div class="adm-banner">
+        <div>
+          <div class="adm-cell-main"><strong>No active rule</strong> — every comment is processed (NO_FILTER).</div>
+          <div class="adm-hint">Create a rule and activate it to filter comments before AI analysis.</div>
+        </div>
+        ${canManage ? `<button class="adm-btn small" id="krNewRule2">${icon("plus", 13)} New Rule</button>` : ""}
+      </div>`}
+    <div class="adm-grid-2" style="grid-template-columns:repeat(4,1fr)">
+      <div class="adm-kpi"><div class="adm-kpi-top"><span class="adm-kpi-label">Comments filtered</span></div><div class="adm-kpi-value">${fmtNum(t.filtered ?? 0)}</div><span class="adm-hint">of ${fmtNum(t.comments ?? 0)} total${t.coverage_pct != null ? ` · ${t.coverage_pct}%` : ""}</span></div>
+      <div class="adm-kpi"><div class="adm-kpi-top"><span class="adm-kpi-label">Matched → AI</span></div><div class="adm-kpi-value gold">${fmtNum(t.matched ?? 0)}</div><span class="adm-hint">${t.match_pct != null ? `${t.match_pct}% of filtered` : ""}</span></div>
+      <div class="adm-kpi"><div class="adm-kpi-top"><span class="adm-kpi-label">Skipped (NOT_MATCHED)</span></div><div class="adm-kpi-value">${fmtNum(t.not_matched ?? 0)}</div><span class="adm-hint">kept stored, no AI call</span></div>
+      <div class="adm-kpi"><div class="adm-kpi-top"><span class="adm-kpi-label">AI calls saved</span></div><div class="adm-kpi-value violet">${fmtNum(ai.comment_count ?? 0)}</div><span class="adm-hint">costs are never estimated</span></div>
+    </div>
+    <div class="adm-card">
+      <div class="adm-filters">
+        <div class="adm-pills">
+          ${Object.entries(KR_TABS).map(([key, label]) => tabBtn(key, label)).join("")}
+        </div>
+      </div>
+      <div id="krBody">${skeleton()}</div>
+    </div>`;
+
+  root.querySelectorAll("[data-kr-tab]").forEach((btn) => {
+    btn.onclick = () => { KR_TAB = btn.dataset.krTab; viewKeywordRules(); };
+  });
+  if (canManage) {
+    $("#krNewRule").onclick = () => krOpenEditor(null, catalog);
+    const btn2 = $("#krNewRule2");
+    if (btn2) btn2.onclick = () => krOpenEditor(null, catalog);
+  }
+
+  const body = $("#krBody", root);
+  if (KR_TAB === "rules") {
+    body.innerHTML = rules.length ? `
+      <div class="adm-table-wrap"><table class="adm-table">
+        <thead><tr><th>Rule</th><th>Match</th><th>Keywords</th><th>Categories</th><th>Created</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          ${rules.map((r) => `
+            <tr>
+              <td>
+                <div class="adm-cell-main">${esc(r.name || "Untitled rule")}</div>
+                <div class="adm-hint">${esc((r.description || "").slice(0, 80))}</div>
+              </td>
+              <td>${krModeBadge(r.match_mode)}</td>
+              <td>${krChips(r.include_keywords, "amber")}</td>
+              <td>${krChips((r.categories || []).map((k) => krCatName(k, catalog)), "violet")}</td>
+              <td>${r.created_at ? fmtTime(new Date(r.created_at)) : "—"}</td>
+              <td>${r.active ? `<span class="adm-badge green pulse">active</span>` : `<span class="adm-badge gray plain">inactive</span>`}</td>
+              <td>
+                <div class="adm-row-actions">
+                  ${canManage ? (r.active
+                    ? `<button class="adm-btn small" data-kr-deactivate="${esc(r.id || r._id)}">Deactivate</button>`
+                    : `<button class="adm-btn small primary" data-kr-activate="${esc(r.id || r._id)}">Activate</button>`)
+                    : ""}
+                  <button class="adm-btn small" data-kr-edit="${esc(r.id || r._id)}">Edit</button>
+                  <button class="adm-btn small" data-kr-reapply="${esc(r.id || r._id)}" title="Re-run this rule over existing comments">Reapply</button>
+                  ${canManage ? `<button class="adm-btn small danger" data-kr-delete="${esc(r.id || r._id)}">${icon("close", 12)}</button>` : ""}
+                </div>
+              </td>
+            </tr>`).join("")}
+        </tbody>
+      </table></div>`
+    : emptyState("ci", "No rules yet — create one to filter comments before AI analysis.");
+    body.querySelectorAll("[data-kr-activate]").forEach((b) => {
+      b.onclick = () => krActivate(b.dataset.krActivate);
+    });
+    body.querySelectorAll("[data-kr-deactivate]").forEach((b) => {
+      b.onclick = () => krDeactivate(b.dataset.krDeactivate);
+    });
+    body.querySelectorAll("[data-kr-edit]").forEach((b) => {
+      b.onclick = () => krOpenEditor(b.dataset.krEdit, catalog);
+    });
+    body.querySelectorAll("[data-kr-delete]").forEach((b) => {
+      b.onclick = () => krDelete(b.dataset.krDelete);
+    });
+    body.querySelectorAll("[data-kr-reapply]").forEach((b) => {
+      b.onclick = () => krReapply(b.dataset.krReapply);
+    });
+  } else if (KR_TAB === "keywords") {
+    const top = stats ? (stats.top_keywords || []) : [];
+    const maxTop = Math.max(1, ...top.map((k) => k.count));
+    body.innerHTML = `
+      <div class="adm-hint" style="margin:4px 0 12px">Most frequent keywords that actually matched comments (from the filter results).</div>
+      ${top.length ? `
+        <div class="adm-bar-list">
+          ${top.map((k, i) => `
+            <div class="adm-bar-row" data-nav-params='{"matched_keyword":"${esc(k.keyword)}"}' style="cursor:pointer" data-kr-keyword="${esc(k.keyword)}">
+              <div class="adm-bar-top">
+                <span class="adm-cell-main"><span class="adm-chip amber">${esc(k.keyword)}</span></span>
+                <span class="adm-cell-sub">${fmtNum(k.count)} comments</span>
+              </div>
+              <div class="adm-bar-track"><div class="adm-bar-fill" style="width:${Math.max(2, (k.count / maxTop) * 100).toFixed(1)}%;opacity:${(1 - i * 0.09).toFixed(2)}"></div></div>
+            </div>`).join("")}
+        </div>`
+      : emptyState("ci", "No matched keywords recorded yet — the filter has not run on any comments.")}`;
+    body.querySelectorAll("[data-kr-keyword]").forEach((row) => {
+      row.onclick = () => { KR_TAB = "comments"; KR_CF.keyword = row.dataset.krKeyword; KR_CF.offset = 0; viewKeywordRules(); };
+    });
+  } else {
+    await krCommentsTab(body);
+  }
+}
+
+async function krCommentsTab(body) {
+  const f = KR_CF;
+  const params = qsOf({
+    status: f.status, q: f.q, matched_keyword: f.keyword,
+    offset: f.offset, limit: f.limit,
+  });
+  let data = null;
+  try {
+    data = await api(`/api/comment-filters/comments?${params}`);
+  } catch (err) {
+    body.innerHTML = emptyState("ci", `Failed to load filtered comments: ${esc(err.message)}`);
+    return;
+  }
+  const items = data.items || [];
+  const totals = data.totals || {};
+  const pill = (val, label, count) => `
+    <button class="adm-pill ${f.status === val ? (val === "NOT_MATCHED" ? "red" : val === "MATCHED" ? "active" : "green") : ""}" data-kr-status="${val}">
+      ${label} <span class="adm-hint">(${fmtNum(count ?? 0)})</span>
+    </button>`;
+  body.innerHTML = `
+    <div class="adm-filters">
+      <div class="adm-pills">
+        ${pill("all", "All", totals.all)}
+        ${pill("MATCHED", "Matched", totals.MATCHED)}
+        ${pill("NOT_MATCHED", "Not matched", totals.NOT_MATCHED)}
+        ${pill("NO_FILTER", "No filter", totals.NO_FILTER)}
+      </div>
+      <input class="adm-input" id="krQ" placeholder="Search comment text…" value="${esc(f.q)}" style="max-width:260px">
+      <button class="adm-btn primary" id="krApplyQ">Search</button>
+      ${f.keyword ? `<button class="adm-btn" id="krClearKw">Clear keyword · ${esc(f.keyword)}</button>` : ""}
+    </div>
+    ${items.length ? `
+      <div class="adm-table-wrap"><table class="adm-table">
+        <thead><tr><th>Commenter</th><th>Comment</th><th>Matched</th><th>Status</th><th>Lead</th><th>Platform</th></tr></thead>
+        <tbody>
+          ${items.map((it) => `
+            <tr>
+              <td><div class="adm-cell-main">${esc(it.commenter_name || "—")}</div><div class="adm-hint">${fmtTime(new Date(it.filter_timestamp || it.created_at || Date.now()))}</div></td>
+              <td><div class="adm-cell-sub" style="max-width:340px">${esc(String(it.comment_text || "").slice(0, 160))}</div>
+                ${krChips(it.excluded_keywords, "red")}
+              </td>
+              <td>
+                ${krChips(it.matched_keywords, "amber")}
+                ${krChips((it.matched_categories || []).map((k) => k), "violet")}
+              </td>
+              <td>${it.keyword_filter_status === "MATCHED" ? `<span class="adm-badge green">matched</span>` : it.keyword_filter_status === "NOT_MATCHED" ? `<span class="adm-badge red">skipped</span>` : `<span class="adm-badge gray plain">no filter</span>`}</td>
+              <td>${it.is_lead ? `<span class="adm-badge gold">${esc(it.lead_score ?? "lead")}</span>` : it.lead_score !== undefined && it.lead_score !== null ? `<span class="adm-badge gray plain">${esc(it.lead_score)}</span>` : `<span class="adm-hint">not analyzed</span>`}</td>
+              <td>${platformBadge(it.platform)}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table></div>
+      ${pagerHtml(data.total, f.offset, f.limit, (dir) => { f.offset = Math.max(0, f.offset + dir * f.limit); krCommentsTab(body); })}
+    ` : emptyState("ci", "No comments match these filters.")}`;
+  body.querySelectorAll("[data-kr-status]").forEach((btn) => {
+    btn.onclick = () => { f.status = btn.dataset.krStatus; f.offset = 0; krCommentsTab(body); };
+  });
+  const qInput = $("#krQ", body);
+  if (qInput) {
+    const apply = $("#krApplyQ", body);
+    if (apply) apply.onclick = () => { f.q = qInput.value.trim(); f.offset = 0; krCommentsTab(body); };
+    qInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { f.q = qInput.value.trim(); f.offset = 0; krCommentsTab(body); } });
+  }
+  const clearKw = $("#krClearKw", body);
+  if (clearKw) clearKw.onclick = () => { f.keyword = ""; krCommentsTab(body); };
+}
+
+function krOpenEditor(ruleId, catalog) {
+  const canManage = state.user.role !== "viewer";
+  if (!canManage) return;
+  const rules = (catalog && catalog.categories) ? catalog : { categories: [], presets: [], custom_categories: [] };
+  let rule = null;
+  if (ruleId) {
+    rule = (window.__KR_RULES || []).find((r) => String(r.id || r._id) === String(ruleId));
+  }
+  const start = rule || {};
+  const cats = start.categories || [];
+  const include = Array.isArray(start.include_keywords) ? start.include_keywords.join(", ") : "";
+  const exclude = Array.isArray(start.exclude_keywords) ? start.exclude_keywords.join(", ") : "";
+  const groups = Array.isArray(start.groups) && start.groups.length
+    ? start.groups.map((g) => g.join(", ")).join("\n") : "";
+
+  openModal(rule ? `Edit rule — ${rule.name || ""}` : "New keyword rule", `
+    <div class="adm-form-grid">
+      <div class="adm-field"><label>Rule name</label><input class="adm-input" id="krName" value="${esc(start.name || "")}" placeholder="e.g. Real estate buyers — Noida"></div>
+      <div class="adm-field"><label>Description</label><input class="adm-input" id="krDesc" value="${esc(start.description || "")}" placeholder="What does this rule capture?"></div>
+      <div class="adm-field"><label>Match mode</label>
+        <select class="adm-select" id="krMode">
+          <option value="any" ${(start.match_mode || "any") === "any" ? "selected" : ""}>any keyword</option>
+          <option value="all" ${start.match_mode === "all" ? "selected" : ""}>all keywords</option>
+          <option value="category" ${start.match_mode === "category" ? "selected" : ""}>any category keyword</option>
+          <option value="advanced" ${start.match_mode === "advanced" ? "selected" : ""}>keyword groups</option>
+        </select></div>
+      <div class="adm-field"><label>Platform</label>
+        <select class="adm-select" id="krPlatform">
+          <option value="all" ${(start.platform || "all") === "all" ? "selected" : ""}>all platforms</option>
+          ${["facebook", "instagram", "linkedin", "youtube"].map((p) => `<option value="${p}" ${start.platform === p ? "selected" : ""}>${p}</option>`).join("")}
+        </select></div>
+    </div>
+    <div class="adm-field" style="margin-top:12px">
+      <label>Categories & presets <span class="adm-hint">(their keywords join your includes — click to toggle)</span></label>
+      <div class="adm-cat-grid" id="krCats">
+        ${[...(rules.categories || []).map((c) => `<label class="adm-cat-pill"><input type="checkbox" value="${esc(c.key)}" ${cats.includes(c.key) ? "checked" : ""}><span>${esc(c.icon || "•")} ${esc(c.name)}</span></label>`),
+            ...(rules.presets || []).map((p) => `<label class="adm-cat-pill preset"><input type="checkbox" value="${esc(p.key)}" ${cats.includes(p.key) ? "checked" : ""}><span>${esc(p.icon || "•")} ${esc(p.name)}</span></label>`),
+            ...(rules.custom_categories || []).map((c) => `<label class="adm-cat-pill"><input type="checkbox" value="${esc(String(c._id))}" ${cats.includes(String(c._id)) ? "checked" : ""}><span>${esc(c.icon || "•")} ${esc(c.name)}</span></label>`)].join("")}
+      </div>
+    </div>
+    <div class="adm-form-grid" style="margin-top:12px">
+      <div class="adm-field">
+        <label>Include keywords <span class="adm-hint">(comma separated — "price" also matches "prices")</span></label>
+        <textarea class="adm-input" id="krInclude" rows="5" placeholder="price, site visit, interested, booking">${esc(include)}</textarea>
+      </div>
+      <div class="adm-field">
+        <label>Exclude keywords <span class="adm-hint">(always veto — e.g. spam, follow back)</span></label>
+        <textarea class="adm-input" id="krExclude" rows="5" placeholder="spam, giveaway, follow back">${esc(exclude)}</textarea>
+      </div>
+    </div>
+    <div class="adm-field" id="krGroupsField" style="margin-top:12px;${start.match_mode === "advanced" ? "" : "display:none"}">
+      <label>Keyword groups <span class="adm-hint">(one group per line, comma separated — a comment must match one keyword in EVERY group)</span></label>
+      <textarea class="adm-input" id="krGroups" rows="3" placeholder="price, cost, budget">${esc(groups)}</textarea>
+    </div>
+    <div class="adm-toggle-row" style="margin-top:12px">
+      <div><div class="adm-cell-main">Detect contact details by regex</div><div class="adm-hint">Phone numbers / emails in the comment also count as a match (contact-signal preset behavior).</div></div>
+      <label class="adm-switch"><input type="checkbox" id="krDetectContact" ${start.detect_contacts ? "checked" : ""}><span></span></label>
+    </div>`, `
+    <button class="adm-btn" data-close>Cancel</button>
+    <button class="adm-btn primary" id="krSaveBtn">${rule ? "Save changes" : "Create rule"}</button>`);
+
+  $("#modalBackdrop").onclick = (e) => { if (e.target.id === "modalBackdrop") closeModal(); };
+  $("[data-close]", $("#modalBox")).onclick = closeModal;
+  $("#krMode").addEventListener("change", () => {
+    $("#krGroupsField").style.display = $("#krMode").value === "advanced" ? "" : "none";
+  });
+  $("#krSaveBtn").onclick = async () => {
+    const btn = $("#krSaveBtn");
+    btn.disabled = true;
+    const selectedCats = Array.from($$("#krCats input:checked", $("#modalBox"))).map((i) => i.value);
+    const groups = $("#krGroups").value.trim().split("\n")
+      .map((line) => line.split(",").map((k) => k.trim()).filter(Boolean))
+      .filter((g) => g.length);
+    const bodyPayload = {
+      name: $("#krName").value.trim() || "Untitled rule",
+      description: $("#krDesc").value.trim(),
+      match_mode: $("#krMode").value,
+      platform: $("#krPlatform").value,
+      categories: selectedCats,
+      include_keywords: $("#krInclude").value.split(",").map((k) => k.trim()).filter(Boolean),
+      exclude_keywords: $("#krExclude").value.split(",").map((k) => k.trim()).filter(Boolean),
+      groups,
+      detect_contacts: $("#krDetectContact").checked,
+    };
+    try {
+      const res = rule
+        ? await api(`/api/comment-filters/rules/${rule.id || rule._id}`, { method: "PUT", body: bodyPayload })
+        : await api("/api/comment-filters/rules", { method: "POST", body: bodyPayload });
+      toast(res.success ? (rule ? "Rule updated" : "Rule created") : "Saved", "ok");
+      closeModal();
+      viewKeywordRules();
+    } catch (err) {
+      toast(err.message, "error");
+      btn.disabled = false;
+    }
+  };
+}
+
+async function krActivate(id) {
+  try {
+    const res = await api(`/api/comment-filters/rules/${id}/activate`, { method: "POST" });
+    toast(res.message || "Rule activated", "ok");
+    viewKeywordRules();
+  } catch (err) { toast(err.message, "error"); }
+}
+
+async function krDeactivate(id) {
+  try {
+    const res = await api(`/api/comment-filters/rules/${id}/deactivate`, { method: "POST" });
+    toast(res.message || "Rule deactivated", "ok");
+    viewKeywordRules();
+  } catch (err) { toast(err.message, "error"); }
+}
+
+function krDelete(id) {
+  confirmModal("Delete keyword rule", "The rule will be deleted. Comments already stored are <strong>never deleted</strong>; they keep their filter status.", async () => {
+    try {
+      const res = await api(`/api/comment-filters/rules/${id}`, { method: "DELETE" });
+      toast(res.message || "Rule deleted", "ok");
+      viewKeywordRules();
+    } catch (err) { toast(err.message, "error"); }
+  }, "Delete rule");
+}
+
+function krReapply(id) {
+  confirmModal("Reapply rule to existing comments", "Re-runs this rule over stored comments (up to 2,000) and refreshes every comment's filter status. Comments are never deleted. AI analysis is not re-run here.", async () => {
+    try {
+      const res = await api(`/api/comment-filters/rules/${id}/reapply`, { method: "POST" });
+      const s = res.summary || {};
+      toast(`Reapplied: ${s.processed} comments, ${s.matched} matched, ${s.not_matched} skipped`, "ok");
+      viewKeywordRules();
+    } catch (err) { toast(err.message, "error"); }
+  }, "Reapply");
 }
 
 /* ─────────────────────────────── DATABASE ────────────────────────── */
@@ -2929,43 +3548,48 @@ async function viewUsers() {
         </tbody>
       </table></div>
     </div>`;
-  const openUserModal = (u) => openModal(
-    `<div class="adm-card-title">${u ? "Edit user" : "Create user"}</div>
-     <div class="adm-field"><label>Name</label><input class="adm-input" id="userName" value="${u ? esc(u.name) : ""}"></div>
-     <div class="adm-field"><label>Email</label><input class="adm-input" id="userEmail" value="${u ? esc(u.email) : ""}" ${u ? "readonly" : ""}></div>
-     <div class="adm-field"><label>Role</label>
-       <select class="adm-input" id="userRole">
-         <option value="viewer" ${u && u.role === "viewer" ? "selected" : ""}>viewer</option>
-         <option value="manager" ${u && u.role === "manager" ? "selected" : ""}>manager</option>
-         <option value="super_admin" ${u && u.role === "super_admin" ? "selected" : ""}>super_admin</option>
-       </select>
-     </div>
-     ${u ? `
-       <label class="adm-check"><input type="checkbox" id="userEnabled" ${u.enabled ? "checked" : ""}> enabled</label>
-       <div class="adm-field" style="margin-top:10px"><label>New password <span class="adm-hint">(optional)</span></label><input class="adm-input" id="userPassword" type="password" placeholder="8+ characters"></div>` : `
-       <div class="adm-field"><label>Password</label><input class="adm-input" id="userPassword" type="password" placeholder="8+ characters"></div>`}`,
-    [
-      { label: "Cancel", cls: "", close: true },
-      { label: u ? "Save" : "Create", cls: "primary", action: async (box) => {
-        const name = box.querySelector("#userName").value;
-        const roleVal = box.querySelector("#userRole").value;
-        const password = box.querySelector("#userPassword").value;
-        try {
-          if (u) {
-            const body = { name, role: roleVal, enabled: box.querySelector("#userEnabled").checked };
-            if (password) body.password = password;
-            await api(`/api/admin/users/${encodeURIComponent(u._id)}`, { method: "PATCH", body });
-            toast("User updated", "ok");
-          } else {
-            if (password.length < 8) { toast("Password must be at least 8 characters", "warn"); return; }
-            await api("/api/admin/users", { method: "POST", body: { name, email: box.querySelector("#userEmail").value, role: roleVal, password } });
-            toast("User created", "ok");
-          }
-          closeModal();
-          viewUsers();
-        } catch (err) { toast(err.message, "error"); }
-      } },
-    ]);
+  const openUserModal = (u) => {
+    const box = openModal(
+      u ? "Edit user" : "Create user",
+      `<div class="adm-field"><label>Name</label><input class="adm-input" id="userName" value="${u ? esc(u.name) : ""}"></div>
+       <div class="adm-field"><label>Email</label><input class="adm-input" id="userEmail" value="${u ? esc(u.email) : ""}" ${u ? "readonly" : ""}></div>
+       <div class="adm-field"><label>Role</label>
+         <select class="adm-input" id="userRole">
+           <option value="viewer" ${u && u.role === "viewer" ? "selected" : ""}>viewer</option>
+           <option value="manager" ${u && u.role === "manager" ? "selected" : ""}>manager</option>
+           <option value="super_admin" ${u && u.role === "super_admin" ? "selected" : ""}>super_admin</option>
+         </select>
+       </div>
+       ${u ? `
+         <label class="adm-check"><input type="checkbox" id="userEnabled" ${u.enabled ? "checked" : ""}> enabled</label>
+         <div class="adm-field" style="margin-top:10px"><label>New password <span class="adm-hint">(optional)</span></label><input class="adm-input" id="userPassword" type="password" placeholder="8+ characters"></div>` : `
+         <div class="adm-field"><label>Password</label><input class="adm-input" id="userPassword" type="password" placeholder="8+ characters"></div>`}`,
+      `<button class="adm-btn" data-close>Cancel</button>
+       <button class="adm-btn primary" id="userSaveBtn">${u ? "Save" : "Create"}</button>`);
+    $("[data-close]", box).onclick = closeModal;
+    $("#modalBackdrop").onclick = (e) => { if (e.target.id === "modalBackdrop") closeModal(); };
+    $("#userSaveBtn").onclick = async () => {
+      const saveBtn = $("#userSaveBtn");
+      saveBtn.disabled = true;
+      const name = box.querySelector("#userName").value;
+      const roleVal = box.querySelector("#userRole").value;
+      const password = box.querySelector("#userPassword").value;
+      try {
+        if (u) {
+          const body = { name, role: roleVal, enabled: box.querySelector("#userEnabled").checked };
+          if (password) body.password = password;
+          await api(`/api/admin/users/${encodeURIComponent(u._id)}`, { method: "PATCH", body });
+          toast("User updated", "ok");
+        } else {
+          if (password.length < 8) { toast("Password must be at least 8 characters", "warn"); saveBtn.disabled = false; return; }
+          await api("/api/admin/users", { method: "POST", body: { name, email: box.querySelector("#userEmail").value, role: roleVal, password } });
+          toast("User created", "ok");
+        }
+        closeModal();
+        viewUsers();
+      } catch (err) { toast(err.message, "error"); saveBtn.disabled = false; }
+    };
+  };
   $("#addUser").onclick = () => openUserModal(null);
   $$("[data-edit]", root).forEach((el) => el.onclick = () => openUserModal({ _id: el.dataset.id, name: el.dataset.name, email: el.dataset.email, role: el.dataset.role, enabled: el.dataset.enabled === "true" }));
   $$("[data-delete]", root).forEach((el) => el.onclick = () => confirmModal(
@@ -3209,7 +3833,615 @@ async function viewAudit() {
     </div>`;
 }
 
+/* ─────────────────────────── GLOBAL SETTINGS ──────────────────────── */
+const SETT = {
+  categories: [],
+  values: {}, original: {}, meta: {}, version: 0,
+  activeTab: "general", search: "", dirty: false, busy: false,
+};
+
+function settReadOnly() {
+  return state.user.role === "viewer";
+}
+
+function settDirtyCount() {
+  return Object.keys(SETT.values)
+    .filter((k) => JSON.stringify(SETT.values[k]) !== JSON.stringify(SETT.original[k]))
+    .length;
+}
+
+async function viewSettings() {
+  const root = $("#view");
+  const data = await api("/api/admin/settings");
+  SETT.categories = data.categories || [];
+  SETT.values = { ...(data.settings || {}) };
+  SETT.original = { ...(data.settings || {}) };
+  SETT.meta = data.meta || {};
+  SETT.version = data.version || 0;
+  SETT.dirty = false;
+  SETT.search = "";
+  renderSettings();
+}
+
+function renderSettings() {
+  const root = $("#view");
+  const ro = settReadOnly();
+  const active = SETT.categories.find((c) => c.id === SETT.activeTab);
+  root.innerHTML = `
+    ${pageHead("Global Settings",
+      "Every configurable setting in one place — saves apply immediately, "
+      + "are audited and versioned for rollback. Secrets stay in the Environment view.",
+      `${ro ? `<span class="adm-badge amber">read-only</span>` : ""}
+       <span class="adm-badge gray plain" id="settVersionBadge">v${SETT.version}</span>`)}
+    <div class="adm-settings-layout">
+      <div class="adm-settings-tabs">
+        ${SETT.categories.map((c) => `
+          <button class="adm-sett-tab ${c.id === SETT.activeTab ? "active" : ""}" data-cat="${esc(c.id)}">
+            <span class="adm-sett-tab-ico" aria-hidden="true">${esc(c.icon)}</span>
+            ${esc(c.label)}
+          </button>`).join("")}
+        <button class="adm-sett-tab ${SETT.activeTab === "system" ? "active" : ""}" data-cat="system">
+          <span class="adm-sett-tab-ico" aria-hidden="true">🗄</span>
+          System & history
+        </button>
+      </div>
+      <div class="adm-settings-main">
+        <div class="adm-settings-toolbar">
+          <div class="adm-search" style="flex:1;max-width:360px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="adm-search-ico" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input class="adm-search-input" id="settSearchInput" type="search" placeholder="Search settings…" value="${esc(SETT.search)}" autocomplete="off">
+          </div>
+          <span class="adm-hint" id="settCountHint"></span>
+        </div>
+        <div id="settContent"></div>
+      </div>
+    </div>
+    ${ro ? "" : `
+    <div class="adm-save-bar" id="settSaveBar" ${SETT.dirty ? "" : "hidden"}>
+      <div class="adm-save-info"><span id="settSaveInfo"></span></div>
+      <button class="adm-btn" id="settDiscard">Discard</button>
+      <button class="adm-btn primary" id="settSave">${icon("save", 14)} Save changes</button>
+    </div>`}`;
+  renderSettContent();
+  bindSettEvents(root);
+}
+
+function renderSettContent() {
+  const box = $("#settContent");
+  if (!box) return;
+  const q = SETT.search.trim().toLowerCase();
+  let html = "";
+  if (q) {
+    const matches = [];
+    SETT.categories.forEach((cat) => {
+      cat.groups.forEach((g) => {
+        g.specs.forEach((spec) => {
+          const hay = `${spec.key} ${spec.label} ${spec.description || ""} ${g.label} ${cat.label}`.toLowerCase();
+          if (hay.includes(q)) matches.push({ cat, g, spec });
+        });
+      });
+    });
+    $("#settCountHint").textContent = `${matches.length} matching setting${matches.length === 1 ? "" : "s"}`;
+    if (!matches.length) {
+      html = `<div class="adm-card"><div class="adm-empty">
+        <div class="adm-empty-ico">🔍</div>
+        <div style="font-size:14px">No settings match "${esc(SETT.search)}"</div>
+      </div></div>`;
+    } else {
+      html = matches.map(({ cat, g, spec }) => `
+        <div class="adm-card" data-sett-card="${esc(spec.key)}">
+          <div class="adm-card-title">${esc(spec.label)}
+            <span class="adm-chip muted">${esc(cat.label)} · ${esc(g.label)}</span>
+          </div>
+          <div class="adm-sett-desc">${esc(spec.description || "")}</div>
+          ${settFieldHtml(spec)}
+        </div>`).join("");
+    }
+  } else {
+    const cat = SETT.categories.find((c) => c.id === SETT.activeTab);
+    $("#settCountHint").textContent = "";
+    if (SETT.activeTab === "system") {
+      html = renderSystemTab();
+    } else if (cat) {
+      html = (cat.id === "branding" ? renderBrandPreview() : "")
+        + cat.groups.map((g) => `
+          <div class="adm-card">
+            <div class="adm-card-title">${esc(g.label)}
+              ${g.specs.length ? `<span class="adm-chip muted">${g.specs.length} setting${g.specs.length === 1 ? "" : "s"}</span>` : ""}
+              <button class="adm-btn small" data-reset-group="${esc(g.id)}" style="margin-left:auto" ${settReadOnly() ? "hidden" : ""}>Reset group</button>
+            </div>
+            ${g.specs.map(settFieldHtml).join("")}
+          </div>`).join("");
+    }
+  }
+  box.innerHTML = html;
+}
+
+function settFieldHtml(spec) {
+  const key = spec.key;
+  const value = SETT.values[key];
+  const ro = settReadOnly();
+  const hint = spec.description ? `<div class="adm-hint">${esc(spec.description)}</div>` : "";
+  const meta = SETT.meta[key];
+  const badge = meta && meta.is_default
+    ? `<span class="adm-chip muted" title="Using the built-in default">default</span>`
+    : `<span class="adm-chip amber" title="Overridden in the database">custom</span>`;
+  switch (spec.type) {
+    case "bool":
+      return `
+        <div class="adm-toggle-row">
+          <div><div class="adm-cell-main">${esc(spec.label)} ${badge}</div>${hint}</div>
+          <label class="adm-switch"><input type="checkbox" data-key="${esc(key)}" ${value ? "checked" : ""} ${ro ? "disabled" : ""}><span></span></label>
+        </div>`;
+    case "select":
+      return `
+        <div class="adm-field">
+          <label>${esc(spec.label)} ${badge}</label>
+          ${hint}
+          <select class="adm-input" data-key="${esc(key)}" ${ro ? "disabled" : ""} style="max-width:360px">
+            ${(spec.options || []).map((o) => `<option value="${esc(o)}" ${String(value) === String(o) ? "selected" : ""}>${esc(o)}</option>`).join("")}
+          </select>
+        </div>`;
+    case "color":
+      return `
+        <div class="adm-field">
+          <label>${esc(spec.label)} ${badge}</label>
+          ${hint}
+          <div class="adm-sett-color-row">
+            <input type="color" class="adm-color-pick" data-key="${esc(key)}" value="${esc(value || "#7c5cff")}" ${ro ? "disabled" : ""}>
+            <input class="adm-input" data-key="${esc(key)}" data-hex="1" value="${esc(value || "")}" placeholder="#7c5cff" ${ro ? "disabled" : ""} style="max-width:140px">
+          </div>
+        </div>`;
+    case "json":
+      return `
+        <div class="adm-field">
+          <label>${esc(spec.label)} ${badge}</label>
+          ${hint}
+          <textarea class="adm-input adm-sett-json" data-key="${esc(key)}" rows="4" spellcheck="false" ${ro ? "disabled" : ""}>${esc(typeof value === "object" ? JSON.stringify(value, null, 2) : value)}</textarea>
+          <div class="adm-hint adm-sett-json-err" data-json-err="${esc(key)}" hidden></div>
+        </div>`;
+    case "textarea":
+      return `
+        <div class="adm-field">
+          <label>${esc(spec.label)} ${badge}</label>
+          ${hint}
+          <textarea class="adm-input" data-key="${esc(key)}" rows="3" ${ro ? "disabled" : ""} placeholder="${esc(spec.placeholder || "")}">${esc(value ?? "")}</textarea>
+        </div>`;
+    default:
+      const isPath = spec.type === "path" || spec.type === "url";
+      return `
+        <div class="adm-field">
+          <label>${esc(spec.label)} ${badge}</label>
+          ${hint}
+          <div class="adm-sett-input-row">
+            <input class="adm-input" data-key="${esc(key)}" type="${spec.type === "email" ? "email" : spec.type === "int" ? "number" : spec.type === "float" ? "number" : "text"}"
+              ${spec.type === "int" || spec.type === "float" ? `step="${spec.type === "float" ? "0.01" : "1"}" min="${spec.min ?? ""}" max="${spec.max ?? ""}"` : ""}
+              value="${esc(value ?? "")}" placeholder="${esc(spec.placeholder || "")}" ${ro ? "disabled" : ""}>
+            ${isPath ? `<button class="adm-btn small" data-upload-key="${esc(key)}" ${ro ? "hidden" : ""}>${icon("upload", 13)} Upload</button>
+              <input type="file" data-upload-file="${esc(key)}" accept=".png,.jpg,.jpeg,.svg,.webp,.ico" hidden>` : ""}
+          </div>
+        </div>`;
+  }
+}
+
+function renderBrandPreview() {
+  const v = (k) => SETT.values[k];
+  const logo = v("branding.logo_primary");
+  const primary = v("branding.colors.primary") || "#7c5cff";
+  const accent = v("branding.colors.accent") || "#f0a531";
+  return `
+    <div class="adm-card">
+      <div class="adm-card-title">Live preview <span class="adm-hint">(updates as you type — save to apply app-wide)</span></div>
+      <div class="adm-brand-preview">
+        <div class="adm-brand-preview-card">
+          <div class="adm-brand-preview-head">
+            ${logo
+              ? `<img class="adm-brand-preview-logo" src="${esc(logo)}" alt="Logo">`
+              : `<div class="adm-brand-preview-mark" style="background:${esc(primary)}">✦</div>`}
+            <div>
+              <div class="adm-brand-preview-name" style="color:${esc(primary)}">${esc(v("general.app.name") || "LeadAI")}</div>
+              <div class="adm-brand-preview-tag">${esc(v("general.app.tagline") || "AI Lead Intelligence")}</div>
+            </div>
+          </div>
+          <div class="adm-brand-preview-actions">
+            <span class="adm-brand-preview-btn" style="background:${esc(primary)}">Primary</span>
+            <span class="adm-brand-preview-btn" style="background:${esc(accent)}">Accent</span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderSystemTab() {
+  const ro = settReadOnly();
+  return `
+    <div class="adm-card">
+      <div class="adm-card-head-row">
+        <div class="adm-card-title">Version history <span class="adm-hint">(every save, reset, import and restore)</span></div>
+        <button class="adm-btn small" id="settHistoryRefresh">${icon("refresh", 13)} Refresh</button>
+      </div>
+      <div id="settHistoryList"><div class="adm-hint">Loading…</div></div>
+    </div>
+    <div class="adm-card">
+      <div class="adm-card-title">Export & import</div>
+      <div class="adm-sett-desc">Export downloads every registered setting (no secrets). Import applies a valid payload; unknown or invalid keys are skipped.</div>
+      <div class="adm-btn-row" style="margin-top:12px">
+        <a class="adm-btn" href="/api/admin/settings/export?download=1">${icon("download", 14)} Export JSON</a>
+        <button class="adm-btn" id="settImportPick" ${ro ? "disabled" : ""}>${icon("upload", 14)} Import JSON</button>
+        <input type="file" id="settImportFile" accept=".json,application/json" hidden>
+      </div>
+    </div>
+    <div class="adm-card">
+      <div class="adm-card-title">Danger zone</div>
+      <div class="adm-sett-desc">Reset every registered setting back to its built-in default. A revision is recorded so nothing is lost.</div>
+      <div class="adm-btn-row" style="margin-top:12px">
+        <button class="adm-btn danger" id="settResetAll" ${ro ? "disabled" : ""}>${icon("trash", 14)} Reset all settings</button>
+      </div>
+    </div>`;
+}
+
+function bindSettEvents(root) {
+  // tabs
+  $$(".adm-sett-tab", root).forEach((btn) => {
+    btn.onclick = () => { SETT.activeTab = btn.dataset.cat; SETT.search = ""; renderSettings(); };
+  });
+  // search
+  const searchInput = $("#settSearchInput");
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      SETT.search = searchInput.value;
+      renderSettContent();
+    });
+  }
+  // inputs
+  $$("[data-key]", root).forEach((el) => {
+    const key = el.dataset.key;
+    if (el.dataset.hex) {
+      el.addEventListener("input", () => settSetHex(key, el.value));
+      return;
+    }
+    const onInput = () => settSetValue(key, settReadValue(el, key));
+    if (el.type === "checkbox") el.addEventListener("change", onInput);
+    else if (el.tagName === "SELECT") el.addEventListener("change", onInput);
+    else el.addEventListener("input", onInput);
+    if (el.classList.contains("adm-sett-json")) {
+      el.addEventListener("blur", () => {
+        try { JSON.parse(el.value); el.style.borderColor = ""; hideJsonErr(key); }
+        catch (err) { el.style.borderColor = "var(--red)"; showJsonErr(key, "Invalid JSON — fix before saving."); }
+      });
+    }
+  });
+  // color pickers
+  $$(".adm-color-pick", root).forEach((el) => {
+    el.addEventListener("input", () => {
+      const key = el.dataset.key;
+      SETT.values[key] = el.value;
+      const hex = root.querySelector(`[data-key="${key}"][data-hex]`);
+      if (hex) hex.value = el.value;
+      settMarkDirty();
+    });
+  });
+  // uploads
+  $$("[data-upload-key]", root).forEach((btn) => {
+    btn.onclick = () => {
+      const fileInput = root.querySelector(`[data-upload-file="${btn.dataset.uploadKey}"]`);
+      if (fileInput) fileInput.click();
+    };
+  });
+  $$("[data-upload-file]", root).forEach((input) => {
+    input.addEventListener("change", () => settUpload(input));
+  });
+  // group reset
+  $$("[data-reset-group]", root).forEach((btn) => {
+    btn.onclick = () => {
+      const cat = SETT.categories.find((c) => c.id === SETT.activeTab);
+      const group = cat && cat.groups.find((g) => g.id === btn.dataset.resetGroup);
+      const keys = group ? group.specs.map((s) => s.key) : [];
+      confirmModal("Reset group", `Reset ${keys.length} setting${keys.length === 1 ? "" : "s"} to their defaults? A revision is recorded.`,
+        async () => {
+          try {
+            const res = await api("/api/admin/settings/reset", { method: "POST", body: { section: SETT.activeTab, keys } });
+            toast(`${res.reset.length} setting${res.reset.length === 1 ? "" : "s"} reset`, "ok");
+            await reloadSett();
+          } catch (err) { toast(err.message, "error"); }
+        }, "Reset");
+    };
+  });
+  // save / discard
+  const saveBtn = $("#settSave");
+  if (saveBtn) saveBtn.onclick = settSave;
+  const discardBtn = $("#settDiscard");
+  if (discardBtn) discardBtn.onclick = () => { SETT.values = { ...SETT.original }; SETT.dirty = false; renderSettings(); };
+  // system tab
+  if (SETT.activeTab === "system") {
+    const histBtn = $("#settHistoryRefresh");
+    if (histBtn) histBtn.onclick = loadSettHistory;
+    loadSettHistory();
+    const pickBtn = $("#settImportPick");
+    const fileInput = $("#settImportFile");
+    if (pickBtn && fileInput) {
+      pickBtn.onclick = () => fileInput.click();
+      fileInput.addEventListener("change", () => settImportFile(fileInput));
+    }
+    const resetAll = $("#settResetAll");
+    if (resetAll) resetAll.onclick = () => confirmModal(
+      "Reset ALL settings",
+      "Every registered setting returns to its built-in default. Branding, limits, AI, features — everything. A revision is recorded so you can restore.",
+      async () => {
+        try {
+          const res = await api("/api/admin/settings/reset", { method: "POST", body: { all: true } });
+          toast(`${res.reset.length} settings reset to defaults`, "ok");
+          await reloadSett();
+        } catch (err) { toast(err.message, "error"); }
+      }, "Reset everything");
+  }
+}
+
+function settReadValue(el, key) {
+  const specType = settSpecType(key);
+  if (el.type === "checkbox") return el.checked;
+  if (specType === "int" || specType === "float") {
+    const n = el.value === "" ? null : Number(el.value);
+    return el.value === "" ? (specType === "int" ? 0 : 0) : (isNaN(n) ? el.value : n);
+  }
+  return el.value;
+}
+
+function settSpecType(key) {
+  for (const cat of SETT.categories) {
+    for (const g of cat.groups) {
+      for (const s of g.specs) if (s.key === key) return s.type;
+    }
+  }
+  return "str";
+}
+
+function settSetValue(key, value) {
+  SETT.values[key] = value;
+  settMarkDirty();
+}
+
+function settSetHex(key, hex) {
+  const m = /^#?[0-9a-fA-F]{3,8}$/.exec(String(hex || "").trim());
+  if (!m && hex.trim() !== "") return;
+  SETT.values[key] = hex.trim().replace(/^([0-9a-fA-F]{3,8})$/, "#$1");
+  settMarkDirty();
+}
+
+function settMarkDirty() {
+  SETT.dirty = settDirtyCount() > 0;
+  updateSettChrome();
+}
+
+function updateSettChrome() {
+  const count = settDirtyCount();
+  const bar = $("#settSaveBar");
+  if (bar) {
+    bar.hidden = !SETT.dirty;
+    $("#settSaveInfo").textContent = `${count} unsaved change${count === 1 ? "" : "s"}`;
+  }
+  const versionEl = $("#settVersionBadge");
+  if (versionEl) versionEl.textContent = `v${SETT.version}`;
+  if (SETT.activeTab === "branding") {
+    const preview = document.querySelector(".adm-brand-preview");
+    if (preview) {
+      const holder = preview.closest(".adm-card");
+      holder.outerHTML = renderBrandPreview();
+    }
+  }
+}
+
+function showJsonErr(key, msg) {
+  const el = document.querySelector(`[data-json-err="${key}"]`);
+  if (el) { el.textContent = msg; el.hidden = false; }
+}
+
+function hideJsonErr(key) {
+  const el = document.querySelector(`[data-json-err="${key}"]`);
+  if (el) el.hidden = true;
+}
+
+function settValidateJson() {
+  const bad = [];
+  Object.keys(SETT.values).forEach((key) => {
+    const type = settSpecType(key);
+    if (type !== "json") return;
+    const v = SETT.values[key];
+    if (typeof v === "string") {
+      try { JSON.parse(v); } catch (err) { bad.push(key); }
+    }
+  });
+  return bad;
+}
+
+async function settSave() {
+  if (!SETT.dirty || SETT.busy) return;
+  const bad = settValidateJson();
+  if (bad.length) {
+    bad.forEach((k) => showJsonErr(k, "Invalid JSON — fix before saving."));
+    toast(`Invalid JSON in ${bad.length} field${bad.length === 1 ? "" : "s"}`, "warn");
+    return;
+  }
+  const changed = {};
+  Object.keys(SETT.values).forEach((k) => {
+    if (JSON.stringify(SETT.values[k]) !== JSON.stringify(SETT.original[k])) {
+      changed[k] = SETT.values[k];
+    }
+  });
+  if (!Object.keys(changed).length) return;
+  if (changed["maintenance.enabled"] === true && SETT.original["maintenance.enabled"] !== true) {
+    confirmModal("Enable maintenance mode?",
+      "The user app will be blocked for everyone except signed-in admins. You can keep working here.",
+      () => settDoSave(changed), "Enable maintenance");
+    return;
+  }
+  await settDoSave(changed);
+}
+
+async function settDoSave(changed) {
+  SETT.busy = true;
+  try {
+    const res = await api("/api/admin/settings", {
+      method: "PUT",
+      body: { values: changed },
+    });
+    SETT.original = { ...SETT.values };
+    SETT.dirty = false;
+    SETT.version = res.version;
+    updateSettChrome();
+    toast(`${res.changed.length} setting${res.changed.length === 1 ? "" : "s"} saved (v${res.version})`, "ok");
+    if (window.AppConfig) {
+      AppConfig.refresh().then(() => applyNavOverrides());
+    }
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    SETT.busy = false;
+  }
+}
+
+async function settUpload(input) {
+  const key = input.dataset.uploadFile;
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) { toast("File too large (max 2 MB)", "warn"); return; }
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const res = await fetch("/api/admin/settings/upload", { method: "POST", body: fd });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((data.detail && (typeof data.detail === "string" ? data.detail : data.detail.message)) || `Upload failed (${res.status})`);
+    SETT.values[key] = data.url;
+    const field = document.querySelector(`[data-key="${key}"]:not([data-hex])`);
+    if (field) field.value = data.url;
+    settMarkDirty();
+    toast("Uploaded — save to apply", "ok");
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    input.value = "";
+  }
+}
+
+async function reloadSett() {
+  const data = await api("/api/admin/settings");
+  SETT.values = { ...(data.settings || {}) };
+  SETT.original = { ...(data.settings || {}) };
+  SETT.meta = data.meta || {};
+  SETT.version = data.version || 0;
+  SETT.dirty = false;
+  renderSettings();
+}
+
+async function loadSettHistory() {
+  const box = $("#settHistoryList");
+  if (!box) return;
+  try {
+    const data = await api("/api/admin/settings/history?limit=40");
+    const versions = data.versions || [];
+    if (!versions.length) {
+      box.innerHTML = `<div class="adm-empty"><div class="adm-empty-ico">🕘</div>
+        <div style="font-size:13.5px">No revisions yet — your first save will appear here.</div></div>`;
+      return;
+    }
+    box.innerHTML = versions.map((v) => `
+      <div class="adm-toggle-row">
+        <div>
+          <div class="adm-cell-main"><span class="adm-chip violet">v${esc(v.version)}</span> ${esc(v.reason || "settings change")} · <span class="adm-hint">${fmtNum((v.changed || {}).length || Object.keys(v.changed || {}).length)} change(s)</span></div>
+          <div class="adm-hint">by ${esc(v.changed_by || "—")} ${v.ip ? `· ${esc(v.ip)}` : ""} · ${fmtTime(new Date((v.created_at || 0) * 1000))}</div>
+        </div>
+        <div class="adm-btn-row">
+          <button class="adm-btn small" data-hist-view="${esc(v.version)}">${icon("eye", 13)} View</button>
+          ${settReadOnly() ? "" : `<button class="adm-btn small" data-hist-restore="${esc(v.version)}">${icon("restore", 13)} Restore</button>`}
+        </div>
+      </div>`).join("");
+    $$("[data-hist-view]", box).forEach((btn) => {
+      btn.onclick = () => settHistoryDetail(Number(btn.dataset.histView));
+    });
+    $$("[data-hist-restore]", box).forEach((btn) => {
+      btn.onclick = () => {
+        const version = Number(btn.dataset.histRestore);
+        confirmModal(`Restore v${version}?`,
+          "This reapplies the full snapshot from that revision as a NEW revision. Current values are not overwritten until you restore.",
+          async () => {
+            try {
+              const res = await api(`/api/admin/settings/history/${version}/restore`, { method: "POST", body: {} });
+              toast(`Restored ${res.applied.length} settings (v${res.version})`, "ok");
+              await reloadSett();
+            } catch (err) { toast(err.message, "error"); }
+          }, "Restore");
+      };
+    });
+  } catch (err) {
+    box.innerHTML = `<div class="adm-hint" style="color:var(--red)">${esc(err.message)}</div>`;
+  }
+}
+
+async function settHistoryDetail(version) {
+  try {
+    const data = await api(`/api/admin/settings/history/${version}`);
+    const entry = data.entry || {};
+    const changed = entry.changed || {};
+    const rows = Object.keys(changed).map((k) => `
+      <div class="adm-sett-diff-row">
+        <div class="adm-sett-diff-key">${esc(k)}</div>
+        <div class="adm-sett-diff-old">${esc(typeof changed[k].old === "object" ? JSON.stringify(changed[k].old) : changed[k].old ?? "—")}</div>
+        <div class="adm-sett-diff-arrow">→</div>
+        <div class="adm-sett-diff-new">${esc(typeof changed[k].new === "object" ? JSON.stringify(changed[k].new) : changed[k].new ?? "—")}</div>
+      </div>`).join("");
+    openModal(`v${version} — ${esc(entry.reason || "settings change")}`,
+      `<div class="adm-hint" style="margin-bottom:10px">by ${esc(entry.changed_by || "—")} · ${fmtTime(new Date((entry.created_at || 0) * 1000))} · ${fmtNum(entry.changed ? Object.keys(entry.changed).length : 0)} change(s)</div>
+       ${rows || `<div class="adm-hint">No field-level diff recorded.</div>`}`,
+      `<button class="adm-btn" onclick="closeModal()">Close</button>`);
+  } catch (err) { toast(err.message, "error"); }
+}
+
+async function settImportFile(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  let payload;
+  try {
+    payload = JSON.parse(await file.text());
+  } catch (err) {
+    toast("File is not valid JSON", "error");
+    input.value = "";
+    return;
+  }
+  const settings = payload.settings;
+  if (!settings || typeof settings !== "object") {
+    toast("Payload must contain a 'settings' object", "error");
+    input.value = "";
+    return;
+  }
+  const keys = Object.keys(settings);
+  try {
+    const preview = await api("/api/admin/settings/import/preview", {
+      method: "POST", body: { payload },
+    });
+    const invalidRows = Object.keys(preview.invalid || {})
+      .slice(0, 6)
+      .map((k) => `<div class="adm-hint" style="color:var(--red)">${esc(k)} — ${esc(preview.invalid[k])}</div>`).join("");
+    openModal("Import preview",
+      `<div class="adm-sett-desc">${fmtNum(preview.count || 0)} valid setting(s) · ${fmtNum(Object.keys(preview.invalid || {}).length)} invalid</div>
+       ${invalidRows}`,
+      `<button class="adm-btn" onclick="closeModal()">Cancel</button>
+       <button class="adm-btn primary" id="settImportApply" ${preview.count ? "" : "disabled"}>Apply ${fmtNum(preview.count || 0)}</button>`);
+    $("#settImportApply").onclick = async () => {
+      closeModal();
+      try {
+        const res = await api("/api/admin/settings/import", { method: "POST", body: { payload } });
+        toast(`${res.applied.length} settings imported (v${res.version})`, "ok");
+        await reloadSett();
+      } catch (err) { toast(err.message, "error"); }
+    };
+  } catch (err) { toast(err.message, "error"); }
+  input.value = "";
+}
+
 /* ──────────────────────────────── BOOT ────────────────────────────── */
+// Only call boot() once via DOMContentLoaded — never call it immediately and
+// via the event listener at the same time, which would start two parallel
+// authentication flows and create race conditions (double shell wiring, double
+// navigation, double hashchange listeners) that leave the modal backdrop open.
 document.addEventListener("DOMContentLoaded", boot);
-boot();
 

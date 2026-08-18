@@ -1,4 +1,4 @@
-﻿"""
+"""
 LeadAI Agent API â€” the whole product surface.
 
   POST /api/url/search                  start a URL-based search (Apify)
@@ -24,7 +24,7 @@ import csv
 import io
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from bson import ObjectId
@@ -53,6 +53,8 @@ def _serialize(doc):
     if isinstance(doc, ObjectId):
         return str(doc)
     if isinstance(doc, datetime):
+        if doc.tzinfo is None:
+            doc = doc.replace(tzinfo=timezone.utc)
         return doc.isoformat()
     return doc
 
@@ -233,8 +235,25 @@ async def start_url_search(
                                      description="Posts to scrape (default/cap from admin limits)"),
     max_comments_per_post: Optional[int] = Query(None, ge=1,
                                                  description="Comments to scrape per post (admin-capped)"),
+    filter_mode: str = Query("all", description="all | preset | custom"),
+    preset: Optional[str] = Query(None,
+                                  description="Preset key or saved rule id (filter_mode=preset)"),
+    include_keywords: Optional[str] = Query(None,
+                                            description="Comma-separated keywords (filter_mode=custom)"),
+    exclude_keywords: Optional[str] = Query(None,
+                                            description="Comma-separated keywords to veto"),
+    categories: Optional[str] = Query(None,
+                                      description="Comma-separated category keys (filter_mode=custom)"),
+    match_mode: str = Query("any", description="any | all | category | advanced"),
 ):
-    """Start a URL-based social lead search. Poll GET /api/search/{run_id}."""
+    """Start a URL-based social lead search. Poll GET /api/search/{run_id}.
+
+    Comment filtering: ``filter_mode=preset`` uses a preset key (contact
+    signals / high intent / info request / noise & spam) or a saved admin
+    rule id; ``filter_mode=custom`` uses inline keywords/categories;
+    ``filter_mode=all`` (default) sets no per-run filter, so the admin's
+    active rule applies when one is configured (otherwise every comment is
+    processed)."""
     from app.social.url_detector import detect_social_url, UrlError
     from app.social.url_search import UrlSearchThread
     from app.admin.settings import effective_limits, is_platform_enabled, get_bool
@@ -264,12 +283,36 @@ async def start_url_search(
             detail={"success": False, "errorType": "platform_disabled",
                     "message": f"Searching {platform} is currently disabled by the administrator."})
 
-    # admin-controlled defaults + hard caps â€” enforcement lives server-side
+    # admin-controlled defaults + hard caps — enforcement lives server-side
     lim = effective_limits()
     max_posts = min(max_posts or lim["max_posts_default"], lim["max_posts_cap"])
     max_comments_per_post = min(
         max_comments_per_post or lim["max_comments_per_post_default"],
         lim["max_comments_per_post_cap"], lim["global_max_comments"])
+
+    # Comment Filter layer: explicit per-run config stored on the run doc.
+    # filter_mode=all stores nothing extra — the run then follows the admin's
+    # active rule (or processes all comments when no rule is active).
+    comment_filter: dict = {}
+    if filter_mode == "preset" and preset:
+        from bson import ObjectId
+        try:
+            ObjectId(preset)
+            comment_filter = {"mode": "preset", "rule_id": preset}
+        except Exception:
+            comment_filter = {"mode": "preset", "preset": preset}
+    elif filter_mode == "custom":
+        comment_filter = {
+            "mode": "custom",
+            "include_keywords": [k.strip() for k in
+                                 (include_keywords or "").split(",") if k.strip()],
+            "exclude_keywords": [k.strip() for k in
+                                 (exclude_keywords or "").split(",") if k.strip()],
+            "categories": [c.strip() for c in
+                           (categories or "").split(",") if c.strip()],
+            "match_mode": match_mode if match_mode in
+            ("any", "all", "category", "advanced") else "any",
+        }
 
     run_id = f"URL{datetime.now().strftime('%Y%m%d%H%M%S')}{abs(hash(url)) % 1000:03d}"
     await db.search_history.insert_one({
@@ -277,6 +320,7 @@ async def start_url_search(
             "keyword": url, "type": "url", "platform": platform,
             "canonical_url": canonical, "limit": max_posts,
             "max_comments_per_post": max_comments_per_post},
+        "comment_filter": comment_filter or None,
         "limit": max_posts, "provider": "apify", "url_search": True,
         "status": "running", "phase": "queued", "message": "Starting URL search...",
         "pages_found": 0, "pages_stored": 0,
@@ -288,7 +332,7 @@ async def start_url_search(
     return {
         "run_id": run_id, "status": "running", "platform": platform,
         "canonical_url": canonical,
-        "message": f"{platform} search started â€” the page appears in the results below "
+        "message": f"{platform} search started — the page appears in the results below "
                    "when it is fetched",
     }
 
@@ -345,6 +389,7 @@ async def url_search_report(run_id: str):
                 if a.get(key) is not None:
                     c[key] = a[key]
 
+    leads = [c for c in comments if c.get("is_lead")]
     page["activity_status"] = page.get("activity_status") or _activity_status(page.get("latest_post_date"))
     return {
         "run_id": run_id,
@@ -355,6 +400,7 @@ async def url_search_report(run_id: str):
         "page": page,
         "posts": posts,
         "comments": comments,
+        "leads": leads,
         "generated_at": utcnow().isoformat(),
     }
 
@@ -517,10 +563,14 @@ async def collect_comments(post_id: str, max_comments: Optional[int] = Query(Non
 @router.get("/posts/{post_id}/comments")
 async def list_post_comments(
     post_id: str,
+    filter_type: str = Query("all", description="all | leads | contact | hot | warm | pricing | inquiry"),
     only_leads: bool = Query(False, description="show only valuable comments (is_lead)"),
-    contact_only: bool = Query(True, description="only comments with a 10-digit phone number or email"),
+    contact_only: bool = Query(False, description="only comments with phone or email"),
+    q: Optional[str] = Query(None, description="Search text in comment, name, phone, email"),
+    quality: Optional[str] = Query(None, description="hot | warm | cold"),
+    sort_by: str = Query("score", description="score | newest | reactions | oldest"),
     offset: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(200, ge=1, le=1000),
 ):
     db = get_async_db()
     if db is None:
@@ -530,80 +580,130 @@ async def list_post_comments(
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    query = {"post_ref": post_id}
-    docs = []
-    if only_leads:
-        # AI-analyzed comments that scored as valuable leads
-        query["is_lead"] = True
-        async for c in (db.ai_comments.find(query).sort("lead_score", -1)
-                        .skip(offset).limit(limit)):
-            docs.append(_serialize(c))
+    from app.pipeline.comment_ai import extract_contact_quick
 
-        # attach raw comment details (profile url, date, reactions)
-        refs = [c["comment_ref"] for c in docs if c.get("comment_ref")]
-        raw_by_id = {}
-        if refs:
-            async for raw in db.facebook_comments.find({"_id": {"$in": [ObjectId(r) for r in refs]}}):
-                raw_by_id[str(raw["_id"])] = _serialize(raw)
-        for c in docs:
-            raw = raw_by_id.get(c.get("comment_ref"), {})
-            c["author_profile_url"] = raw.get("author_profile_url")
-            c["published_date"] = c.get("published_date") or raw.get("published_date")
-            c["comment_url"] = raw.get("comment_url")
-            c["reactions_count"] = raw.get("reactions_count")
-            c["platform"] = _resolve_platform(c)
-        total = await db.ai_comments.count_documents(query)
-    else:
-        # ALL raw comments for the post, contact-bearing ones first; by
-        # default only comments with a 10-digit phone number or email are
-        # shown (contact_only) â€” unchecking reveals every comment
-        from app.pipeline.comment_ai import extract_contact_quick
-        all_docs = []
-        async for raw in db.facebook_comments.find(query):
-            c = _serialize(raw)
-            c["platform"] = _resolve_platform(c)
-            c["commenter_name"] = raw.get("author_name")
-            c["comment_text"] = raw.get("text")
-            quick = extract_contact_quick(raw.get("text"))
-            has_contact = raw.get("has_contact")
-            if has_contact is None:
-                has_contact = bool(quick["phone"] or quick["email"])
-            c["has_contact"] = bool(has_contact)
-            for k, v in quick.items():
-                if v:
-                    c[k] = v
-            analysis = await db.ai_comments.find_one({"comment_ref": c["id"]})
-            if analysis:
-                a = _serialize(analysis)
-                for key in ("is_lead", "lead_score", "priority", "lead_quality",
-                            "confidence", "intent", "urgency", "budget", "requirement",
-                            "location", "phone", "email", "whatsapp", "website",
-                            "reason", "analyzed_by"):
-                    if a.get(key) is not None:
-                        c[key] = a[key]
-            all_docs.append(c)
-        contact_count = sum(1 for d in all_docs if d.get("has_contact"))
-        all_docs_len = len(all_docs)
-        if contact_only:
-            all_docs = [d for d in all_docs if d.get("has_contact")]
-        # newest first, then stable-sorted so contact comments stay on top
-        all_docs.sort(key=lambda d: d.get("published_date") or "", reverse=True)
-        all_docs.sort(key=lambda d: d.get("has_contact") is not True)
-        total = len(all_docs)
-        docs = all_docs[offset:offset + limit]
+    # Load ALL raw comments for this post
+    all_raw = []
+    async for raw in db.facebook_comments.find({"post_ref": post_id}):
+        all_raw.append(raw)
+
+    # Load all existing AI analyses for this post's comments in one batch
+    comment_ids = [str(r["_id"]) for r in all_raw]
+    ai_map = {}
+    if comment_ids:
+        async for a in db.ai_comments.find({"comment_ref": {"$in": comment_ids}}):
+            ai_map[a.get("comment_ref")] = _serialize(a)
+
+    docs = []
+    for raw in all_raw:
+        c = _serialize(raw)
+        c["platform"] = _resolve_platform(c)
+        c["commenter_name"] = raw.get("author_name") or "Unknown"
+        c["comment_text"] = raw.get("text") or ""
+        quick = extract_contact_quick(raw.get("text"))
+        has_contact = raw.get("has_contact")
+        if has_contact is None:
+            has_contact = bool(quick["phone"] or quick["email"])
+        c["has_contact"] = bool(has_contact)
+        for k, v in quick.items():
+            if v:
+                c[k] = v
+
+        # attach AI fields if analyzed
+        analysis = ai_map.get(c["id"])
+        if analysis:
+            for key in ("is_lead", "lead_score", "priority", "lead_quality",
+                        "confidence", "intent", "urgency", "budget", "requirement",
+                        "location", "phone", "email", "whatsapp", "website",
+                        "reason", "analyzed_by"):
+                if analysis.get(key) is not None:
+                    c[key] = analysis[key]
+        else:
+            # fallback score calculation if not yet passed through AI batch
+            c["lead_score"] = 50 if c["has_contact"] else 10
+            c["priority"] = "high" if c["has_contact"] else "low"
+            c["lead_quality"] = "warm" if c["has_contact"] else "none"
+            c["is_lead"] = c["has_contact"]
+
+        docs.append(c)
+
+    # Compute category counts across the full unfiltered collection
+    total_all = len(docs)
+    total_leads = sum(1 for d in docs if d.get("is_lead") or (d.get("lead_score") or 0) >= 40)
+    total_contact = sum(1 for d in docs if d.get("has_contact") or d.get("phone") or d.get("email"))
+    total_hot = sum(1 for d in docs if (d.get("lead_quality") == "hot") or (d.get("lead_score") or 0) >= 80 or d.get("priority") == "high")
+    total_pricing = sum(1 for d in docs if d.get("budget") or any(w in (d.get("comment_text") or "").lower() for w in ["price", "cost", "rate", "kitna", "how much", "quote", "charges", "fees", "fee", "budget"]))
+    total_inquiry = sum(1 for d in docs if "?" in (d.get("comment_text") or "") or any(w in (d.get("comment_text") or "").lower() for w in ["details", "info", "interested", "available", "where", "how", "share", "send", "call", "dm", "location", "address", "contact"]))
+
+    # Apply active filters
+    filtered = docs
+
+    if q and q.strip():
+        q_lower = q.strip().lower()
+        filtered = [
+            d for d in filtered
+            if q_lower in (d.get("comment_text") or "").lower()
+            or q_lower in (d.get("commenter_name") or "").lower()
+            or q_lower in (d.get("phone") or "").lower()
+            or q_lower in (d.get("email") or "").lower()
+            or q_lower in (d.get("requirement") or "").lower()
+            or q_lower in (d.get("location") or "").lower()
+            or q_lower in (d.get("reason") or "").lower()
+        ]
+
+    # Type / tab filtering
+    if filter_type == "leads" or only_leads:
+        filtered = [d for d in filtered if d.get("is_lead") or (d.get("lead_score") or 0) >= 40]
+    elif filter_type == "contact" or contact_only:
+        filtered = [d for d in filtered if d.get("has_contact") or d.get("phone") or d.get("email")]
+    elif filter_type == "hot":
+        filtered = [d for d in filtered if (d.get("lead_quality") == "hot") or (d.get("lead_score") or 0) >= 80 or d.get("priority") == "high"]
+    elif filter_type == "warm":
+        filtered = [d for d in filtered if (d.get("lead_quality") == "warm") or (50 <= (d.get("lead_score") or 0) < 80) or d.get("priority") == "medium"]
+    elif filter_type == "pricing":
+        filtered = [d for d in filtered if d.get("budget") or any(w in (d.get("comment_text") or "").lower() for w in ["price", "cost", "rate", "kitna", "how much", "quote", "charges", "fees", "fee", "budget"])]
+    elif filter_type in ("inquiry", "questions"):
+        filtered = [d for d in filtered if "?" in (d.get("comment_text") or "") or any(w in (d.get("comment_text") or "").lower() for w in ["details", "info", "interested", "available", "where", "how", "share", "send", "call", "dm", "location", "address", "contact"])]
+
+    if quality:
+        filtered = [d for d in filtered if (d.get("lead_quality") or "").lower() == quality.lower()]
+
+    # Sorting
+    if sort_by == "newest":
+        filtered.sort(key=lambda d: d.get("published_date") or "", reverse=True)
+    elif sort_by == "oldest":
+        filtered.sort(key=lambda d: d.get("published_date") or "")
+    elif sort_by == "reactions":
+        filtered.sort(key=lambda d: d.get("reactions_count") or 0, reverse=True)
+    else:  # default "score"
+        # highest score first, then contact on top, then newest
+        filtered.sort(key=lambda d: (
+            d.get("lead_score") or 0,
+            1 if d.get("has_contact") else 0,
+            d.get("published_date") or ""
+        ), reverse=True)
+
+    paginated = filtered[offset:offset + limit]
+
     return {
         "post": _serialize(post),
         "platform": _resolve_platform(post),
-        "comments": docs,
-        "total": total,
-        "all_count": all_docs_len if not only_leads else total,
-        "contact_count": contact_count if not only_leads else
-            await db.ai_comments.count_documents(
-                {"post_ref": post_id, "is_lead": True}),
+        "comments": paginated,
+        "total": len(filtered),
+        "all_count": total_all,
+        "contact_count": total_contact,
+        "counts": {
+            "all": total_all,
+            "leads": total_leads,
+            "contact": total_contact,
+            "hot": total_hot,
+            "pricing": total_pricing,
+            "inquiry": total_inquiry,
+        },
         "comments_status": post.get("comments_status"),
-        "total_comment_count": post.get("total_comment_count") or post.get("comments_count") or 0,
-        "scraped_comment_count": post.get("scraped_comment_count") or 0,
-        "comments_count": post.get("scraped_comment_count") or 0,
+        "total_comment_count": post.get("total_comment_count") or post.get("comments_count") or total_all,
+        "scraped_comment_count": post.get("scraped_comment_count") or total_all,
+        "comments_count": post.get("scraped_comment_count") or total_all,
         "minComments": current_min_comments(),
         "comments_error": post.get("comments_error"),
         "comments_error_meta": post.get("comments_error_meta"),
@@ -694,12 +794,28 @@ def _split_date_time(value) -> tuple:
 
 def _csv_response(rows: list, columns: list, filename: str) -> Response:
     output = io.StringIO()
-    writer = csv.writer(output)
+    writer = csv.writer(output, lineterminator="\r\n")
     writer.writerow(columns)
     for row in rows:
-        writer.writerow([row.get(c, "") if row.get(c) is not None else "" for c in columns])
+        formatted_row = []
+        for c in columns:
+            val = row.get(c, "")
+            if val is None:
+                val = ""
+            elif isinstance(val, (int, float)):
+                val = str(val)
+            elif isinstance(val, list):
+                val = ", ".join(str(x) for x in val)
+            elif isinstance(val, bool):
+                val = "Yes" if val else "No"
+            else:
+                val = str(val).replace("\r\n", " ").replace("\n", " ").replace("\r", " ").strip()
+            formatted_row.append(val)
+        writer.writerow(formatted_row)
+    # utf-8-sig adds the UTF-8 BOM (\xef\xbb\xbf) so Excel on Windows displays Hindi, regional text, and emojis natively
+    csv_bytes = output.getvalue().encode("utf-8-sig")
     return Response(
-        content=output.getvalue(),
+        content=csv_bytes,
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -742,28 +858,40 @@ async def export_csv(
     if scope == "comments":
         if not post_id:
             raise HTTPException(status_code=400, detail="post_id is required for comments export")
-        query = {"post_ref": post_id}
-        if only_leads:
-            query["is_lead"] = True
-        rows = [doc async for doc in db.ai_comments.find(query).sort("lead_score", -1)]
-        # ai_comments does not store the scrape date or the commenter's
-        # profile URL â€” back-fill both from the raw comment doc so the CSV
-        # always carries date/time and a clickable profile link
-        if rows:
-            refs = [r["comment_ref"] for r in rows if r.get("comment_ref")]
-            raw_fields = {}
-            if refs:
-                async for raw in db.facebook_comments.find(
-                        {"_id": {"$in": [ObjectId(r) for r in refs]}},
-                        {"published_date": 1, "author_profile_url": 1}):
-                    raw_fields[str(raw["_id"])] = raw
-            for r in rows:
-                raw = raw_fields.get(r.get("comment_ref"), {})
-                published = r.get("published_date") or raw.get("published_date")
-                r["comment_date"], r["comment_time"] = _split_date_time(published)
-                url = raw.get("author_profile_url") or ""
-                r["commenter_url"] = (
-                    f'=HYPERLINK("{url}","Open profile")' if url.strip() else "")
-        return _csv_response(rows, COMMENTS_CSV, f"leads_{datetime.now().strftime('%Y%m%d')}.csv")
+        raw_comments = [doc async for doc in db.facebook_comments.find({"post_ref": post_id}).sort("published_date", -1)]
+        refs = [str(raw["_id"]) for raw in raw_comments]
+        ai_by_ref = {}
+        if refs:
+            async for a in db.ai_comments.find({"comment_ref": {"$in": refs}}):
+                ai_by_ref[a["comment_ref"]] = _serialize(a)
+
+        rows = []
+        for raw in raw_comments:
+            c_ref = str(raw["_id"])
+            ai = ai_by_ref.get(c_ref, {})
+            if only_leads and not ai.get("is_lead"):
+                continue
+
+            r = _serialize(raw)
+            r["platform"] = _resolve_platform(raw)
+            r["commenter_name"] = raw.get("author_name") or "User"
+            r["comment_text"] = raw.get("text") or ""
+            published = raw.get("published_date")
+            r["comment_date"], r["comment_time"] = _split_date_time(published)
+            url = raw.get("author_profile_url") or raw.get("comment_url") or ""
+            r["commenter_url"] = f'=HYPERLINK("{url}","Open profile")' if url.strip() else ""
+
+            for key in ("phone", "email", "whatsapp", "website", "budget", "requirement",
+                        "location", "intent", "urgency", "priority", "lead_quality",
+                        "confidence", "lead_score"):
+                if ai.get(key) is not None:
+                    r[key] = ai[key]
+                elif r.get(key) is None:
+                    r[key] = ""
+            rows.append(r)
+
+        rows.sort(key=lambda x: (x.get("lead_score") or 0), reverse=True)
+        fname = f"leads_{datetime.now().strftime('%Y%m%d')}.csv" if only_leads else f"comments_{datetime.now().strftime('%Y%m%d')}.csv"
+        return _csv_response(rows, COMMENTS_CSV, fname)
 
     raise HTTPException(status_code=404, detail="scope must be pages, posts or comments")

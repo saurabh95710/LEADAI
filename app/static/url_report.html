@@ -6,62 +6,66 @@
   <title>LeadAI — URL Search Report</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=2">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500;1,9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css?v=light1">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
   <style>
-    .report-wrap { max-width: 1280px; margin: 0 auto; }
+    .report-wrap { max-width: 1280px; margin: 0 auto; background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
     .report-hero { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
-    .report-hero img.avatar { width: 96px; height: 96px; border-radius: 16px; object-fit: cover; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); }
+    .report-hero img.avatar { width: 96px; height: 96px; border-radius: 16px; object-fit: cover; background: var(--surface-2); border: 1px solid var(--border); }
     .report-hero .meta { flex: 1; min-width: 260px; }
-    .report-hero h1 { margin: 0 0 6px; font-size: 1.5rem; }
-    .report-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 10px 18px; margin-top: 14px; }
-    .report-kv .kv { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 8px 12px; }
-    .kv .l { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: rgba(255,255,255,.5); }
-    .kv .v { font-weight: 600; }
-    .report-section { margin-top: 26px; }
-    .report-section h2 { font-size: 1.05rem; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
-    .report-error { border-left: 3px solid #ff6b6b; background: rgba(255,107,107,.08); padding: 10px 14px; border-radius: 8px; margin-top: 14px; }
-    .report-loading { text-align: center; padding: 80px 0; color: rgba(255,255,255,.6); }
-    .back-link { display: inline-flex; align-items: center; gap: 6px; color: rgba(255,255,255,.7); text-decoration: none; font-size: .9rem; margin-bottom: 18px; }
-    .back-link:hover { color: #fff; }
-    .report-stats { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 14px; }
-    .stat-pill { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); padding: 8px 16px; border-radius: 999px; font-size: .85rem; }
-    .stat-pill b { color: #7ee2a8; }
-    .post-card { background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+    .report-hero h1 { margin: 0 0 6px; font-size: 1.6rem; font-family: var(--font-display); font-weight: 500; font-style: italic; color: var(--text); }
+    .report-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 10px 18px; margin-top: 18px; }
+    .report-kv .kv { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px 14px; }
+    .kv .l { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); font-family: var(--font-mono); font-weight: 600; }
+    .kv .v { font-weight: 600; font-family: var(--font-mono); color: var(--text); font-size: 0.95rem; margin-top: 2px; }
+    .report-section { margin-top: 28px; }
+    .report-section h2 { font-size: 1.15rem; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-weight: 500; font-style: italic; color: var(--text); }
+    .report-error { border-left: 3.5px solid var(--red); background: var(--red-soft); color: var(--red); padding: 10px 14px; border-radius: 8px; margin-top: 14px; font-size: 0.85rem; }
+    .report-loading { text-align: center; padding: 80px 0; color: var(--text-dim); font-size: 0.95rem; }
+    .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); text-decoration: none; font-size: .88rem; font-weight: 500; margin-bottom: 18px; transition: color 0.15s; }
+    .back-link:hover { color: var(--amber-deep); }
+    .report-stats { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+    .stat-pill { background: var(--amber-soft); border: 1px solid rgba(240,165,49,0.35); padding: 6px 14px; border-radius: 999px; font-size: .82rem; color: var(--text); font-family: var(--font-mono); font-weight: 500; }
+    .stat-pill b { color: var(--amber-deep); }
+    .post-card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 12px; padding: 16px 18px; margin-bottom: 12px; box-shadow: var(--shadow-sm); transition: transform 0.15s ease, box-shadow 0.15s ease; }
+    .post-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); border-color: var(--border); }
     .post-card .p-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-    .post-card .p-cap { margin: 0; font-size: .92rem; line-height: 1.5; max-height: 84px; overflow: hidden; text-overflow: ellipsis; }
-    .post-card .p-stats { display: flex; gap: 16px; color: rgba(255,255,255,.55); font-size: .8rem; margin-top: 8px; }
-    .p-thumb { max-width: 120px; border-radius: 8px; display: block; }
+    .post-card .p-cap { margin: 0; font-size: .92rem; line-height: 1.5; max-height: 84px; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+    .post-card .p-stats { display: flex; gap: 16px; color: var(--text-faint); font-size: .78rem; margin-top: 8px; font-family: var(--font-mono); }
+    .p-thumb { max-width: 120px; border-radius: 8px; display: block; border: 1px solid var(--border); }
     .post-card .p-body { display: flex; gap: 14px; }
-    .comment-row { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+    .comment-row { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border-soft); }
     .comment-row:last-child { border-bottom: none; }
-    .comment-row .c-avatar { width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.08); flex: none; display: grid; place-items: center; font-weight: 700; }
-    .comment-row .c-name { font-weight: 600; font-size: .86rem; }
-    .comment-row .c-text { font-size: .85rem; color: rgba(255,255,255,.85); margin-top: 2px; line-height: 1.45; }
-    .comment-row .c-meta { font-size: .72rem; color: rgba(255,255,255,.45); margin-top: 4px; }
-    .comment-row .c-lead { display: inline-block; font-size: .66rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 6px; background: rgba(239,68,68,.18); color: #fca5a5; border: 1px solid rgba(239,68,68,.4); vertical-align: middle; }
+    .comment-row .c-avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--amber-soft); border: 1px solid rgba(240,165,49,0.3); flex: none; display: grid; place-items: center; font-weight: 700; color: var(--amber-deep); font-family: var(--font-mono); }
+    .comment-row .c-name { font-weight: 600; font-size: .86rem; color: var(--text); }
+    .comment-row .c-text { font-size: .85rem; color: var(--text-dim); margin-top: 2px; line-height: 1.45; }
+    .comment-row .c-meta { font-size: .72rem; color: var(--text-faint); margin-top: 4px; font-family: var(--font-mono); }
+    .comment-row .c-lead { display: inline-block; font-size: .66rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px; background: var(--amber-soft); color: var(--amber-deep); border: 1px solid rgba(240,165,49,0.35); vertical-align: middle; font-family: var(--font-mono); }
     .comment-row .c-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-    .comment-row .c-chip { font-size: .7rem; padding: 2px 8px; border-radius: 999px; background: rgba(139,92,246,.12); border: 1px solid rgba(139,92,246,.35); color: #c4b5fd; }
-    .plain-link { color: #7ab8ff; word-break: break-all; }
+    .comment-row .c-chip { font-size: .7rem; padding: 3px 9px; border-radius: 999px; background: var(--violet-soft); border: 1px solid rgba(124,92,255,0.3); color: #5535cf; font-family: var(--font-mono); font-weight: 500; }
+    .plain-link { color: var(--violet); word-break: break-all; text-decoration: none; }
+    .plain-link:hover { text-decoration: underline; color: var(--violet-deep); }
   </style>
 </head>
 <body>
   <div class="app-shell">
-    <div class="bg-orbs">
+    <div class="bg-orbs" aria-hidden="true">
       <div class="orb orb-1"></div>
       <div class="orb orb-2"></div>
       <div class="orb orb-3"></div>
+      <div class="bg-grid"></div>
     </div>
 
     <header class="topbar">
       <div class="topbar-left">
-        <div class="brand-logo">
-          <span class="logo-icon">🎯</span>
-          <div>
-            <div class="brand-name">LeadAI</div>
-            <div class="brand-sub">Social URL Lead Report</div>
+        <a class="brand-logo" href="/" aria-label="LeadAI home">
+          <span class="logo-icon" data-brand-logo="primary" aria-hidden="true">✦</span>
+          <div class="brand-text">
+            <span class="brand-name" data-brand-name>LeadAI</span>
+            <span class="brand-sub" data-brand-sub>Social URL Lead Report</span>
           </div>
-        </div>
+        </a>
       </div>
       <div class="topbar-right">
         <a href="/" class="docs-link">← Dashboard</a>
@@ -69,7 +73,7 @@
     </header>
 
     <main class="main-content">
-      <div class="report-wrap glass-card" style="padding:28px">
+      <div class="report-wrap" style="padding:28px">
         <div id="reportLoading" class="report-loading">Loading the URL search report…</div>
         <div id="reportContent" class="hidden">
           <a href="/" class="back-link">← Back to dashboard</a>
@@ -78,7 +82,7 @@
             <img id="rAvatar" class="avatar hidden" alt="profile" onerror="this.style.display='none'">
             <div class="meta">
               <h1 id="rTitle">—</h1>
-              <div style="font-size:.86rem;color:rgba(255,255,255,.6)" id="rUrl"></div>
+              <div style="font-size:.86rem;color:var(--text-dim)" id="rUrl"></div>
               <div id="rError" class="report-error hidden"></div>
               <div class="report-stats" id="rStats"></div>
             </div>
@@ -100,8 +104,12 @@
     </main>
   </div>
 
+<script src="/static/config.js"></script>
   <script>
-  "use strict";
+    if (window.AppConfig) AppConfig.load();
+  </script>
+  <script>
+    "use strict";
   const RUN_ID = new URLSearchParams(location.search).get("run_id") || "";
   const $ = (id) => document.getElementById(id);
 
@@ -118,6 +126,24 @@
     if (num >= 100000) return (num/100000).toFixed(1).replace(/\.0$/,"") + " L";
     if (num >= 1000) return (num/1000).toFixed(1).replace(/\.0$/,"") + "K";
     return String(num);
+  }
+  function parseDate(ts) {
+    if (!ts) return null;
+    if (ts instanceof Date) return isNaN(ts.getTime()) ? null : ts;
+    let s = String(ts).trim();
+    if (!s) return null;
+    if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s)) {
+      s = s.replace(" ", "T") + "Z";
+    }
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  function formatDate(ts) {
+    const d = parseDate(ts);
+    return d ? d.toLocaleString(undefined, {
+      day: "numeric", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit"
+    }) : (ts ? String(ts) : "");
   }
   const PLATFORM_ICON = { facebook:"🏠", instagram:"📸", youtube:"▶️", linkedin:"💼" };
   const PLATFORM_NAME = { facebook:"Facebook", instagram:"Instagram", youtube:"YouTube", linkedin:"LinkedIn" };
@@ -138,109 +164,101 @@
 
       const page = d.page;
       if (!page) {
-        $("rTitle").textContent = "No page found";
-        const err = $("rError");
-        err.textContent = d.error || d.message || "The URL search produced no page details — the page may be private or the URL invalid.";
-        err.classList.remove("hidden");
+        $("rTitle").textContent = "Search Run: " + (d.search ? d.search.query : RUN_ID);
+        $("rUrl").innerHTML = d.search && d.search.canonical_url
+          ? `<a class="plain-link" href="${esc(d.search.canonical_url)}" target="_blank" rel="noopener">${esc(d.search.canonical_url)}</a>`
+          : "";
+        if (d.search && d.search.status === "error") {
+          $("rError").textContent = "Search error: " + (d.search.error || "failed");
+          $("rError").classList.remove("hidden");
+        }
+        $("rStats").innerHTML = `<span class="stat-pill">Status: <b>${esc((d.search && d.search.status) || "unknown")}</b></span>`;
         return;
       }
 
-      document.title = `LeadAI — ${page.page_name || "URL Report"}`;
-      const platform = d.platform || "unknown";
-      const icon = PLATFORM_ICON[platform] || "🔗";
-      $("rTitle").textContent = `${icon} ${esc(page.page_name || "Unnamed")}`;
-      $("rUrl").textContent = esc(d.search_url || page.facebook_url || "");
+      $("rTitle").textContent = page.page_name || "Unnamed entity";
       if (page.profile_picture) {
         const av = $("rAvatar");
         av.src = page.profile_picture;
         av.classList.remove("hidden");
       }
+      $("rUrl").innerHTML = page.facebook_url
+        ? `<a class="plain-link" href="${esc(page.facebook_url)}" target="_blank" rel="noopener">${esc(page.facebook_url)}</a>`
+        : "";
 
+      const pIcon = PLATFORM_ICON[page.platform] || "🔗";
+      const pName = PLATFORM_NAME[page.platform] || page.platform || "Platform";
       $("rStats").innerHTML = `
-        <span class="stat-pill">Platform: <b>${esc(PLATFORM_NAME[platform] || platform)}</b></span>
+        <span class="stat-pill">${pIcon} <b>${esc(pName)}</b></span>
         <span class="stat-pill">Followers: <b>${fmt(page.followers)}</b></span>
-        <span class="stat-pill">Activity: <b>${esc(page.activity_status || "N/A")}</b></span>
+        <span class="stat-pill">Likes: <b>${fmt(page.likes)}</b></span>
         <span class="stat-pill">Posts: <b>${d.posts.length}</b></span>
         <span class="stat-pill">Comments: <b>${d.comments.length}</b></span>
-        ${page.qualifying_posts_count ? `<span class="stat-pill">Qualifying: <b>${fmt(page.qualifying_posts_count)}</b></span>` : ""}
-        ${page.lead_score != null ? `<span class="stat-pill">Lead score: <b>${Math.round(page.lead_score)}</b></span>` : ""}
-        <span class="stat-pill">Generated: <b>${esc((d.generated_at || "").slice(0,16).replace("T"," "))}</b></span>`;
+        <span class="stat-pill">Qualified Leads: <b>${d.leads.length}</b></span>
+      `;
 
       const kv = [];
-      if (page.category) kv.push(["Category", page.category]);
-      if (page.about) kv.push(["About", page.about]);
-      if (page.phone) kv.push(["Phone", page.phone]);
-      if (page.email) kv.push(["Email", page.email]);
-      if (page.whatsapp) kv.push(["WhatsApp", page.whatsapp]);
+      if (page.phone) kv.push(["Phone", `<a class="plain-link" href="tel:${esc(page.phone)}">${esc(page.phone)}</a>`]);
+      if (page.email) kv.push(["Email", `<a class="plain-link" href="mailto:${esc(page.email)}">${esc(page.email)}</a>`]);
       if (page.website) kv.push(["Website", `<a class="plain-link" href="${esc(page.website)}" target="_blank" rel="noopener">${esc(page.website)}</a>`]);
-      if (page.address) kv.push(["Address", page.address]);
-      if (page.country) kv.push(["Country", page.country]);
-      if (page.followers != null) kv.push(["Followers", fmt(page.followers)]);
-      if (page.verified != null) kv.push(["Verified", page.verified ? "Yes" : "No"]);
-      kv.push(["Source", platform + " (Apify)"]);
-      $("rKv").innerHTML = kv.map(([l, v]) =>
-        `<div class="kv"><div class="l">${esc(l)}</div><div class="v">${v}</div></div>`).join("");
+      if (page.address) kv.push(["Address", esc(page.address)]);
+      if (page.category) kv.push(["Category", esc(page.category)]);
+      if (page.verified) kv.push(["Verification", "✓ Verified"]);
+      if (d.search && d.search.cost_usd) kv.push(["Apify Cost", "$" + Number(d.search.cost_usd).toFixed(4)]);
+      $("rKv").innerHTML = kv.map(([k,v]) => `<div class="kv"><div class="l">${k}</div><div class="v">${v}</div></div>`).join("");
 
       $("rPostCount").textContent = `(${d.posts.length})`;
-      $("rPosts").innerHTML = d.posts.length
-        ? d.posts.map((p) => {
-            const thumb = p.images && p.images.length
-              ? `<img class="p-thumb" src="${esc(p.images[0])}" loading="lazy" onerror="this.style.display='none'">`
-              : (p.videos && p.videos.length ? `<span class="p-thumb">🎬</span>` : "");
-            return `<div class="post-card">
-              <div class="p-body">
-                ${thumb}
-                <div style="flex:1;min-width:0">
-                  <p class="p-cap">${esc(p.caption || p.description || "No caption")}</p>
-                  <div class="p-stats">
-                    <span>❤️ ${fmt(p.likes_count)}</span>
-                    <span>💬 ${fmt(p.comments_count || p.total_comment_count)}</span>
-                    ${p.shares_count != null ? `<span>🔁 ${fmt(p.shares_count)}</span>` : ""}
-                    <span>📅 ${esc(p.published_date || "—")}</span>
-                    ${p.post_url ? `<a class="plain-link" href="${esc(p.post_url)}" target="_blank" rel="noopener">open ↗</a>` : ""}
-                  </div>
+      if (!d.posts.length) {
+        $("rPosts").innerHTML = '<div class="muted">No posts collected for this page yet.</div>';
+      } else {
+        $("rPosts").innerHTML = d.posts.map(p => `
+          <div class="post-card">
+            <div class="p-body">
+              ${p.media_url ? `<img class="p-thumb" src="${esc(p.media_url)}" loading="lazy" onerror="this.style.display='none'">` : ""}
+              <div style="flex:1;min-width:0">
+                <p class="p-cap">${esc(p.post_caption || p.post_text || "—")}</p>
+                <div class="p-stats">
+                  <span>💬 ${fmt(p.comments_count)} comments</span>
+                  <span>👍 ${fmt(p.likes_count)} likes</span>
+                  <span>🔄 ${fmt(p.shares_count)} shares</span>
+                  ${p.post_url ? `<a class="plain-link" href="${esc(p.post_url)}" target="_blank" rel="noopener">open post ↗</a>` : ""}
                 </div>
               </div>
-            </div>`;
-          }).join("")
-        : `<div class="empty-state"><div class="empty-icon">📝</div><div class="empty-title">No posts found</div><div class="empty-sub">This ${esc(PLATFORM_NAME[platform] || "page")} may have no public posts.</div></div>`;
+            </div>
+          </div>
+        `).join("");
+      }
 
       $("rCommentCount").textContent = `(${d.comments.length})`;
-      $("rComments").innerHTML = d.comments.length
-        ? d.comments.map((c) => {
-            const initial = (c.author_name || "?").trim().charAt(0).toUpperCase();
-            const leadBadge = c.is_lead
-              ? `<span class="c-lead">🎯 Lead</span><span class="c-lead">⭐ ${Math.round(c.lead_score)}</span>`
-              : "";
-            const chips = [];
-            if (c.phone) chips.push(["📞", c.phone]);
-            if (c.email) chips.push(["✉️", c.email]);
-            if (c.whatsapp) chips.push(["💬", c.whatsapp]);
-            if (c.budget) chips.push(["💰", c.budget]);
-            if (c.intent) chips.push(["🎯", c.intent]);
-            if (c.urgency) chips.push(["⚡", c.urgency]);
-            if (c.location) chips.push(["📍", c.location]);
-            if (c.website) chips.push(["🌐", c.website]);
-            const chipHtml = chips.map(([ic, v]) =>
-              `<span class="c-chip">${ic} ${esc(v)}</span>`).join("");
-            return `<div class="comment-row">
+      if (!d.comments.length) {
+        $("rComments").innerHTML = '<div class="muted">No comments analyzed yet.</div>';
+      } else {
+        $("rComments").innerHTML = d.comments.map(c => {
+          const isLead = c.is_lead;
+          const leadBadge = isLead ? `<span class="c-lead">LEAD (score: ${c.lead_score || 0})</span>` : "";
+          const chips = [];
+          if (c.phone) chips.push("📞 " + esc(c.phone));
+          if (c.email) chips.push("✉️ " + esc(c.email));
+          if (c.whatsapp) chips.push("💬 " + esc(c.whatsapp));
+          if (c.budget) chips.push("💰 " + esc(c.budget));
+          if (c.intent) chips.push("🎯 " + esc(c.intent));
+          const chipsHtml = chips.length ? `<div class="c-chips">${chips.map(ch => `<span class="c-chip">${ch}</span>`).join("")}</div>` : "";
+          const initial = (c.commenter_name || "?").trim().charAt(0).toUpperCase();
+          return `
+            <div class="comment-row">
               <div class="c-avatar">${esc(initial)}</div>
               <div style="flex:1;min-width:0">
-                <div class="c-name">${esc(c.author_name || "Unknown commenter")} ${leadBadge}</div>
-                <div class="c-text">${esc(c.text || "—")}</div>
-                ${chipHtml ? `<div class="c-chips">${chipHtml}</div>` : ""}
-                <div class="c-meta">
-                  ${c.published_date ? `📅 ${esc(c.published_date)} · ` : ""}
-                  ${c.reactions_count != null ? `❤️ ${fmt(c.reactions_count)} · ` : ""}
-                  ${c.author_profile_url ? `<a class="plain-link" href="${esc(c.author_profile_url)}" target="_blank" rel="noopener">profile ↗</a> · ` : ""}
-                  ${c.comment_url ? `<a class="plain-link" href="${esc(c.comment_url)}" target="_blank" rel="noopener">comment ↗</a>` : ""}
-                </div>
+                <div class="c-name">${esc(c.commenter_name || "Unknown")}${leadBadge}</div>
+                <div class="c-text">${esc(c.comment_text || "—")}</div>
+                ${chipsHtml}
+                <div class="c-meta">${c.published_date ? formatDate(c.published_date) : ""}</div>
               </div>
-            </div>`;
-          }).join("")
-        : `<div class="empty-state"><div class="empty-icon">💬</div><div class="empty-title">No comments collected</div><div class="empty-sub">Comments are collected for Facebook, Instagram & LinkedIn posts in URL search.</div></div>`;
+            </div>
+          `;
+        }).join("");
+      }
     } catch (err) {
-      $("reportLoading").textContent = "Could not load the report: " + err.message;
+      $("reportLoading").textContent = "Could not load report: " + err.message;
     }
   }
 

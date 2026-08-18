@@ -180,21 +180,17 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
         break
 
     if page_doc is None:
-        if page_error:
-            # graceful fallback — a URL-derived page doc keeps the pipeline
-            # (posts + comments) usable even when the details actor is blocked
-            page_doc = _url_derived_page(platform, canonical_url, run_id, page_error)
-            try:
-                page_doc["_id"] = ObjectId()
-                db.facebook_pages.insert_one(page_doc)
-            except Exception:
-                logger.warning("[URL SEARCH] fallback page insert failed", exc_info=True)
-        else:
-            msg = ("Could not read page details — the page/profile may be private "
-                   "or the link may be wrong.")
-            progress(status="error", error=msg, phase="no_page")
-            return {"status": "error", "error": msg, "success": False,
-                    "page_id": None}
+        # graceful fallback — a URL-derived page doc keeps the pipeline
+        # (posts + comments) usable even when the details actor is blocked or returns empty
+        page_doc = _url_derived_page(platform, canonical_url, run_id, page_error or {
+            "errorType": "EMPTY_DETAILS",
+            "message": "Page details unavailable; continuing with post and comment extraction."
+        })
+        try:
+            page_doc["_id"] = ObjectId()
+            db.facebook_pages.insert_one(page_doc)
+        except Exception:
+            logger.warning("[URL SEARCH] fallback page insert failed", exc_info=True)
 
     page_id = str(page_doc["_id"])
     logger.info(f"[URL SEARCH] page stored: {page_id} "
@@ -306,24 +302,36 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
                              message="Search cancelled by user", completed_at=utcnow())
                     return cancelled()
                 comment_json = scraper.normalize_comment(item, post)
-                if not comment_json or not comment_json.get("comment_url"):
+                if not comment_json or not (comment_json.get("text") or comment_json.get("comment_id")):
                     continue
                 # every scraped comment is kept; comments carrying a phone
                 # number or email are flagged (has_contact) so they surface
                 # at the top of the comments view as leads
                 comment_json["has_contact"] = bool(
                     has_contact_info(comment_json.get("text")))
-                comment_json["_id"] = ObjectId()
                 comment_json["post_ref"] = str(post["_id"])
                 comment_json["search_run_id"] = run_id
                 comment_json["created_at"] = utcnow()
                 comment_json["updated_at"] = utcnow()
-                try:
+
+                # Multi-key deduplication so comments never overwrite each other
+                existing = None
+                if comment_json.get("comment_id"):
+                    existing = db.facebook_comments.find_one({"post_ref": str(post["_id"]), "comment_id": comment_json["comment_id"]})
+                if not existing and comment_json.get("comment_url") and comment_json.get("comment_url") != post.get("post_url"):
+                    existing = db.facebook_comments.find_one({"post_ref": str(post["_id"]), "comment_url": comment_json["comment_url"]})
+                if not existing and comment_json.get("text"):
+                    existing = db.facebook_comments.find_one({"post_ref": str(post["_id"]), "text": comment_json["text"], "author_name": comment_json.get("author_name")})
+
+                if existing:
+                    db.facebook_comments.update_one({"_id": existing["_id"]}, {"$set": {
+                        **{k: v for k, v in comment_json.items() if v is not None}, "updated_at": utcnow()}})
+                else:
+                    comment_json["_id"] = ObjectId()
                     db.facebook_comments.insert_one(comment_json)
                     comment_docs += 1
                     stored_for_post += 1
-                except DuplicateKeyError:
-                    continue
+
                 db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
                     "scraped_comment_count": stored_for_post, "updated_at": utcnow()}})
                 if comment_docs >= cap:
@@ -339,7 +347,50 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
             if stored_for_post:
                 try:
                     from app.pipeline.comment_ai import analyze_comments_for_post
-                    analyze_comments_for_post(str(post["_id"]))
+                    from app.pipeline import comment_filter as cfilter
+
+                    # Keyword Filter layer: run config → active rule. Comments
+                    # not matching stay stored but skip the AI stage.
+                    run_doc = db.search_history.find_one({"run_id": run_id})
+                    rule = cfilter.resolve_effective_rule(db, run_doc)
+                    filter_summary = None
+                    comment_refs = None
+                    if rule:
+                        filter_summary = cfilter.filter_comments_for_post(
+                            db, str(post["_id"]), rule,
+                            search_run_id=run_id,
+                            platform=post.get("platform"))
+                        if not cfilter.rule_is_empty(rule):
+                            comment_refs = (filter_summary.get("matched_refs")
+                                            or [])
+                        db.facebook_posts.update_one(
+                            {"_id": post["_id"]}, {"$set": {
+                                "keyword_filter": {
+                                    "rule_id": filter_summary.get("rule_id"),
+                                    "total": filter_summary.get("total", 0),
+                                    "matched": filter_summary.get("matched", 0),
+                                    "not_matched": filter_summary.get(
+                                        "not_matched", 0),
+                                    "no_filter": filter_summary.get(
+                                        "no_filter", 0),
+                                }, "updated_at": utcnow()}})
+                    analyze_comments_for_post(
+                        str(post["_id"]), comment_refs=comment_refs,
+                        filter_summary=filter_summary)
+                    if rule:
+                        db.search_history.update_one(
+                            {"run_id": run_id}, {"$set": {
+                                "comment_filter_summary": {
+                                    "rule_id": filter_summary.get("rule_id"),
+                                    "total": filter_summary.get("total",
+                                                                stored_for_post),
+                                    "matched": filter_summary.get(
+                                        "matched", stored_for_post),
+                                    "not_matched": filter_summary.get(
+                                        "not_matched", 0),
+                                    "no_filter": filter_summary.get(
+                                        "no_filter", 0),
+                                }, "updated_at": utcnow()}})
                 except Exception as e:
                     logger.warning(f"[URL SEARCH] AI comment analysis failed for "
                                    f"{post['post_url']}: {e}")

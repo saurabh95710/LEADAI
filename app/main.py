@@ -9,6 +9,11 @@ from app.db.mongo import ensure_indexes
 from app.api.routes.search import router as search_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.admin import router as admin_router
+from app.api.routes.comment_filters import router as comment_filters_router
+from app.api.routes.settings import (
+    public_router as public_config_router,
+    router as settings_router,
+)
 from app.auth.service import session_user
 from app.config import get_settings
 from app.admin import settings as admin_settings
@@ -52,6 +57,20 @@ async def lifespan(app: FastAPI):
             "Get a free token at https://apify.com/account/integrations"
         )
     ensure_indexes()
+    # Reconcile stale running jobs from previous interruptions/restarts
+    try:
+        from app.db.mongo import get_sync_db
+        from app.db.models import utcnow
+        sdb = get_sync_db()
+        if sdb is not None:
+            res = sdb.search_history.update_many(
+                {"status": "running"},
+                {"$set": {"status": "cancelled", "phase": "cancelled", "message": "Interrupted (server restart)", "completed_at": utcnow()}}
+            )
+            if res.modified_count:
+                logger.info("Cleaned up %d stale running jobs on startup", res.modified_count)
+    except Exception as e:
+        logger.warning("Failed to reconcile stale running jobs on startup: %s", e)
     yield
 
 
@@ -77,6 +96,9 @@ app.add_middleware(
 app.include_router(search_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(comment_filters_router)
+app.include_router(settings_router)
+app.include_router(public_config_router)
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.exists(static_dir):
@@ -101,7 +123,7 @@ async def auth_gate(request: Request, call_next):
     assets and the auth endpoints stay open (the /api/auth endpoints check
     the session themselves where needed)."""
     path = request.url.path
-    if path.startswith(("/static", "/api/auth")) or path in _OPEN_PAGES:
+    if path.startswith(("/static", "/api/auth", "/api/public")) or path in _OPEN_PAGES:
         return await call_next(request)
     user = session_user(request)
     if path.startswith("/api/"):
@@ -127,7 +149,8 @@ async def maintenance_gate(request: Request, call_next):
     if not _maintenance_enabled():
         return await call_next(request)
     path = request.url.path
-    always_open = (path.startswith(("/static", "/api/auth", "/admin", "/api/admin"))
+    always_open = (path.startswith(("/static", "/api/auth", "/admin", "/api/admin",
+                                    "/api/public"))
                    or path in ("/login", "/health"))
     user = session_user(request)
     if always_open or user is not None:

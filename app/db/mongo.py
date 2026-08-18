@@ -121,10 +121,12 @@ def ensure_indexes():
         db.facebook_posts.create_index([("comments_status", ASCENDING)])
 
         _drop_index_if_exists(db.facebook_comments, "comment_url_1")
-        db.facebook_comments.create_index(
-            [("comment_url", ASCENDING), ("post_ref", ASCENDING)], unique=True, sparse=True)
+        _drop_index_if_exists(db.facebook_comments, "comment_url_1_post_ref_1")
+        db.facebook_comments.create_index([("comment_url", ASCENDING)])
+        db.facebook_comments.create_index([("comment_id", ASCENDING)])
         db.facebook_comments.create_index([("post_id", ASCENDING)])
         db.facebook_comments.create_index([("post_ref", ASCENDING)])
+        db.facebook_comments.create_index([("search_run_id", ASCENDING)])
 
         db.ai_comments.create_index([("comment_ref", ASCENDING)], unique=True)
         db.ai_comments.create_index([("post_id", ASCENDING)])
@@ -140,6 +142,21 @@ def ensure_indexes():
         db.admin_users.create_index([("email", ASCENDING)], unique=True)
         db.audit_logs.create_index([("at", ASCENDING)])
         db.audit_logs.create_index([("category", ASCENDING)])
+
+        # Global Settings — versioned revisions for rollback
+        db.settings_history.create_index([("version", ASCENDING)], unique=True)
+        db.settings_history.create_index([("created_at", ASCENDING)])
+
+        # Comment Scraping & Keyword Intelligence (keyword filter layer)
+        db.comment_filter_rules.create_index([("active", ASCENDING)])
+        db.comment_filter_rules.create_index([("platform", ASCENDING)])
+        db.comment_filter_rules.create_index([("created_at", ASCENDING)])
+        db.comment_filter_results.create_index([("comment_id", ASCENDING)], unique=True)
+        db.comment_filter_results.create_index([("rule_id", ASCENDING)])
+        db.comment_filter_results.create_index([("status", ASCENDING)])
+        db.comment_filter_results.create_index([("search_run_id", ASCENDING)])
+        db.comment_categories.create_index([("active", ASCENDING)])
+        db.comment_categories.create_index([("name", ASCENDING)], unique=True, sparse=True)
 
         logger.info("MongoDB indexes verified successfully.")
     except Exception as e:

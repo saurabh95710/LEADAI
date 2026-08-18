@@ -185,25 +185,35 @@ let recentData = [];
 let recentFilter = "all";
 let recentLimit = 8;
 
+function parseDate(ts) {
+  if (!ts) return null;
+  if (ts instanceof Date) return isNaN(ts.getTime()) ? null : ts;
+  let s = String(ts).trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s)) {
+    s = s.replace(" ", "T") + "Z";
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 function relativeTime(ts) {
-  if (!ts) return "";
-  const t = new Date(String(ts).replace(" ", "T") + "Z").getTime();
-  if (isNaN(t)) return "";
-  const diff = Date.now() - t;
+  const d = parseDate(ts);
+  if (!d) return "";
+  const diff = Date.now() - d.getTime();
   const m = Math.floor(diff / 60000);
   if (m < 1) return "just now";
   if (m < 60) return m + "m ago";
   const h = Math.floor(m / 60);
   if (h < 24) return h + "h ago";
-  const d = Math.floor(h / 24);
-  if (d < 30) return d + "d ago";
-  return new Date(t).toLocaleDateString();
+  const days = Math.floor(h / 24);
+  if (days < 30) return days + "d ago";
+  return d.toLocaleDateString();
 }
 
 function formatDate(ts) {
-  if (!ts) return "";
-  const d = new Date(ts);
-  if (isNaN(d.getTime())) return String(ts);
+  const d = parseDate(ts);
+  if (!d) return ts ? String(ts) : "";
   return d.toLocaleString(undefined, {
     day: "numeric", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit",
@@ -337,8 +347,32 @@ async function handleUrlSearch(event) {
   prog.classList.remove("hidden");
   setBadge("URL search", "status-running");
 
+  const params = new URLSearchParams({
+    url,
+    max_posts: String(maxPosts),
+    max_comments_per_post: String(maxCommentsPerPost),
+  });
+  const mode = (document.querySelector('input[name="filterMode"]:checked') || {}).value || "all";
+  if (mode === "preset") {
+    const preset = $("urlFilterPreset") ? $("urlFilterPreset").value : "";
+    if (preset) { params.set("filter_mode", "preset"); params.set("preset", preset); }
+  } else if (mode === "custom") {
+    const inc = ($("urlFilterInclude").value || "").trim();
+    const exc = ($("urlFilterExclude").value || "").trim();
+    const cats = Array.from(document.querySelectorAll("#urlFilterCategories input:checked"))
+      .map((c) => c.value).join(",");
+    if (inc || exc || cats) {
+      params.set("filter_mode", "custom");
+      if (inc) params.set("include_keywords", inc);
+      if (exc) params.set("exclude_keywords", exc);
+      if (cats) params.set("categories", cats);
+      const mm = $("urlFilterMatchMode");
+      if (mm) params.set("match_mode", mm.value);
+    }
+  }
+
   try {
-    const res = await fetch(`/api/url/search?url=${encodeURIComponent(url)}&max_posts=${maxPosts}&max_comments_per_post=${maxCommentsPerPost}`, { method: "POST" });
+    const res = await fetch(`/api/url/search?${params.toString()}`, { method: "POST" });
     if (!res.ok) {
       const err = await res.json();
       throw new Error((err.detail && (err.detail.message || err.detail)) || "URL search failed");
@@ -398,6 +432,73 @@ async function handleUrlSearch(event) {
   }
 }
 
+// ── Comment Filter (user URL search) ────────────────────────────────────
+
+let urlFilterTouched = false;
+
+function urlFilterModeChanged() {
+  const radio = document.querySelector('input[name="filterMode"]:checked');
+  const mode = radio ? radio.value : "all";
+  const presetField = $("urlFilterPresetField");
+  const customField = $("urlFilterCustomField");
+  if (presetField) presetField.classList.toggle("hidden", mode !== "preset");
+  if (customField) customField.classList.toggle("hidden", mode !== "custom");
+}
+
+// Apply the admin-configured default mode/preset on first visit
+async function applyUrlFilterDefaults() {
+  if (!window.AppConfig) return;
+  try {
+    const cfg = await AppConfig.load();
+    const mode = cfg.defaults.comment_filter_mode;
+    if (!mode || !["all", "preset", "custom"].includes(mode)) return;
+    const radio = document.querySelector(`input[name="filterMode"][value="${mode}"]`);
+    if (radio && !urlFilterTouched && !radio.checked) {
+      radio.checked = true;
+      if (mode === "preset" && cfg.defaults.keyword_preset) {
+        const presetSel = $("urlFilterPreset");
+        if (presetSel && [...presetSel.options].some((o) => o.value === cfg.defaults.keyword_preset)) {
+          presetSel.value = cfg.defaults.keyword_preset;
+        }
+      }
+      urlFilterModeChanged();
+    }
+  } catch (err) { /* defaults stay untouched on config failure */ }
+}
+
+async function loadUrlFilterCatalog() {
+  const presetSel = $("urlFilterPreset");
+  const catsWrap = $("urlFilterCategoriesWrap");
+  const catsBox = $("urlFilterCategories");
+  try {
+    const res = await fetch("/api/comment-filters/catalog");
+    if (!res.ok) throw new Error("catalog failed");
+    const cat = await res.json();
+    const opts = (cat.presets || []).map((p) =>
+      `<option value="${esc(p.key)}">Preset · ${esc(p.name)}</option>`);
+    try {
+      const r2 = await fetch("/api/comment-filters/rules");
+      if (r2.ok) {
+        const rules = (await r2.json()).rules || [];
+        for (const r of rules) {
+          opts.push(`<option value="${esc(r.id)}">${r.active ? "★ Active rule · " : "Rule · "}${esc(r.name)}</option>`);
+        }
+      }
+    } catch (err) { /* non-admin users only get presets */ }
+    if (presetSel) {
+      presetSel.innerHTML = `<option value="">Default (admin rule or all)</option>` + opts.join("");
+    }
+    const cats = [...(cat.categories || []), ...(cat.custom_categories || [])];
+    if (cats.length && catsWrap && catsBox) {
+      catsWrap.classList.remove("hidden");
+      catsBox.innerHTML = cats.map((c) =>
+        `<label class="filter-cat"><input type="checkbox" value="${esc(c.key || c.id || c._id)}"><span>${esc(c.icon || "")} ${esc(c.name)}</span></label>`).join("");
+    }
+  } catch (err) {
+    if (presetSel) presetSel.innerHTML = `<option value="">Filtering unavailable</option>`;
+  }
+}
+
 // ── PAGES ────────────────────────────────────────────────────────────────
 async function renderPagesScreen() {
   if (!memory.runId) { $("pagesGrid").innerHTML = ""; $("pagesListEmpty").classList.remove("hidden"); return; }
@@ -442,7 +543,7 @@ async function renderPagesScreen() {
           : " · auto-analyzing posts now…")
       : "";
     const qualified = data.pages.filter((p) => p.has_qualifying_posts).length;
-    statusBox.innerHTML = `<div class="summary-line">${data.pages.length} page(s) · <b>${qualified} with qualifying posts</b>${collectNote}</div>`;
+    statusBox.innerHTML = `<div class="summary-line">Found <b>${data.pages.length}</b> page(s)/channel(s) · <b>${qualified} with qualifying high-intent posts</b>${collectNote}</div>`;
     statusBox.classList.remove("hidden");
 
     tbody.innerHTML = data.pages.map((p) => {
@@ -453,80 +554,82 @@ async function renderPagesScreen() {
       const qualifying = p.qualifying_posts_count || 0;
       const err = p.posts_error || "";
 
-      const postsCell = {
-        not_started: `<span class="muted">N/A</span>`,
-        running: stale
-          ? `<span class="muted">N/A</span>`
-          : `<span class="muted">${found} found so far</span>`,
-        completed: qualifying > 0
-          ? `<b>${found} found</b><div class="muted">${qualifying} qualifying</div>`
-          : `<span class="muted" title="${esc(err)}">No qualifying posts</span>`,
-        empty: `<span class="muted" title="${esc(err)}">0 found</span>`,
-        error: `<span class="muted" title="${esc(err)}">—</span>`,
-      }[postStatus] || `<span class="muted">N/A</span>`;
-
-      const commentsCell = (postStatus === "completed" && qualifying > 0)
-        ? `<b>${fmt(p.total_comments_on_qualifying_posts)}</b> total`
-        : `<span class="muted">—</span>`;
-
-      const activityCell = {
-        active: `<span class="status-success-text">✓ Active</span>`,
-        recent: `Recent`,
-        inactive: `<span class="muted">Inactive</span>`,
-        unknown: `<span class="muted">N/A</span>`,
-      }[p.activity_status] || `<span class="muted">N/A</span>`;
-
-      const actionCell = {
-        not_started: `<button class="btn-mini btn-primary-mini" onclick="openPage('${p.id}', event)">🔍 Analyze Posts</button>`,
-        running: stale
-          ? `<button class="btn-mini" onclick="openPage('${p.id}', event)">↻ Retry</button><div class="row-error">stuck — server restarted?</div>`
-          : `<span class="mini-spinner"></span> Analyzing posts... ${found} so far`,
-        completed: qualifying > 0
-          ? `<button class="btn-mini" onclick="openPage('${p.id}', event)">📝 View Posts</button>`
-          : `<span class="muted" title="${esc(err)}">No qualifying posts</span>`,
-        empty: `<button class="btn-mini" onclick="openPage('${p.id}', event)">🔍 Analyze Posts</button><div class="row-error" title="${esc(err)}">${esc((err || "No posts returned").slice(0, 80))}</div>`,
-        error: `<button class="btn-mini" onclick="openPage('${p.id}', event)">↻ Retry</button><div class="row-error" title="${esc(err)}">${esc((err || "Analyze failed").slice(0, 80))}</div>`,
-      }[postStatus] || `<button class="btn-mini" onclick="openPage('${p.id}', event)">🔍 Analyze Posts</button>`;
+      let actionBtn;
+      if (postStatus === "running" && !stale) {
+        actionBtn = `<span class="btn-secondary" style="cursor:default"><span class="mini-spinner"></span> Analyzing posts (${found} found)</span>`;
+      } else if (postStatus === "completed" && found > 0) {
+        actionBtn = `<button class="btn-primary" onclick="openPage('${p.id}', event)">📝 View ${found} Posts${qualifying > 0 ? ` (${qualifying} qualifying)` : ""}</button>`;
+      } else if (postStatus === "empty" || found === 0) {
+        actionBtn = `<button class="btn-secondary" onclick="openPage('${p.id}', event)">↻ Re-analyze Posts</button>`;
+      } else {
+        actionBtn = `<button class="btn-primary" onclick="openPage('${p.id}', event)">🔍 Analyze Posts</button>`;
+      }
 
       const avatar = p.profile_picture
         ? `<img class="pc-avatar" src="${esc(p.profile_picture)}" loading="lazy" onerror="this.style.display='none'">`
         : `<span class="pc-avatar pc-avatar-fallback">${esc((p.page_name || "?").charAt(0).toUpperCase())}</span>`;
 
       const pageInfo = platformInfo(p.platform);
+      const platformCls = p.platform ? p.platform.toLowerCase() : "unknown";
+
+      const contactChips = [];
+      if (p.phone) contactChips.push(`<a class="pc-chip" href="tel:${esc(p.phone)}" onclick="event.stopPropagation()">📞 <b>${esc(p.phone)}</b></a>`);
+      if (p.email) contactChips.push(`<a class="pc-chip" href="mailto:${esc(p.email)}" onclick="event.stopPropagation()">✉️ <b>${esc(p.email)}</b></a>`);
+      if (p.whatsapp) contactChips.push(`<a class="pc-chip" href="https://wa.me/${esc(p.whatsapp.replace(/[^\d]/g, ''))}" target="_blank" rel="noopener" onclick="event.stopPropagation()">💬 WhatsApp</a>`);
+      if (p.website) contactChips.push(`<a class="pc-chip pc-chip-link" href="${esc(p.website)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">🌐 ${esc(p.website.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`);
+      if (p.address || p.country) contactChips.push(`<span class="pc-chip pc-chip-addr" title="${esc(p.address || p.country)}">📍 ${esc(p.address || p.country)}</span>`);
+      if (p.category) contactChips.push(`<span class="pc-chip">🏷️ ${esc(p.category)}</span>`);
 
       return `<article class="page-card clickable-card" onclick="openPage('${p.id}')">
         <div class="pc-head">
           ${avatar}
           <div class="pc-body">
-            <div class="pc-name">${esc(p.page_name || "Unnamed page")}
-              ${pageInfo.icon ? `<span class="src-badge">${esc(pageInfo.name.toUpperCase())}</span>` : ""}
-              ${p.source_type === "group" ? '<span class="src-badge">GROUP</span>' : ""}
+            <div class="pc-name">
+              ${esc(p.page_name || "Unnamed page")}
+              <span class="platform-badge ${platformCls}">${pageInfo.icon ? pageInfo.icon + " " : ""}${esc(pageInfo.name || p.platform || "Platform")}</span>
               ${p.verified ? '<span class="verified-badge" title="Verified">✓ Verified</span>' : ""}
+              ${p.source_type === "group" ? '<span class="src-badge">GROUP</span>' : ""}
             </div>
-            <a class="pc-link" href="${esc(p.facebook_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">open ${pageInfo.name ? "on " + esc(pageInfo.name) : ""} ↗</a>
-            ${p.category ? `<span class="pc-cat">${esc(p.category)}</span>` : ""}
+            <a class="pc-link" href="${esc(p.facebook_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Open on ${esc(pageInfo.name || "platform")} ↗</a>
+            ${p.about ? `<div class="pc-about-snippet" title="${esc(p.about)}">${esc(p.about.slice(0, 160))}${p.about.length > 160 ? "…" : ""}</div>` : ""}
           </div>
         </div>
+
         <div class="pc-stats">
-          <div class="pc-stat"><div class="pc-stat-value">${fmt(p.followers)}</div><div class="pc-stat-label">Followers</div></div>
-          <div class="pc-stat"><div class="pc-stat-value">${fmt(p.likes)}</div><div class="pc-stat-label">Likes</div></div>
-          <div class="pc-stat"><div class="pc-stat-value">${postsCell}</div><div class="pc-stat-label">Posts</div></div>
-          <div class="pc-stat"><div class="pc-stat-value">${commentsCell}</div><div class="pc-stat-label">Comments</div></div>
-          <div class="pc-stat"><div class="pc-stat-value">${activityCell}</div><div class="pc-stat-label">Activity</div></div>
+          <div class="pc-stat">
+            <div class="pc-stat-value">${fmt(p.followers)}</div>
+            <div class="pc-stat-label">Followers / Subs</div>
+          </div>
+          <div class="pc-stat">
+            <div class="pc-stat-value">${fmt(p.likes)}</div>
+            <div class="pc-stat-label">Likes</div>
+          </div>
+          <div class="pc-stat">
+            <div class="pc-stat-value">${found}</div>
+            <div class="pc-stat-label">Posts Found</div>
+          </div>
+          <div class="pc-stat">
+            <div class="pc-stat-value">${qualifying}</div>
+            <div class="pc-stat-label">Qualifying Posts</div>
+          </div>
+          <div class="pc-stat">
+            <div class="pc-stat-value">${fmt(p.total_comments_on_qualifying_posts)}</div>
+            <div class="pc-stat-label">Total Comments</div>
+          </div>
         </div>
+
         <div class="pc-contact">
-          ${p.phone ? `<span class="pc-chip">📞 ${esc(p.phone)}</span>` : ""}
-          ${p.email ? `<span class="pc-chip">✉️ ${esc(p.email)}</span>` : ""}
-          ${p.website ? `<span class="pc-chip pc-chip-link"><a href="${esc(p.website)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">🌐 ${esc(p.website)}</a></span>` : ""}
-          ${p.address ? `<span class="pc-chip pc-chip-addr" title="${esc(p.address)}">📍 ${esc(p.address)}</span>` : ""}
-          ${!p.phone && !p.email && !p.website && !p.address ? `<span class="muted">No contact info collected</span>` : ""}
+          ${contactChips.length ? contactChips.join("") : `<span class="muted" style="font-size:0.75rem">No public contact info extracted</span>`}
         </div>
-        <div class="pc-foot">${actionCell}</div>
+
+        <div class="pc-foot">
+          ${actionBtn}
+          ${err ? `<div class="row-error" title="${esc(err)}">${esc(err.slice(0, 90))}</div>` : ""}
+        </div>
       </article>`;
     }).join("");
 
     if (anyRunning) {
-      // auto-refresh counts while the background job works through the run
       setTimeout(renderPagesScreen, 4000);
     }
   } catch (err) {
@@ -551,7 +654,6 @@ async function openPage(pageId, event) {
       navigateToView("posts");
       return;
     }
-    // not_started / empty / error → (re)analyze posts
     toast("Analyzing real posts for " + (page.page_name || "this page") + "...", "info");
     const postRes = await fetch(`/api/pages/${pageId}/posts?max_posts=20`, { method: "POST" });
     if (!postRes.ok) throw new Error((await postRes.json()).detail || "Collection failed");
@@ -600,9 +702,9 @@ async function renderPostsScreen() {
       const qual = data.qualifyingPosts || 0;
       const min = data.minComments || 10;
       const note = qual > 0
-        ? `<span class="status-success-text">${qual} qualifying post(s) — relevant & ≥ ${min} ${pageInfo.name ? esc(pageInfo.name) + " " : ""}comments</span>`
-        : `<span class="muted">No qualifying posts — nothing above the ${min}-comment threshold</span>`;
-      statusBox.innerHTML = `<div class="summary-line">Posts found: <b>${data.totalPosts}</b> · Relevant: <b>${data.relevantPosts}</b> · Qualifying: <b>${qual}</b> · Comments on qualifying posts: <b>${fmt(data.commentsOnQualifying)}</b> · Latest post: ${esc(data.latestPostDate || "N/A")}<br>${note}</div>`;
+        ? `<span class="status-success-text">${qual} qualifying post(s) (relevant & ≥ ${min} comments)</span>`
+        : `<span class="muted">No posts with ≥ ${min} comments</span>`;
+      statusBox.innerHTML = `<div class="summary-line">Total Posts: <b>${data.totalPosts}</b> · Relevant: <b>${data.relevantPosts}</b> · Qualifying: <b>${qual}</b> · Total Comments on Qualifying: <b>${fmt(data.commentsOnQualifying)}</b> · Latest Post: <b>${esc(data.latestPostDate || "N/A")}</b><br>${note}</div>`;
       statusBox.classList.remove("hidden");
     }
 
@@ -616,6 +718,7 @@ async function renderPostsScreen() {
     empty.classList.add("hidden");
     let anyRunning = false;
     const min = data.minComments || 10;
+
     tbody.innerHTML = data.posts.map((post) => {
       const cStatus = post.comments_status || "not_started";
       if (cStatus === "running") anyRunning = true;
@@ -624,46 +727,70 @@ async function renderPostsScreen() {
       const qualifying = !!post.is_qualifying;
       const cErr = post.comments_error || "";
 
-      let actionCell;
-      if (qualifying) {
-        actionCell = {
-          not_started: `<button class="btn-mini btn-primary-mini" onclick="openPost('${post.id}', event)">💬 Collect comments</button>`,
-          running: `<span class="mini-spinner"></span> Collecting... ${scraped} so far`,
-          completed: `<button class="btn-mini" onclick="openPost('${post.id}', event)">💬 ${scraped} collected · View</button>`,
-          skipped: `<span class="muted" title="${esc(cErr)}">Not scraped</span>`,
-          empty: `<span class="muted" title="${esc(cErr)}">0 comments</span>`,
-          error: `<button class="btn-mini" onclick="openPost('${post.id}', event)">↻ Retry</button><div class="row-error" title="${esc(cErr)}">${esc((cErr || "Collect failed").slice(0, 80))}</div>`,
-        }[cStatus] || `<button class="btn-mini" onclick="openPost('${post.id}', event)">💬 Collect</button>`;
+      let actionBtn;
+      if (cStatus === "running") {
+        actionBtn = `<span class="btn-secondary" style="cursor:default"><span class="mini-spinner"></span> Collecting (${scraped} found)</span>`;
       } else if (scraped > 0) {
-        actionCell = `<button class="btn-mini" onclick="openPost('${post.id}', event)">💬 ${scraped} collected · View</button>`;
+        actionBtn = `<button class="btn-primary" onclick="openPost('${post.id}', event)">💬 View ${scraped} Comments & Leads</button>`;
+      } else if (qualifying) {
+        actionBtn = `<button class="btn-primary" onclick="openPost('${post.id}', event)">💬 Collect Comments (${total} available)</button>`;
       } else {
-        actionCell = `<span class="muted" title="Below the ${min}-comment threshold — the comment scrape is skipped">Skip · &lt;${min}</span>`;
+        actionBtn = `<button class="btn-secondary" onclick="openPost('${post.id}', event)">💬 Collect Comments (${total} available)</button>`;
       }
 
       const relBadge = post.is_relevant === true
-        ? `<span class="badge badge-relevant">✓ Relevant</span>`
+        ? `<span class="badge" style="background:var(--green-soft);color:#127a48;border:1px solid rgba(31,174,106,0.3)">✓ Relevant</span>`
         : post.is_relevant === false
-          ? `<span class="muted">✗ Not relevant</span>`
-          : `<span class="muted">—</span>`;
+          ? `<span class="badge" style="background:var(--gray-soft);color:var(--text-dim)">✗ Low relevance</span>`
+          : "";
+
+      const qualBadge = qualifying
+        ? `<span class="badge badge-lead">★ Qualifying (≥ ${min} comments)</span>`
+        : `<span class="badge" style="background:var(--gray-soft);color:var(--text-faint)">&lt;${min} comments</span>`;
 
       const thumb = post.images && post.images.length
         ? `<img class="pt-thumb" src="${esc(post.images[0])}" loading="lazy" onerror="this.style.display='none'">`
         : (post.videos && post.videos.length ? `<span class="pt-thumb pt-thumb-video">🎬</span>` : `<span class="pt-thumb pt-thumb-fallback">📝</span>`);
 
+      const captionText = post.caption || post.description || post.text || "No post caption text available.";
+
       return `<article class="post-tile clickable-card" onclick="openPost('${post.id}')">
         <div class="pt-main">
           ${thumb}
           <div class="pt-body">
-            <div class="pt-caption cell-truncate" title="${esc(post.caption || "")}">${esc(post.caption || "No caption")}</div>
-            <div class="pt-meta">📅 ${esc(post.published_date || "—")} · ${relBadge}</div>
+            <div class="pt-caption" title="${esc(captionText)}">${esc(captionText)}</div>
+            <div class="pt-meta">
+              <span>📅 ${esc(post.published_date || "Date unknown")}</span>
+              ${relBadge}
+              ${qualBadge}
+              ${post.post_url ? `<a class="pc-link" href="${esc(post.post_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">View original post ↗</a>` : ""}
+            </div>
           </div>
         </div>
+
         <div class="pt-stats">
-          <div class="pc-stat"><div class="pc-stat-value">${fmt(post.likes_count)}</div><div class="pc-stat-label">Likes</div></div>
-          <div class="pc-stat"><div class="pc-stat-value">${fmt(total)}</div><div class="pc-stat-label">Comments</div></div>
-          <div class="pc-stat"><div class="pc-stat-value">${fmt(post.shares_count)}</div><div class="pc-stat-label">Shares</div></div>
+          <div class="pc-stat">
+            <div class="pc-stat-value">${fmt(post.likes_count)}</div>
+            <div class="pc-stat-label">Likes</div>
+          </div>
+          <div class="pc-stat">
+            <div class="pc-stat-value">${fmt(total)}</div>
+            <div class="pc-stat-label">Total Comments</div>
+          </div>
+          <div class="pc-stat">
+            <div class="pc-stat-value">${scraped}</div>
+            <div class="pc-stat-label">Scraped & Analyzed</div>
+          </div>
+          <div class="pc-stat">
+            <div class="pc-stat-value">${fmt(post.shares_count)}</div>
+            <div class="pc-stat-label">Shares</div>
+          </div>
         </div>
-        <div class="pt-foot">${actionCell}</div>
+
+        <div class="pt-foot">
+          ${actionBtn}
+          ${cErr ? `<div class="row-error" title="${esc(cErr)}">${esc(cErr.slice(0, 90))}</div>` : ""}
+        </div>
       </article>`;
     }).join("");
 
@@ -751,10 +878,11 @@ function exportPostsCsv() {
 
 // ── COMMENTS / LEADS ─────────────────────────────────────────────────────
 
-// shared "comments per post" setting — used by post comment collection and
-// kept in sync with the URL search form
+let activeCommentFilter = "all";
+let searchDebounceTimer = null;
+
 function setCommentsPerPost(el) {
-  const n = Math.min(500, Math.max(1, parseInt(el.value, 10) || 20));
+  const n = Math.min(500, Math.max(1, parseInt(el.value, 10) || 50));
   el.value = n;
   saveMemory("commentsPerPost", n);
   const other = el.id === "commentsPerPostInput" ? "urlSearchCommentsPerPost" : "commentsPerPostInput";
@@ -762,49 +890,97 @@ function setCommentsPerPost(el) {
   if (otherEl) otherEl.value = n;
 }
 
+function setCommentFilterType(type, btn) {
+  activeCommentFilter = type;
+  const pills = document.querySelectorAll("#commentFilterPills .filter-pill");
+  pills.forEach((p) => p.classList.remove("active"));
+  if (btn) btn.classList.add("active");
+  renderCommentsScreen();
+}
+
+function onCommentsSearchInput() {
+  const input = $("commentsSearchInput");
+  const clearBtn = $("commentsSearchClear");
+  if (input && clearBtn) {
+    clearBtn.classList.toggle("hidden", !input.value.trim());
+  }
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => {
+    renderCommentsScreen();
+  }, 250);
+}
+
+function clearCommentsSearch() {
+  const input = $("commentsSearchInput");
+  const clearBtn = $("commentsSearchClear");
+  if (input) input.value = "";
+  if (clearBtn) clearBtn.classList.add("hidden");
+  renderCommentsScreen();
+}
+
 async function renderCommentsScreen() {
   if (!memory.postId) { $("commentsGrid").innerHTML = ""; $("commentsListEmpty").classList.remove("hidden"); return; }
-  // show the loading bar immediately — the comments fetch itself can be slow
   showCommentsScrapeProgress(0, 0, true);
-  const onlyLeads = $("commentsLeadsOnly").checked;
-  const contactOnly = $("commentsContactOnly").checked;
+
+  const searchVal = $("commentsSearchInput") ? $("commentsSearchInput").value.trim() : "";
+  const qualityVal = $("commentsQualityFilter") ? $("commentsQualityFilter").value : "";
+  const sortByVal = $("commentsSortBy") ? $("commentsSortBy").value : "score";
+  const limitVal = memory.commentsPerPost || 50;
+
+  const params = new URLSearchParams({
+    filter_type: activeCommentFilter,
+    sort_by: sortByVal,
+    limit: String(limitVal)
+  });
+  if (searchVal) params.set("q", searchVal);
+  if (qualityVal) params.set("quality", qualityVal);
+
   try {
-    const res = await fetch(`/api/posts/${memory.postId}/comments?only_leads=${onlyLeads}&contact_only=${contactOnly}&limit=${memory.commentsPerPost}`);
+    const res = await fetch(`/api/posts/${memory.postId}/comments?${params.toString()}`);
     const data = await res.json();
-    $("commentsPostName").textContent = (data.post && data.post.caption ? data.post.caption.slice(0, 60) : "this post") || "this post";
+    $("commentsPostName").textContent = (data.post && data.post.caption ? data.post.caption.slice(0, 90) : "this post") || "this post";
+
+    // Update pill badge counts
+    if (data.counts) {
+      if ($("countAll")) $("countAll").textContent = data.counts.all || 0;
+      if ($("countLeads")) $("countLeads").textContent = data.counts.leads || 0;
+      if ($("countContact")) $("countContact").textContent = data.counts.contact || 0;
+      if ($("countHot")) $("countHot").textContent = data.counts.hot || 0;
+      if ($("countPricing")) $("countPricing").textContent = data.counts.pricing || 0;
+      if ($("countInquiry")) $("countInquiry").textContent = data.counts.inquiry || 0;
+    }
 
     const statusBox = $("commentsScreenStatus");
     const total = data.total_comment_count || 0;
     const scraped = data.scraped_comment_count || 0;
     const hasComments = data.comments && data.comments.length;
     const scrapeProgress = $("commentsScrapeProgress");
+
     if (data.comments_status === "running") {
       showCommentsScrapeProgress(scraped, total);
     } else {
       scrapeProgress.classList.add("hidden");
     }
+
     if (data.comments_status === "running" && !hasComments) {
-      statusBox.innerHTML = `<div class="summary-line status-running-text"><span class="mini-spinner"></span> Collecting comments and running AI analysis...</div>`;
+      statusBox.innerHTML = `<div class="summary-line status-running-text"><span class="mini-spinner"></span> Collecting and analyzing comments in real-time...</div>`;
       statusBox.classList.remove("hidden");
       setTimeout(() => renderCommentsScreen(), 2000);
       return;
     }
-    if (data.comments_status === "skipped") {
-      statusBox.innerHTML = `<div class="summary-line status-warn-text">${esc(data.comments_error || "Not scraped — post has fewer than the comment threshold")}</div>`;
-      statusBox.classList.remove("hidden");
-    } else {
-      const progress = (total > 0 && scraped > 0) ? ` · <b>${scraped} of ${total}</b> collected` : ` · ${scraped} collected`;
-      if (data.comments_status === "running") {
-        statusBox.innerHTML = `<div class="summary-line status-running-text"><span class="mini-spinner"></span> AI analysis in progress — showing <b>${data.total}</b> comment(s) found so far, refresh for updates…</div>`;
-      } else if (onlyLeads) {
-        statusBox.innerHTML = `<div class="summary-line">Total comments on this post: <b>${total}</b>${progress} · AI found <b>${data.total}</b> valuable lead(s)</div>`;
-      } else if (contactOnly) {
-        statusBox.innerHTML = `<div class="summary-line">Comments with a phone/email on this post: <b>${data.total}</b> of <b>${data.all_count || 0}</b> total</div>`;
-      } else {
-        statusBox.innerHTML = `<div class="summary-line">Total comments on this post: <b>${data.total}</b>${progress} · <b>${data.contact_count || 0}</b> with phone/email</div>`;
-      }
-      statusBox.classList.remove("hidden");
-    }
+
+    const filterLabels = {
+      all: "Showing all collected comments",
+      leads: "Showing high-intent business leads",
+      contact: "Showing comments with direct phone or email contact",
+      hot: "Showing high-priority hot prospects",
+      pricing: "Showing pricing, cost, & budget inquiries",
+      inquiry: "Showing customer questions & inquiries"
+    };
+    const activeLabel = filterLabels[activeCommentFilter] || "Showing comments";
+    const searchNote = searchVal ? ` matching "<b>${esc(searchVal)}</b>"` : "";
+    statusBox.innerHTML = `<div class="summary-line">${activeLabel}${searchNote} · <b>${data.total}</b> of <b>${data.all_count || 0}</b> total comments displayed</div>`;
+    statusBox.classList.remove("hidden");
 
     const tbody = $("commentsGrid");
     const empty = $("commentsListEmpty");
@@ -812,43 +988,63 @@ async function renderCommentsScreen() {
       tbody.innerHTML = "";
       empty.classList.remove("hidden");
       empty.querySelector(".empty-sub").textContent =
-        onlyLeads ? "No valuable comments found on this post yet — try collecting again or uncheck 'Leads only'"
-        : contactOnly ? "No comments with a 10-digit phone number or email on this post yet"
-        : "No comments on this post yet";
+        searchVal ? `No comments found matching "${searchVal}" under this filter`
+        : activeCommentFilter !== "all" ? `No comments under "${activeCommentFilter}" filter — click "All Comments" to see everything`
+        : "No comments on this post yet — collect comments from the Posts screen";
       return;
     }
     empty.classList.add("hidden");
 
     tbody.innerHTML = data.comments.map((c) => {
-      const priorityClass = { high: "badge-hot", medium: "badge-warm", low: "badge-cold" }[c.priority] || "";
-      const intent = c.intent ? c.intent.replace("_", " ") : "—";
-      const contactBadge = c.has_contact
-        ? `<span class="badge badge-lead" title="Has phone or email">📞 contact</span>`
-        : "";
+      const priorityClass = { high: "badge-hot", medium: "badge-warm", low: "badge-cold" }[c.priority] || "badge-cold";
+      const intent = c.intent ? c.intent.replace(/_/g, " ") : "";
       const commentInfo = platformInfo(c.platform);
+      const platformCls = c.platform ? c.platform.toLowerCase() : "unknown";
+
+      const contactChips = [];
+      if (c.phone) contactChips.push(`<a class="lc-chip" href="tel:${esc(c.phone)}" onclick="event.stopPropagation()">📞 <b>${esc(c.phone)}</b></a>`);
+      if (c.email) contactChips.push(`<a class="lc-chip" href="mailto:${esc(c.email)}" onclick="event.stopPropagation()">✉️ <b>${esc(c.email)}</b></a>`);
+      if (c.whatsapp) contactChips.push(`<a class="lc-chip" href="https://wa.me/${esc(c.whatsapp.replace(/[^\d]/g, ''))}" target="_blank" rel="noopener" onclick="event.stopPropagation()">💬 WhatsApp</a>`);
+      if (c.budget) contactChips.push(`<span class="lc-chip">💰 Budget: <b>${esc(c.budget)}</b></span>`);
+      if (c.requirement) contactChips.push(`<span class="lc-chip">📋 Req: <b>${esc(c.requirement)}</b></span>`);
+      if (c.location) contactChips.push(`<span class="lc-chip">📍 ${esc(c.location)}</span>`);
+      if (intent) contactChips.push(`<span class="lc-chip lc-chip-intent">🎯 ${esc(intent)}</span>`);
+      if (c.sentiment && c.sentiment !== "neutral") contactChips.push(`<span class="lc-chip" style="opacity:0.85">💭 ${esc(c.sentiment)}</span>`);
+
       return `<article class="lead-card clickable-card${c.has_contact ? " lead-card-highlight" : ""}" onclick="openLeadDetail('${c.id}')">
         <div class="lc-head">
-          <span class="lc-avatar">${esc((c.commenter_name || "?").trim().charAt(0).toUpperCase())}</span>
-          <div class="lc-body">
-            <div class="lc-name">${esc(c.commenter_name || "Unknown")} ${contactBadge}
-              ${c.comment_url ? `<a class="page-link" href="${esc(c.comment_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${commentInfo.name ? `view on ${esc(commentInfo.name)}` : "view"} ↗</a>` : ""}
+          <div class="lc-author-wrap">
+            <span class="lc-avatar">${esc((c.commenter_name || "?").trim().charAt(0).toUpperCase())}</span>
+            <div class="lc-author-info">
+              <div class="lc-name">
+                ${esc(c.commenter_name || "Commenter")}
+                <span class="platform-badge ${platformCls}">${esc(commentInfo.name || c.platform || "Social")}</span>
+                ${c.has_contact ? `<span class="badge badge-lead">📞 Contact Ready</span>` : ""}
+              </div>
+              <div class="lc-meta">
+                ${c.published_date ? `<span>🕒 ${esc(formatDate(c.published_date))}</span>` : ""}
+                ${c.comment_url ? `<a class="pc-link" href="${esc(c.comment_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">View on ${esc(commentInfo.name || "platform")} ↗</a>` : ""}
+              </div>
             </div>
-            <div class="lc-text cell-truncate" title="${esc(c.comment_text || "")}">${esc(c.comment_text || "—")}</div>
-            ${c.published_date ? `<div class="lc-meta">🕒 ${esc(formatDate(c.published_date))}</div>` : ""}
           </div>
-          <div class="lc-right">
-            <span class="score-pill" title="${esc(c.reason || "")}">${c.lead_score || 0}</span>
-            ${c.priority ? `<span class="badge ${priorityClass}">${esc(c.priority)}</span>` : ""}
+
+          <div class="lc-score-wrap">
+            <div class="score-pill" title="AI Lead Score: ${c.lead_score || 0}/100">${c.lead_score || 0}</div>
+            ${c.priority ? `<span class="badge ${priorityClass}">${esc(c.priority.toUpperCase())}</span>` : ""}
           </div>
         </div>
+
+        <div class="lc-text-box">
+          <p class="lc-full-text">${esc(c.comment_text || "No comment text")}</p>
+          ${c.reason ? `<div class="lc-ai-reason">🤖 <b>AI Intelligence:</b> ${esc(c.reason)}</div>` : ""}
+        </div>
+
         <div class="lc-chips">
-          ${c.phone ? `<span class="lc-chip">📞 ${esc(c.phone)}</span>` : ""}
-          ${c.email ? `<span class="lc-chip">✉️ ${esc(c.email)}</span>` : ""}
-          ${c.whatsapp ? `<span class="lc-chip">💬 ${esc(c.whatsapp)}</span>` : ""}
-          ${c.budget || c.requirement ? `<span class="lc-chip">💰 ${esc(c.budget || c.requirement)}</span>` : ""}
-          ${c.location ? `<span class="lc-chip">📍 ${esc(c.location)}</span>` : ""}
-          ${intent !== "—" ? `<span class="lc-chip lc-chip-intent">🎯 ${esc(intent)}</span>` : ""}
-          ${!c.phone && !c.email && !c.whatsapp && !c.budget && !c.requirement && !c.location && intent === "—" ? `<span class="muted">No details extracted</span>` : ""}
+          ${contactChips.length ? contactChips.join("") : `<span class="muted" style="font-size:0.75rem">General comment</span>`}
+        </div>
+
+        <div class="lc-foot">
+          <button class="btn-ghost" style="font-size:0.76rem;padding:5px 12px" onclick="openLeadDetail('${c.id}', event)">🔍 View Full Dossier</button>
         </div>
       </article>`;
     }).join("");
@@ -860,11 +1056,13 @@ async function renderCommentsScreen() {
 
 function exportLeadsCsv() {
   if (!memory.postId) return;
-  window.open(`/api/export/comments.csv?post_id=${encodeURIComponent(memory.postId)}&only_leads=true`, "_blank");
+  const isLeadOnly = activeCommentFilter === "leads";
+  window.open(`/api/export/comments.csv?post_id=${encodeURIComponent(memory.postId)}&only_leads=${isLeadOnly}`, "_blank");
 }
 
 // ── LEAD DETAIL MODAL ────────────────────────────────────────────────────
-async function openLeadDetail(commentId) {
+async function openLeadDetail(commentId, event) {
+  if (event) event.stopPropagation();
   try {
     const res = await fetch(`/api/comments/${commentId}`);
     if (!res.ok) throw new Error("not found");
@@ -873,59 +1071,63 @@ async function openLeadDetail(commentId) {
     const post = d.post || {};
     const comment = d.comment || {};
     const quality = { hot: "🔥 Hot", warm: "⚡ Warm", cold: "❄️ Cold", none: "—" }[d.lead_quality] || "—";
-    const intent = d.intent ? d.intent.replace("_", " ") : "—";
+    const intent = d.intent ? d.intent.replace(/_/g, " ") : "—";
 
-    $("leadDetailTitle").textContent = "Lead Details — " + (d.commenter_name || "Unknown commenter");
+    $("leadDetailTitle").textContent = "Lead Intelligence Dossier — " + (d.commenter_name || "Prospect");
     const detailInfo = platformInfo(d.platform);
     $("leadDetailContent").innerHTML = `
       <div class="lead-detail-grid">
         <div class="detail-block detail-block-wide">
-          <div class="detail-label">Comment</div>
-          <div class="detail-value">${esc(d.comment_text || "—")}</div>
-          ${d.comment_url ? `<a class="page-link" href="${esc(d.comment_url)}" target="_blank" rel="noopener">${detailInfo.name ? `View on ${esc(detailInfo.name)}` : "View"} ↗</a>` : ""}
-          ${d.reason ? `<div class="detail-reason">AI: ${esc(d.reason)} (${esc(d.analyzed_by)})</div>` : ""}
+          <div class="detail-label">Original Comment Text</div>
+          <div class="detail-value" style="font-size:0.95rem;background:var(--surface-2);padding:14px;border-radius:var(--radius-sm);border:1px solid var(--border-soft);white-space:pre-wrap;line-height:1.6">${esc(d.comment_text || "—")}</div>
+          ${d.comment_url ? `<div style="margin-top:8px"><a class="pc-link" href="${esc(d.comment_url)}" target="_blank" rel="noopener">Open original comment on ${esc(detailInfo.name || "platform")} ↗</a></div>` : ""}
+          ${d.reason ? `<div class="detail-reason">🤖 <b>AI Rationale:</b> ${esc(d.reason)} ${d.analyzed_by ? `(${esc(d.analyzed_by)})` : ""}</div>` : ""}
         </div>
+
         <div class="detail-block">
-          <div class="detail-label">Phone</div>
-          <div class="detail-value">${d.phone ? `<a href="tel:${esc(d.phone)}">${esc(d.phone)}</a>` : "—"}</div>
-          <div class="detail-label">WhatsApp</div>
-          <div class="detail-value">${d.whatsapp ? `<a href="https://wa.me/${esc(d.whatsapp.replace(/[^\d]/g, ""))}" target="_blank">${esc(d.whatsapp)}</a>` : "—"}</div>
-          <div class="detail-label">Email</div>
-          <div class="detail-value">${d.email ? `<a href="mailto:${esc(d.email)}">${esc(d.email)}</a>` : "—"}</div>
+          <div class="detail-label">Phone Number</div>
+          <div class="detail-value">${d.phone ? `<a href="tel:${esc(d.phone)}" class="contact-pill">📞 ${esc(d.phone)}</a>` : "—"}</div>
+          <div class="detail-label">WhatsApp Contact</div>
+          <div class="detail-value">${d.whatsapp ? `<a href="https://wa.me/${esc(d.whatsapp.replace(/[^\d]/g, ""))}" target="_blank" rel="noopener" class="contact-pill">💬 Direct Chat</a>` : "—"}</div>
+          <div class="detail-label">Email Address</div>
+          <div class="detail-value">${d.email ? `<a href="mailto:${esc(d.email)}" class="contact-pill">✉️ ${esc(d.email)}</a>` : "—"}</div>
           <div class="detail-label">Website</div>
-          <div class="detail-value">${d.website ? `<a href="${esc(d.website)}" target="_blank" rel="noopener">${esc(d.website)}</a>` : "—"}</div>
+          <div class="detail-value">${d.website ? `<a href="${esc(d.website)}" target="_blank" rel="noopener" class="pc-link">${esc(d.website)} ↗</a>` : "—"}</div>
         </div>
+
         <div class="detail-block">
           <div class="detail-label">Budget</div>
           <div class="detail-value">${esc(d.budget || "—")}</div>
-          <div class="detail-label">Requirement</div>
+          <div class="detail-label">Requirement / Inquiry</div>
           <div class="detail-value">${esc(d.requirement || "—")}</div>
-          <div class="detail-label">Location</div>
+          <div class="detail-label">Location / City</div>
           <div class="detail-value">${esc(d.location || "—")}</div>
-          <div class="detail-label">Intent</div>
-          <div class="detail-value">${esc(intent)}</div>
+          <div class="detail-label">Buying Intent</div>
+          <div class="detail-value"><span class="badge" style="background:var(--violet-soft);color:#5535cf">${esc(intent)}</span></div>
           <div class="detail-label">Urgency</div>
           <div class="detail-value">${esc(d.urgency || "—")}</div>
         </div>
+
         <div class="detail-block">
           <div class="detail-label">Platform</div>
           <div class="detail-value">${detailInfo.icon ? detailInfo.icon + " " : ""}${esc(detailInfo.name || "—")}</div>
-          <div class="detail-label">Priority</div>
-          <div class="detail-value">${esc(d.priority || "—")}</div>
+          <div class="detail-label">Priority Level</div>
+          <div class="detail-value"><b>${esc(d.priority || "—").toUpperCase()}</b></div>
           <div class="detail-label">Lead Quality</div>
           <div class="detail-value">${quality}</div>
-          <div class="detail-label">Confidence</div>
+          <div class="detail-label">Confidence Score</div>
           <div class="detail-value">${d.confidence != null ? Math.round(d.confidence * 100) + "%" : "—"}</div>
           <div class="detail-label">Lead Score</div>
-          <div class="detail-value">${d.lead_score || 0}<span class="muted">/100</span></div>
+          <div class="detail-value"><b style="font-size:1.2rem;color:var(--amber-deep);font-family:var(--font-display)">${d.lead_score || 0}</b> / 100</div>
         </div>
+
         <div class="detail-block detail-block-wide">
-          <div class="detail-label">Context — Page</div>
-          <div class="detail-value">${esc(page.page_name || "—")}${page.facebook_url ? ` · <a class="page-link" href="${esc(page.facebook_url)}" target="_blank" rel="noopener">open ↗</a>` : ""}</div>
-          <div class="detail-label">Context — Post</div>
-          <div class="detail-value cell-truncate">${esc((post.caption || "—").slice(0, 200))}${post.post_url ? ` · <a class="page-link" href="${esc(post.post_url)}" target="_blank" rel="noopener">open ↗</a>` : ""}</div>
-          <div class="detail-label">Commenter Profile</div>
-          <div class="detail-value">${comment.author_profile_url ? `<a class="page-link" href="${esc(comment.author_profile_url)}" target="_blank" rel="noopener">${esc(comment.author_profile_url)}</a>` : "—"}</div>
+          <div class="detail-label">Source Context — Page / Profile</div>
+          <div class="detail-value">${esc(page.page_name || "—")}${page.facebook_url ? ` · <a class="pc-link" href="${esc(page.facebook_url)}" target="_blank" rel="noopener">Open Source Page ↗</a>` : ""}</div>
+          <div class="detail-label">Source Context — Post</div>
+          <div class="detail-value" style="font-size:0.84rem;color:var(--text-dim);margin-top:4px">${esc(post.caption || "—")}${post.post_url ? ` · <a class="pc-link" href="${esc(post.post_url)}" target="_blank" rel="noopener">Open Post ↗</a>` : ""}</div>
+          <div class="detail-label">Commenter Profile Link</div>
+          <div class="detail-value">${comment.author_profile_url ? `<a class="pc-link" href="${esc(comment.author_profile_url)}" target="_blank" rel="noopener">${esc(comment.author_profile_url)} ↗</a>` : "—"}</div>
         </div>
       </div>`;
     $("leadDetailModal").classList.remove("hidden");
@@ -982,6 +1184,17 @@ document.addEventListener("DOMContentLoaded", () => {
     urlCpp.value = memory.commentsPerPost;
     urlCpp.addEventListener("change", () => setCommentsPerPost(urlCpp));
   }
+  const modeRadios = document.querySelectorAll('input[name="filterMode"]');
+  if (modeRadios.length) {
+    modeRadios.forEach((r) => r.addEventListener("change", () => {
+      urlFilterTouched = true;
+      urlFilterModeChanged();
+    }));
+    urlFilterModeChanged();
+  }
+  if (window.AppConfig) AppConfig.load();
+  applyUrlFilterDefaults();
+  loadUrlFilterCatalog();
   renderRecentSearches();
   navigateToView("search");
   checkAuth();

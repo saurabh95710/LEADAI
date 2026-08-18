@@ -16,7 +16,7 @@ str/list/dict) so it round-trips through Motor/PyMongo unchanged.
 import json
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.config import get_settings
 from app.db.mongo import get_async_db, get_sync_db
@@ -51,6 +51,7 @@ SETTING_DEFAULTS: Dict[str, Any] = {
     "actor.facebook.comments": "apify/facebook-comments-scraper",
     "actor.instagram.main": settings.instagram_actor_id,
     "actor.youtube.main": settings.youtube_actor_id,
+    "actor.youtube.comments": "streamers/youtube-comments-scraper",
     "actor.linkedin.company": settings.linkedin_actor_id,
     "actor.linkedin.posts": settings.linkedin_posts_actor_id,
 
@@ -118,6 +119,94 @@ SETTING_DEFAULTS: Dict[str, Any] = {
     # Feature flags
     "features.url_search.enabled": True,
     "features.exports.enabled": True,
+
+    # ── White-label / Global Settings (managed from the Global Settings UI) ──
+    "general.app.name": "LeadAI",
+    "general.app.short_name": "LeadAI",
+    "general.app.tagline": "AI Lead Intelligence",
+    "general.app.description": (
+        "AI-powered social lead intelligence — paste a Facebook, Instagram, "
+        "YouTube or LinkedIn URL and uncover high-intent prospects through "
+        "real Apify data."),
+    "general.company.name": "",
+    "general.company.website": "",
+    "general.contact.support_email": "",
+    "general.contact.support_phone": "",
+    "general.contact.support_url": "",
+    "general.links.privacy_url": "",
+    "general.links.terms_url": "",
+    "general.links.docs_url": "",
+    "general.links.help_url": "",
+
+    "branding.logo_primary": "",
+    "branding.logo_dark": "",
+    "branding.logo_light": "",
+    "branding.logo_compact": "",
+    "branding.logo_login": "",
+    "branding.logo_email": "",
+    "branding.favicon": "",
+    "branding.apple_touch_icon": "",
+    "branding.colors.primary": "#7c5cff",
+    "branding.colors.accent": "#f0a531",
+    "branding.colors.success": "#1fae6a",
+    "branding.colors.warning": "#f0a531",
+    "branding.colors.danger": "#e5484d",
+    "branding.colors.info": "#3b82f6",
+    "branding.theme": "light",
+    "branding.font": "inter",
+    "branding.white_label": False,
+    "branding.login_heading": "Welcome Back",
+    "branding.login_subtext": (
+        "Sign in to continue to your AI-powered lead intelligence dashboard."),
+    "branding.footer_text": (
+        "Protected by secure authentication · LeadAI © 2026"),
+
+    "appearance.sidebar_title": "",
+    "appearance.sidebar_subtitle": "Admin Control Center",
+    "appearance.sidebar_collapsed_default": False,
+    "appearance.show_icons": True,
+    "appearance.show_section_labels": True,
+    "appearance.show_footer_links": True,
+    "appearance.nav_overrides": {},
+    "appearance.dashboard_widgets": {},
+
+    # User-app defaults (search form, pagination, theme)
+    "defaults.comment_filter_mode": "all",
+    "defaults.keyword_preset": "",
+    "defaults.theme": "system",
+    "defaults.date_range": 30,
+    "defaults.page_size": 20,
+
+    # Notifications & email (forward-looking — no mail backend ships yet)
+    "notifications.alerts_enabled": True,
+    "notifications.job_failed_email": False,
+    "notifications.new_lead_email": False,
+    "email.sender_name": "",
+    "email.reply_to": "",
+    "email.company_name": "",
+    "email.logo": "",
+    "email.footer_text": "",
+
+    # Leads & exports
+    "leads.duplicate_detection": True,
+    "leads.retention_days": 365,
+    "leads.default_status": "New",
+    "leads.default_temperature": "Warm",
+    "leads.require_phone_or_email": False,
+    "exports.default_format": "CSV",
+    "exports.max_records": 5000,
+    "exports.include_leads_only": False,
+    "exports.include_ai_summary": True,
+
+    # SEO & localization
+    "seo.meta_description": "",
+    "seo.og_title": "",
+    "seo.og_image": "",
+    "localization.timezone": "auto",
+    "localization.date_format": "YYYY-MM-DD",
+    "localization.time_format": "24h",
+    "localization.currency": "USD",
+    "localization.language": "en",
 
     # Apify token override (env APIFY_API_TOKEN is the default source).
     # Never returned by any API — only a masked hint is exposed.
@@ -276,6 +365,18 @@ async def aget_setting(key: str) -> Any:
     return value
 
 
+async def adelete_setting(key: str) -> bool:
+    """Remove the override so the env default is used again (async)."""
+    try:
+        db = get_async_db()
+        if db is None:
+            return False
+        await db[COLLECTION].delete_one({"_id": key})
+        return True
+    except Exception:
+        return False
+
+
 async def _async_get(key: str) -> Optional[Any]:
     try:
         db = get_async_db()
@@ -355,7 +456,10 @@ def platform_actor_key(platform: str, kind: str = "main") -> str:
     if platform == "instagram":
         return "actor.instagram.main"
     if platform == "youtube":
-        return "actor.youtube.main"
+        return {"main": "actor.youtube.main",
+                "video": "actor.youtube.main",
+                "comments": "actor.youtube.comments"}.get(
+                    kind, "actor.youtube.main")
     return "actor.facebook.pages"
 
 
@@ -422,6 +526,118 @@ def sessions_epoch() -> int:
         return int(get_setting("security.session_epoch") or 0)
     except (TypeError, ValueError):
         return 0
+
+
+# ── Settings history / revisions ────────────────────────────────────────────
+# Every batch change (save, reset, import, restore) pushes a revision into
+# ``settings_history`` with a full snapshot so any state can be rolled back.
+
+HISTORY_COLLECTION = "settings_history"
+
+
+async def current_revision() -> int:
+    """Highest history version so far (0 when the collection is empty)."""
+    try:
+        db = get_async_db()
+        if db is None:
+            return 0
+        doc = await db[HISTORY_COLLECTION].find_one(
+            {}, {"version": 1}, sort=[("version", -1)])
+        return int(doc["version"]) if doc else 0
+    except Exception:
+        return 0
+
+
+async def push_revision(snapshot: Dict[str, Any], changed: Dict[str, Any],
+                        by: str = "admin", ip: str = "",
+                        reason: str = "") -> int:
+    """Write a new history entry and return its version number."""
+    try:
+        db = get_async_db()
+        if db is None:
+            return 0
+        version = await current_revision() + 1
+        await db[HISTORY_COLLECTION].insert_one({
+            "version": version,
+            "snapshot": snapshot or {},
+            "changed": changed or {},
+            "changed_by": by,
+            "ip": ip or "",
+            "reason": reason or "",
+            "created_at": time.time(),
+        })
+        return version
+    except Exception as e:
+        logger.warning(f"Failed to push settings revision: {e}")
+        return 0
+
+
+async def list_history(limit: int = 50) -> List[Dict[str, Any]]:
+    try:
+        db = get_async_db()
+        if db is None:
+            return []
+        docs = [doc async for doc in
+                db[HISTORY_COLLECTION].find()
+                .sort("version", -1).limit(max(1, min(limit, 200)))]
+        return [{**d, "snapshot": None} for d in docs]  # snapshots stay out of lists
+    except Exception:
+        return []
+
+
+async def get_history_version(version: int) -> Optional[Dict[str, Any]]:
+    try:
+        db = get_async_db()
+        if db is None:
+            return None
+        return await db[HISTORY_COLLECTION].find_one({"version": version})
+    except Exception:
+        return None
+
+
+async def snapshot_all() -> Dict[str, Any]:
+    """Effective values of every registry key — used for exports and revisions."""
+    from app.settings.registry import REGISTERED_KEYS
+    out: Dict[str, Any] = {}
+    for key in sorted(REGISTERED_KEYS):
+        out[key] = await aget_setting(key)
+    return out
+
+
+async def apply_snapshot(snapshot: Dict[str, Any], by: str = "admin",
+                         ip: str = "", reason: str = "") -> Tuple[int, List[str]]:
+    """Apply a stored snapshot (restore). Returns (version, applied_keys)."""
+    from app.settings.registry import is_registered
+    applied: List[str] = []
+    changed: Dict[str, Dict[str, Any]] = {}
+    for key, new_value in snapshot.items():
+        if not is_registered(key):
+            continue
+        old_value = await aget_setting(key)
+        if old_value != new_value:
+            await aset_setting(key, new_value, by=by)
+            changed[key] = {"old": old_value, "new": new_value}
+            applied.append(key)
+    if applied:
+        version = await push_revision(
+            await snapshot_all(), changed, by=by, ip=ip,
+            reason=reason or "restore")
+        return version, applied
+    return 0, []
+
+
+def export_payload() -> Dict[str, Any]:
+    """Sync export (safe keys only, no secrets)."""
+    from app.settings.registry import REGISTERED_KEYS
+    out: Dict[str, Any] = {}
+    for key in sorted(REGISTERED_KEYS):
+        out[key] = get_setting(key)
+    return {
+        "version": 1,
+        "schema": "leadai.settings.v1",
+        "exported_at": time.time(),
+        "settings": out,
+    }
 
 
 def json_dumps(value: Any) -> str:

@@ -7,9 +7,9 @@
   <meta name="description" content="AI-powered social lead intelligence — paste a Facebook, Instagram, YouTube or LinkedIn URL and uncover high-intent prospects through real Apify data.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=3">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500;1,9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css?v=light1">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
 </head>
 <body>
   <div class="app-shell">
@@ -26,10 +26,10 @@
     <header class="topbar">
       <div class="topbar-left">
         <a class="brand-logo" href="/" aria-label="LeadAI home">
-          <span class="logo-icon" aria-hidden="true">🎯</span>
+          <span class="logo-icon" data-brand-logo="primary" aria-hidden="true">✦</span>
           <span class="brand-text">
-            <span class="brand-name">LeadAI</span>
-            <span class="brand-sub">AI Lead Intelligence</span>
+            <span class="brand-name" data-brand-name>LeadAI</span>
+            <span class="brand-sub" data-brand-sub>AI Lead Intelligence</span>
           </span>
         </a>
       </div>
@@ -111,6 +111,52 @@
                 <span class="btn-arrow" aria-hidden="true">→</span>
               </button>
             </div>
+
+            <!-- Comment Scraping & Keyword Intelligence: filter comments before the AI stage -->
+            <details class="filter-panel" id="urlFilterPanel">
+              <summary class="filter-panel-summary">
+                <span class="filter-panel-title">⚙ Comment Filtering</span>
+                <span class="field-hint">— only matching comments reach the AI stage; skipped comments stay stored but get no AI call</span>
+              </summary>
+              <div class="filter-panel-body">
+                <div class="filter-mode-row" role="radiogroup" aria-label="Comment filter mode" id="urlFilterModes">
+                  <label class="filter-radio"><input type="radio" name="filterMode" value="all" checked><span>All comments</span></label>
+                  <label class="filter-radio"><input type="radio" name="filterMode" value="preset"><span>Saved rule / preset</span></label>
+                  <label class="filter-radio"><input type="radio" name="filterMode" value="custom"><span>Custom keywords</span></label>
+                </div>
+                <div class="filter-field hidden" id="urlFilterPresetField">
+                  <label class="field-label" for="urlFilterPreset">Rule / preset</label>
+                  <select id="urlFilterPreset" class="form-input">
+                    <option value="">Loading…</option>
+                  </select>
+                  <span class="field-hint">Saved admin rules are labelled “Rule”, built-in shortcuts “Preset”</span>
+                </div>
+                <div class="filter-custom hidden" id="urlFilterCustomField">
+                  <div class="maxposts-field">
+                    <label class="field-label" for="urlFilterInclude">Include keywords <span class="field-hint">comma-separated</span></label>
+                    <input type="text" id="urlFilterInclude" class="form-input" placeholder="price, broking, kharar, resale" autocomplete="off" spellcheck="false">
+                  </div>
+                  <div class="maxposts-field">
+                    <label class="field-label" for="urlFilterExclude">Exclude keywords <span class="field-hint">comma-separated</span></label>
+                    <input type="text" id="urlFilterExclude" class="form-input" placeholder="job, vacancy" autocomplete="off" spellcheck="false">
+                  </div>
+                  <div class="maxposts-field">
+                    <label class="field-label" for="urlFilterMatchMode">Match mode</label>
+                    <select id="urlFilterMatchMode" class="form-input">
+                      <option value="any">Any keyword (OR)</option>
+                      <option value="all">All keywords (AND)</option>
+                      <option value="category">A whole category</option>
+                      <option value="advanced">Advanced (excludes included)</option>
+                    </select>
+                  </div>
+                  <div id="urlFilterCategoriesWrap" class="filter-cats-wrap hidden">
+                    <label class="field-label">Categories</label>
+                    <div id="urlFilterCategories" class="filter-cats"></div>
+                    <span class="field-hint">Comment is matched if it belongs to one of these categories</span>
+                  </div>
+                </div>
+              </div>
+            </details>
 
             <!-- Real-time processing state (phases come from the backend run) -->
             <div id="urlSearchProgress" class="pipeline-progress hidden">
@@ -237,26 +283,71 @@
       <!-- ══════════ VIEW 4: COMMENTS / LEADS ══════════ -->
       <section class="workflow-view leads-panel glass-card hidden" id="view-comments">
         <div class="leads-header">
-          <div class="leads-tabs">
-            <button class="tab-btn active" id="tabComments">💬 Comments on <span id="commentsPostName">this post</span></button>
+          <div class="leads-tabs-bar">
+            <div class="comments-post-title-wrap">
+              <span class="comments-post-icon">💬</span>
+              <div class="comments-post-info">
+                <span class="comments-post-label">Post Comments & Leads</span>
+                <span id="commentsPostName" class="comments-post-caption">Loading post...</span>
+              </div>
+            </div>
+            <div class="leads-header-actions">
+              <label class="filter-check count-field" title="Comments scraped per post when collecting comments">
+                Max / Post
+                <input type="number" id="commentsPerPostInput" class="count-input" min="1" max="500" value="50" onchange="setCommentsPerPost(this)">
+              </label>
+              <button class="btn-export" onclick="exportLeadsCsv()" title="Download comments & leads as CSV">📄 Export CSV</button>
+              <button class="btn-refresh" onclick="renderCommentsScreen()" title="Refresh comments">↺ Refresh</button>
+            </div>
           </div>
-          <div class="leads-controls">
-            <label class="filter-check count-field" title="Comments scraped per post when collecting comments">
-              Comments / Post
-              <input type="number" id="commentsPerPostInput" class="count-input" min="1" max="500" value="20" onchange="setCommentsPerPost(this)">
-            </label>
-            <label class="filter-check">
-              <input type="checkbox" id="commentsContactOnly" checked onchange="renderCommentsScreen()"> Contact only
-            </label>
-            <label class="filter-check">
-              <input type="checkbox" id="commentsLeadsOnly" onchange="renderCommentsScreen()"> Leads only
-            </label>
-            <button class="btn-export" onclick="exportLeadsCsv()" title="Download AI-analyzed leads as CSV">📄 Export Leads CSV</button>
-            <button class="btn-refresh" onclick="renderCommentsScreen()" title="Refresh (data is cached)">↺ Refresh</button>
+
+          <!-- Quick Filter Tabs / Pills -->
+          <div class="comment-filter-pills" id="commentFilterPills">
+            <button class="filter-pill active" data-filter="all" onclick="setCommentFilterType('all', this)">
+              All Comments <span class="pill-badge" id="countAll">0</span>
+            </button>
+            <button class="filter-pill" data-filter="leads" onclick="setCommentFilterType('leads', this)">
+              🎯 High-Intent Leads <span class="pill-badge" id="countLeads">0</span>
+            </button>
+            <button class="filter-pill" data-filter="contact" onclick="setCommentFilterType('contact', this)">
+              📞 Contact Ready <span class="pill-badge" id="countContact">0</span>
+            </button>
+            <button class="filter-pill" data-filter="hot" onclick="setCommentFilterType('hot', this)">
+              🔥 Hot Leads <span class="pill-badge" id="countHot">0</span>
+            </button>
+            <button class="filter-pill" data-filter="pricing" onclick="setCommentFilterType('pricing', this)">
+              💰 Pricing & Quotes <span class="pill-badge" id="countPricing">0</span>
+            </button>
+            <button class="filter-pill" data-filter="inquiry" onclick="setCommentFilterType('inquiry', this)">
+              ❓ Inquiries & Questions <span class="pill-badge" id="countInquiry">0</span>
+            </button>
+          </div>
+
+          <!-- Secondary Toolbar: Search, Quality, Sort By -->
+          <div class="comments-toolbar">
+            <div class="comments-search-box">
+              <span class="search-box-icon">🔍</span>
+              <input type="text" id="commentsSearchInput" class="comments-search-input" placeholder="Search comments by text, name, phone, email, location..." oninput="onCommentsSearchInput()">
+              <button id="commentsSearchClear" class="search-box-clear hidden" onclick="clearCommentsSearch()" aria-label="Clear search">✕</button>
+            </div>
+
+            <div class="comments-toolbar-selects">
+              <select id="commentsQualityFilter" class="filter-select" onchange="renderCommentsScreen()" aria-label="Filter by Lead Quality">
+                <option value="">All Qualities</option>
+                <option value="hot">🔥 Hot Quality</option>
+                <option value="warm">⚡ Warm Quality</option>
+                <option value="cold">❄️ Cold Quality</option>
+              </select>
+
+              <select id="commentsSortBy" class="filter-select" onchange="renderCommentsScreen()" aria-label="Sort comments">
+                <option value="score">Sort: Highest Lead Score</option>
+                <option value="newest">Sort: Newest First</option>
+                <option value="oldest">Sort: Oldest First</option>
+                <option value="reactions">Sort: Most Reactions</option>
+              </select>
+            </div>
           </div>
         </div>
-
-        <p class="workflow-hint">Only valuable comments are shown by default — the AI ignores "nice", "awesome", emoji-only and spam. Click a row for the full AI lead card.</p>
 
         <div id="commentsScreenStatus" class="page-search-summary hidden"></div>
 
@@ -274,14 +365,20 @@
 
         <div class="empty-state" id="commentsListEmpty">
           <div class="empty-icon">💬</div>
-          <div class="empty-title">No Leads Yet</div>
-          <div class="empty-sub">Collect comments from the Posts screen</div>
+          <div class="empty-title">No Comments Found</div>
+          <div class="empty-sub">Collect comments from the Posts screen or adjust your active filters</div>
         </div>
         <div id="commentsGrid" class="lead-card-grid"></div>
       </section>
 
     </main>
   </div>
+
+  <!-- ── Site footer (company + support from Global Settings) ── -->
+  <footer class="site-footer">
+    <span data-brand-company></span>
+    <span data-brand-support></span>
+  </footer>
 
   <!-- ── Lead Details Modal ── -->
   <div id="leadDetailModal" class="modal-backdrop hidden" onclick="if(event.target===this)closeLeadDetails()">
@@ -300,6 +397,7 @@
   <!-- ── Toast Container ── -->
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-  <script src="/static/app.js?v=3"></script>
+  <script src="/static/config.js"></script>
+  <script src="/static/app.js?v=light2"></script>
 </body>
 </html>
