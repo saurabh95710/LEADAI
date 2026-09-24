@@ -474,6 +474,8 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
         audit_run("apify.job_failed", "apify", success=False, platform=platform,
                   error=error[:500], apify_run_id=last_call.get("runId"))
         notify_apify_failure(owner, run_id, error, last_call.get("runId"))
+        from app.events.notifications import notify_search_finished
+        notify_search_finished(owner, run_id, success=False, platform=platform, error=error)
         return {
             "status": "error", "error": error, "success": False,
             "platform": platform, "url": canonical_url, "page_id": page_id,
@@ -499,6 +501,9 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
                         severity="success", data={"search_run_id": run_id})
         except Exception:
             logger.warning("[URL SEARCH] completion notification failed", exc_info=True)
+    from app.events.notifications import notify_search_finished
+    notify_search_finished(owner, run_id, success=True, platform=platform,
+                           posts=len(post_docs), comments=comment_docs)
     # persist the last Apify call metadata (actor/run/usage) for the admin
     # Usage page — real figures only
     try:
@@ -549,3 +554,7 @@ class UrlSearchThread(threading.Thread):
                 db.search_history.update_one({"run_id": self.run_id}, {"$set": {
                     "status": "error", "error": f"Internal error: {e}",
                     "updated_at": utcnow()}})
+            from app.events.notifications import notify_search_finished
+            notify_search_finished({"organization_id": self.organization_id, "user_id": self.user_id,
+                                    "created_by": self.created_by}, self.run_id, success=False,
+                                   error=f"Internal error: {e}")

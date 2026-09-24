@@ -162,17 +162,21 @@ function skeletonRows(n = 5) {
   }
   return `<div class="sk-list" aria-busy="true" aria-label="Loading">${rows}</div>`;
 }
-function emptyState({ icon = "✦", title = "Nothing here yet", sub = "", cta = "", ctaNav = "", ctaAction = "" } = {}) {
+/** Inline icon from the page's SVG sprite (index.html <symbol id="i-…">). */
+function ico(name, cls) {
+  return `<svg class="ico ${cls || "ico-inline"}" aria-hidden="true" focusable="false"><use href="#i-${esc(name)}"/></svg>`;
+}
+function emptyState({ icon = "sparkles", title = "Nothing here yet", sub = "", cta = "", ctaNav = "", ctaAction = "" } = {}) {
   const btn = cta
     ? `<button type="button" class="btn-primary btn-mini-cta" ${ctaNav ? `data-nav="${esc(ctaNav)}"` : ""} ${ctaAction ? `data-action="${esc(ctaAction)}"` : ""}>${esc(cta)}</button>`
     : "";
-  return `<div class="empty-state"><div class="empty-icon" aria-hidden="true">${esc(icon)}</div><div class="empty-title">${esc(title)}</div>${sub ? `<div class="empty-sub">${esc(sub)}</div>` : ""}${btn}</div>`;
+  return `<div class="empty-state"><div class="empty-icon" aria-hidden="true">${ico(icon, "ico-empty")}</div><div class="empty-title">${esc(title)}</div>${sub ? `<div class="empty-sub">${esc(sub)}</div>` : ""}${btn}</div>`;
 }
 function errorState(message, retryKey) {
   return `<div class="state-box state-error" role="alert"><div class="state-title">Couldn't load this</div><div class="state-sub">${esc(message || "Please check your connection and try again.")}</div>${retryKey ? `<button type="button" class="btn-secondary" data-retry="${esc(retryKey)}">↻ Try again</button>` : ""}</div>`;
 }
 function deniedState(message) {
-  return `<div class="state-box state-denied" role="status"><div class="state-title">🔒 No access</div><div class="state-sub">${esc(message || "Your role doesn't include this section. Ask your workspace admin for access.")}</div></div>`;
+  return `<div class="state-box state-denied" role="status"><div class="state-title">${ico("lock")} No access</div><div class="state-sub">${esc(message || "Your role doesn't include this section. Ask your workspace admin for access.")}</div></div>`;
 }
 /** Standard failure → state html (permission-denied vs error). */
 function failureState(res, retryKey, what) {
@@ -240,7 +244,7 @@ function renderTable(cfg) {
 }
 /** Enable/disable a table's Columns + CSV tools (disabled while the list is empty). */
 function setTableTools(key, enabled) {
-  document.querySelectorAll(`[data-col-toggle="${key}"], [data-table-export="${key}"]`).forEach((b) => { b.disabled = !enabled; });
+  document.querySelectorAll(`[data-col-toggle="${key}"], [data-table-export="${key}"], [data-server-export="${key}"]`).forEach((b) => { b.disabled = !enabled; });
 }
 function clearTable(key) { TABLES[key] = null; setTableTools(key, false); }
 function renderColMenu(key) {
@@ -275,9 +279,27 @@ async function exportTableCsv(key, btn) {
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
     toast(`Downloaded ${rows.length} row${rows.length === 1 ? "" : "s"}`, "success");
+    logClientExport(key, rows.length, cols.map((c) => c.label), cfg.filters ? cfg.filters() : {});
   } finally {
     if (btn) { btn.disabled = false; btn.removeAttribute("aria-busy"); }
   }
+}
+/** Audit trail for an in-browser table download (fire-and-forget: a failed
+    log never blocks or undoes the download the user already has). */
+function logClientExport(table, rows, columns, filters) {
+  if (!CLIENT_LOG_TABLES.has(table)) return;
+  const clean = {};
+  Object.entries(filters || {}).forEach(([k, v]) => { if (v !== "" && v !== null && v !== undefined) clean[k] = String(v).slice(0, 200); });
+  api("/api/me/exports/client-log", { method: "POST", body: { table, rows, columns: columns.slice(0, 50), filters: clean } })
+    .then((res) => { if (res.ok && currentView === "exports") loadExports(); })
+    .catch(() => {});
+}
+const CLIENT_LOG_TABLES = new Set(["history", "exports", "ledger"]);
+/** Plain {name: value} of a URLSearchParams without paging keys (for the export audit). */
+function filtersOf(params) {
+  const out = {};
+  params.forEach((v, k) => { if (k !== "page" && k !== "page_size" && v) out[k] = v; });
+  return out;
 }
 /** Every page of a paged /api/me/* list (max 1,000 rows) for CSV downloads. */
 async function fetchAllPages(buildUrl) {
@@ -442,8 +464,8 @@ function navigateToView(view, opts = {}) {
 
 // ── URL SEARCH — paste a social media link, platform auto-detected ──────
 const URL_LABELS = {
-  facebook: ["Facebook", "🏠"], instagram: ["Instagram", "📸"],
-  youtube: ["YouTube", "▶️"], linkedin: ["LinkedIn", "💼"],
+  facebook: ["Facebook", ico("facebook")], instagram: ["Instagram", ico("instagram")],
+  youtube: ["YouTube", ico("youtube")], linkedin: ["LinkedIn", ico("linkedin")],
 };
 
 // platform display names for every screen — "unknown" renders as a plain
@@ -673,7 +695,7 @@ function renderRecentRows() {
   const canDelete = can("search.cancel");
   list.innerHTML = rows.map((s) => {
     const platform = s.platform || (s.intent || {}).platform;
-    const [label, icon] = URL_LABELS[platform] || [platform || "URL", "🔗"];
+    const [label, icon] = URL_LABELS[platform] || [platform || "URL", ico("link")];
     const count = s.pages_stored || 0;
     return `
       <div class="rs-row" role="button" tabindex="0" data-open-run="${esc(s.run_id)}" aria-label="Open search for ${esc(s.query)}">
@@ -797,7 +819,7 @@ function applySearchState() {
   if (costRow) {
     const t = usage.tokens;
     costRow.innerHTML = t && costs.search
-      ? `<span class="cost-chip">🪙 Uses <b>${esc(costs.search)}</b> tokens</span><span class="cost-chip">${esc(fmt(t.remaining))} of ${esc(fmt(t.allocated))} left</span>`
+      ? `<span class="cost-chip">${ico("coins")} Uses <b>${esc(costs.search)}</b> tokens</span><span class="cost-chip">${esc(fmt(t.remaining))} of ${esc(fmt(t.allocated))} left</span>`
       : "";
   }
 
@@ -949,7 +971,7 @@ async function handleUrlSearch(event) {
     }
     const data = res.data;
     runId = data.run_id;
-    const [label, icon] = URL_LABELS[data.platform] || [data.platform, "🔗"];
+    const [label, icon] = URL_LABELS[data.platform] || [data.platform, ico("link")];
     const chip = $("urlPlatformChip");
     chip.innerHTML = `<span class="intent-chip"><b>Platform:</b> ${icon} ${esc(label)}</span><span class="intent-chip"><b>URL:</b> ${esc(data.canonical_url)}</span>`;
     chip.classList.remove("hidden");
@@ -1190,11 +1212,11 @@ async function renderPagesScreen() {
     if (postStatus === "running" && !stale) {
       actionBtn = `<span class="btn-secondary" style="cursor:default"><span class="mini-spinner"></span> Analyzing posts (${found} found)</span>`;
     } else if (postStatus === "completed" && found > 0) {
-      actionBtn = `<button class="btn-primary" data-open-page="${pid}">📝 View ${found} posts${qualifying > 0 ? ` (${qualifying} qualifying)` : ""}</button>`;
+      actionBtn = `<button class="btn-primary" data-open-page="${pid}">${ico("file")} View ${found} posts${qualifying > 0 ? ` (${qualifying} qualifying)` : ""}</button>`;
     } else if (postStatus === "empty" || found === 0) {
       actionBtn = `<button class="btn-secondary" data-open-page="${pid}">↻ Re-analyze posts</button>`;
     } else {
-      actionBtn = `<button class="btn-primary" data-open-page="${pid}">🔍 Analyze posts</button>`;
+      actionBtn = `<button class="btn-primary" data-open-page="${pid}">${ico("search")} Analyze posts</button>`;
     }
 
     const pic = safeUrl(p.profile_picture);
@@ -1206,12 +1228,12 @@ async function renderPagesScreen() {
     const platformCls = PLATFORMS[p.platform] ? p.platform : "unknown";
 
     const contactChips = [];
-    if (p.phone) contactChips.push(`<a class="pc-chip" href="tel:${esc(p.phone)}" data-stop>📞 <b>${esc(p.phone)}</b></a>`);
-    if (p.email) contactChips.push(`<a class="pc-chip" href="mailto:${esc(p.email)}" data-stop>✉️ <b>${esc(p.email)}</b></a>`);
-    if (p.whatsapp) contactChips.push(`<a class="pc-chip" href="https://wa.me/${esc(String(p.whatsapp).replace(/[^\d]/g, ''))}" target="_blank" rel="noopener" data-stop>💬 WhatsApp</a>`);
-    if (safeUrl(p.website)) contactChips.push(`<a class="pc-chip pc-chip-link" href="${esc(safeUrl(p.website))}" target="_blank" rel="noopener" data-stop>🌐 ${esc(p.website.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`);
-    if (p.address || p.country) contactChips.push(`<span class="pc-chip pc-chip-addr" title="${esc(p.address || p.country)}">📍 ${esc(p.address || p.country)}</span>`);
-    if (p.category) contactChips.push(`<span class="pc-chip">🏷️ ${esc(p.category)}</span>`);
+    if (p.phone) contactChips.push(`<a class="pc-chip" href="tel:${esc(p.phone)}" data-stop>${ico("phone")} <b>${esc(p.phone)}</b></a>`);
+    if (p.email) contactChips.push(`<a class="pc-chip" href="mailto:${esc(p.email)}" data-stop>${ico("mail")} <b>${esc(p.email)}</b></a>`);
+    if (p.whatsapp) contactChips.push(`<a class="pc-chip" href="https://wa.me/${esc(String(p.whatsapp).replace(/[^\d]/g, ''))}" target="_blank" rel="noopener" data-stop>${ico("message")} WhatsApp</a>`);
+    if (safeUrl(p.website)) contactChips.push(`<a class="pc-chip pc-chip-link" href="${esc(safeUrl(p.website))}" target="_blank" rel="noopener" data-stop>${ico("globe")} ${esc(p.website.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`);
+    if (p.address || p.country) contactChips.push(`<span class="pc-chip pc-chip-addr" title="${esc(p.address || p.country)}">${ico("map-pin")} ${esc(p.address || p.country)}</span>`);
+    if (p.category) contactChips.push(`<span class="pc-chip">${ico("tag")} ${esc(p.category)}</span>`);
     const srcUrl = safeUrl(p.facebook_url);
 
     return `<article class="page-card clickable-card" data-open-page="${pid}" tabindex="0" aria-label="${esc(p.page_name || "Page")}">
@@ -1364,11 +1386,11 @@ async function renderPostsScreen() {
     if (cStatus === "running") {
       actionBtn = `<span class="btn-secondary" style="cursor:default"><span class="mini-spinner"></span> Collecting (${scraped} found)</span>`;
     } else if (scraped > 0) {
-      actionBtn = `<button class="btn-primary" data-open-post="${id}">💬 View ${scraped} comments & leads</button>`;
+      actionBtn = `<button class="btn-primary" data-open-post="${id}">${ico("message")} View ${scraped} comments & leads</button>`;
     } else if (qualifying) {
-      actionBtn = `<button class="btn-primary" data-open-post="${id}">💬 Collect comments (${total} available)</button>`;
+      actionBtn = `<button class="btn-primary" data-open-post="${id}">${ico("message")} Collect comments (${total} available)</button>`;
     } else {
-      actionBtn = `<button class="btn-secondary" data-open-post="${id}">💬 Collect comments (${total} available)</button>`;
+      actionBtn = `<button class="btn-secondary" data-open-post="${id}">${ico("message")} Collect comments (${total} available)</button>`;
     }
 
     const relBadge = post.is_relevant === true
@@ -1381,12 +1403,12 @@ async function renderPostsScreen() {
       ? `<span class="badge badge-lead">★ Qualifying (≥ ${min} comments)</span>`
       : `<span class="badge badge-muted">&lt;${min} comments</span>`;
     const kf = post.keyword_filter;
-    const kfBadge = kf && kf.total ? `<span class="badge badge-ai" title="Comment qualification">🧪 ${esc(kf.matched || 0)}/${esc(kf.total)} qualified</span>` : "";
+    const kfBadge = kf && kf.total ? `<span class="badge badge-ai" title="Comment qualification">${ico("filter")} ${esc(kf.matched || 0)}/${esc(kf.total)} qualified</span>` : "";
 
     const img = post.images && post.images.length ? safeUrl(post.images[0]) : "";
     const thumb = img
       ? `<img class="pt-thumb" src="${esc(img)}" alt="" loading="lazy" onerror="this.style.display='none'">`
-      : (post.videos && post.videos.length ? `<span class="pt-thumb pt-thumb-video">🎬</span>` : `<span class="pt-thumb pt-thumb-fallback">📝</span>`);
+      : (post.videos && post.videos.length ? `<span class="pt-thumb pt-thumb-video">${ico("film", "ico-thumb")}</span>` : `<span class="pt-thumb pt-thumb-fallback">${ico("file", "ico-thumb")}</span>`);
 
     const captionText = post.caption || post.description || post.text || "No post caption text available.";
     const postUrl = safeUrl(post.post_url);
@@ -1397,7 +1419,7 @@ async function renderPostsScreen() {
         <div class="pt-body">
           <div class="pt-caption" title="${esc(captionText)}">${esc(captionText)}</div>
           <div class="pt-meta">
-            <span>📅 ${esc(post.published_date || "Date unknown")}</span>
+            <span>${ico("calendar")} ${esc(post.published_date || "Date unknown")}</span>
             ${relBadge}
             ${qualBadge}
             ${kfBadge}
@@ -1632,7 +1654,7 @@ async function renderCommentsScreen() {
   const searchNote = searchVal ? ` matching "<b>${esc(searchVal)}</b>"` : "";
   const kf = data.post && data.post.keyword_filter;
   const qualNote = kf && kf.total
-    ? `<div class="summary-line qual-line">🧪 Comment qualification: <b>${esc(kf.matched || 0)}</b> of <b>${esc(kf.total)}</b> comments matched the filter and went to AI analysis${kf.not_matched ? ` · ${esc(kf.not_matched)} skipped` : ""}</div>`
+    ? `<div class="summary-line qual-line">${ico("filter")} Comment qualification: <b>${esc(kf.matched || 0)}</b> of <b>${esc(kf.total)}</b> comments matched the filter and went to AI analysis${kf.not_matched ? ` · ${esc(kf.not_matched)} skipped` : ""}</div>`
     : "";
   statusBox.innerHTML = `<div class="summary-line">${activeLabel}${searchNote} · <b>${esc(data.total)}</b> of <b>${esc(data.all_count || 0)}</b> comments displayed</div>${qualNote}`;
   statusBox.classList.remove("hidden");
@@ -1656,14 +1678,14 @@ async function renderCommentsScreen() {
     const platformCls = PLATFORMS[c.platform] ? c.platform : "unknown";
 
     const contactChips = [];
-    if (c.phone) contactChips.push(`<a class="lc-chip" href="tel:${esc(c.phone)}" data-stop>📞 <b>${esc(c.phone)}</b></a>`);
-    if (c.email) contactChips.push(`<a class="lc-chip" href="mailto:${esc(c.email)}" data-stop>✉️ <b>${esc(c.email)}</b></a>`);
-    if (c.whatsapp) contactChips.push(`<a class="lc-chip" href="https://wa.me/${esc(String(c.whatsapp).replace(/[^\d]/g, ''))}" target="_blank" rel="noopener" data-stop>💬 WhatsApp</a>`);
-    if (c.budget) contactChips.push(`<span class="lc-chip">💰 Budget: <b>${esc(c.budget)}</b></span>`);
-    if (c.requirement) contactChips.push(`<span class="lc-chip">📋 Req: <b>${esc(c.requirement)}</b></span>`);
-    if (c.location) contactChips.push(`<span class="lc-chip">📍 ${esc(c.location)}</span>`);
-    if (intent) contactChips.push(`<span class="lc-chip lc-chip-intent">🎯 ${esc(intent)}</span>`);
-    if (c.sentiment && c.sentiment !== "neutral") contactChips.push(`<span class="lc-chip" style="opacity:0.85">💭 ${esc(c.sentiment)}</span>`);
+    if (c.phone) contactChips.push(`<a class="lc-chip" href="tel:${esc(c.phone)}" data-stop>${ico("phone")} <b>${esc(c.phone)}</b></a>`);
+    if (c.email) contactChips.push(`<a class="lc-chip" href="mailto:${esc(c.email)}" data-stop>${ico("mail")} <b>${esc(c.email)}</b></a>`);
+    if (c.whatsapp) contactChips.push(`<a class="lc-chip" href="https://wa.me/${esc(String(c.whatsapp).replace(/[^\d]/g, ''))}" target="_blank" rel="noopener" data-stop>${ico("message")} WhatsApp</a>`);
+    if (c.budget) contactChips.push(`<span class="lc-chip">${ico("wallet")} Budget: <b>${esc(c.budget)}</b></span>`);
+    if (c.requirement) contactChips.push(`<span class="lc-chip">${ico("clipboard")} Req: <b>${esc(c.requirement)}</b></span>`);
+    if (c.location) contactChips.push(`<span class="lc-chip">${ico("map-pin")} ${esc(c.location)}</span>`);
+    if (intent) contactChips.push(`<span class="lc-chip lc-chip-intent">${ico("target")} ${esc(intent)}</span>`);
+    if (c.sentiment && c.sentiment !== "neutral") contactChips.push(`<span class="lc-chip" style="opacity:0.85">${ico("message")} ${esc(c.sentiment)}</span>`);
     const cUrl = safeUrl(c.comment_url);
     const score = Number(c.lead_score) || 0;
 
@@ -1675,10 +1697,10 @@ async function renderCommentsScreen() {
             <div class="lc-name">
               ${esc(c.commenter_name || "Commenter")}
               <span class="platform-badge ${platformCls}">${esc(commentInfo.name || c.platform || "Social")}</span>
-              ${c.has_contact ? `<span class="badge badge-lead">📞 Contact ready</span>` : ""}
+              ${c.has_contact ? `<span class="badge badge-lead">${ico("phone")} Contact ready</span>` : ""}
             </div>
             <div class="lc-meta">
-              ${c.published_date ? `<span>🕒 ${esc(formatDate(c.published_date))}</span>` : ""}
+              ${c.published_date ? `<span>${ico("clock")} ${esc(formatDate(c.published_date))}</span>` : ""}
               ${cUrl ? `<a class="pc-link" href="${esc(cUrl)}" target="_blank" rel="noopener" data-stop>View on ${esc(commentInfo.name || "platform")} ↗</a>` : ""}
             </div>
           </div>
@@ -1693,7 +1715,7 @@ async function renderCommentsScreen() {
 
       <div class="lc-text-box">
         <p class="lc-full-text">${esc(c.comment_text || "No comment text")}</p>
-        ${c.reason ? `<div class="lc-ai-reason">🤖 <b>AI intelligence:</b> ${esc(c.reason)}</div>` : ""}
+        ${c.reason ? `<div class="lc-ai-reason">${ico("sparkles")} <b>AI intelligence:</b> ${esc(c.reason)}</div>` : ""}
       </div>
 
       <div class="lc-chips">
@@ -1701,7 +1723,7 @@ async function renderCommentsScreen() {
       </div>
 
       <div class="lc-foot">
-        <button class="btn-ghost" style="font-size:0.76rem;padding:5px 12px" data-open-lead="${cid}">🔍 View full dossier</button>
+        <button class="btn-ghost" style="font-size:0.76rem;padding:5px 12px" data-open-lead="${cid}">${ico("eye")} View full dossier</button>
       </div>
     </article>`;
   }).join("");
@@ -1798,11 +1820,11 @@ async function openLeadDetail(commentId, event) {
   // lifecycle/notes live on the AI analysis doc (ai_comments), never on a raw comment
   const isRawComment = Boolean(d.comment && d.comment.id === d.id);
   const canManage = can("leads.manage") && !isRawComment;
-  const quality = { hot: "🔥 Hot", warm: "⚡ Warm", cold: "❄️ Cold", none: "—" }[d.lead_quality] || "—";
+  const quality = { hot: `${ico("flame")} Hot`, warm: `${ico("zap")} Warm`, cold: `${ico("snowflake")} Cold`, none: "—" }[d.lead_quality] || "—";
   const intent = d.intent ? String(d.intent).replace(/_/g, " ") : "—";
 
   const currentStatus = d.lead_status || "new";
-  const priorityLabels = { high: "🔴 High", medium: "🟡 Medium", low: "⚪ Low" };
+  const priorityLabels = { high: '<span class="prio-dot prio-high" aria-hidden="true"></span>High', medium: '<span class="prio-dot prio-medium" aria-hidden="true"></span>Medium', low: '<span class="prio-dot prio-low" aria-hidden="true"></span>Low' };
   const currentPriority = d.lead_priority || d.priority || "low";
   const priorityLabel = priorityLabels[currentPriority] || currentPriority;
 
@@ -1880,7 +1902,7 @@ async function openLeadDetail(commentId, event) {
       <div class="score-ring score-${tier}" style="--p:${score}" role="img" aria-label="Lead score ${score} out of 100"><span>${score}</span></div>
       <div class="score-facts">
         <div><span class="detail-label">Quality</span> ${quality}</div>
-        <div><span class="detail-label">Priority</span> ${esc(priorityLabel)}</div>
+        <div><span class="detail-label">Priority</span> ${priorityLabels[currentPriority] ? priorityLabel : esc(priorityLabel)}</div>
         <div><span class="detail-label">AI confidence</span> ${conf != null ? conf + "%" : "—"}</div>
         ${conf != null ? `<span class="score-meter score-${tier}"><span class="score-meter-fill" style="width:${conf}%"></span></span>` : ""}
       </div>
@@ -1899,7 +1921,7 @@ async function openLeadDetail(commentId, event) {
         <div class="detail-label">Original comment</div>
         <div class="detail-value quote-box">${esc(d.comment_text || "—")}</div>
         ${cUrl ? `<div class="mt-8"><a class="pc-link" href="${esc(cUrl)}" target="_blank" rel="noopener">Open original comment on ${esc(detailInfo.name || "platform")} ↗</a></div>` : ""}
-        ${d.reason ? `<div class="detail-reason">🤖 <b>AI rationale:</b> ${esc(d.reason)} ${d.analyzed_by ? `(${esc(d.analyzed_by)})` : ""}</div>` : ""}
+        ${d.reason ? `<div class="detail-reason">${ico("sparkles")} <b>AI rationale:</b> ${esc(d.reason)} ${d.analyzed_by ? `(${esc(d.analyzed_by)})` : ""}</div>` : ""}
         ${!isLead ? `<div class="detail-reason">This comment was not qualified as a lead.</div>` : ""}
       </div>
 
@@ -1910,11 +1932,11 @@ async function openLeadDetail(commentId, event) {
 
       <div class="detail-block">
         <div class="detail-label">Phone number</div>
-        <div class="detail-value">${d.phone ? `<a href="tel:${esc(d.phone)}" class="contact-pill">📞 ${esc(d.phone)}</a>` : "—"}</div>
+        <div class="detail-value">${d.phone ? `<a href="tel:${esc(d.phone)}" class="contact-pill">${ico("phone")} ${esc(d.phone)}</a>` : "—"}</div>
         <div class="detail-label">WhatsApp</div>
-        <div class="detail-value">${d.whatsapp ? `<a href="https://wa.me/${esc(String(d.whatsapp).replace(/[^\d]/g, ""))}" target="_blank" rel="noopener" class="contact-pill">💬 Direct chat</a>` : "—"}</div>
+        <div class="detail-value">${d.whatsapp ? `<a href="https://wa.me/${esc(String(d.whatsapp).replace(/[^\d]/g, ""))}" target="_blank" rel="noopener" class="contact-pill">${ico("message")} Direct chat</a>` : "—"}</div>
         <div class="detail-label">Email</div>
-        <div class="detail-value">${d.email ? `<a href="mailto:${esc(d.email)}" class="contact-pill">✉️ ${esc(d.email)}</a>` : "—"}</div>
+        <div class="detail-value">${d.email ? `<a href="mailto:${esc(d.email)}" class="contact-pill">${ico("mail")} ${esc(d.email)}</a>` : "—"}</div>
         <div class="detail-label">Website</div>
         <div class="detail-value">${web ? `<a href="${esc(web)}" target="_blank" rel="noopener" class="pc-link">${esc(web)} ↗</a>` : "—"}</div>
       </div>
@@ -2056,35 +2078,35 @@ const FEATURE_NAMES = {
 };
 const ENTITLEMENT_COPY = {
   DEMO_EXPIRED: {
-    icon: "⏳", title: "Your demo has ended",
+    icon: "clock", title: "Your demo has ended",
     msg: () => "Your free demo period is over. Choose a plan to keep finding leads — your searches and leads are kept safe.",
   },
   TOKENS_EXHAUSTED: {
-    icon: "🪙", title: "You're out of tokens",
+    icon: "coins", title: "You're out of tokens",
     msg: (d) => d.needed != null
       ? `This action needs ${d.needed} token${d.needed === 1 ? "" : "s"} and your workspace has ${d.remaining || 0} left.`
       : "Your workspace has used all of its tokens.",
   },
   TOKENS_EXPIRED: {
-    icon: "⌛", title: "Your tokens have expired",
+    icon: "clock", title: "Your tokens have expired",
     msg: () => "The tokens on your workspace have expired. Choose a plan to get a fresh allowance.",
   },
   QUOTA_EXCEEDED: {
-    icon: "📊", title: "Monthly limit reached",
+    icon: "chart", title: "Monthly limit reached",
     msg: (d) => d.limit != null
       ? `You've used ${d.used} of ${d.limit} ${METRIC_LABELS[d.metric] || String(d.metric || "units").replace(/_/g, " ")} this month.`
       : (d.message || "You've reached your plan's monthly limit."),
   },
   PLAN_LIMIT: {
-    icon: "📏", title: "Above your plan's limit",
+    icon: "alert", title: "Above your plan's limit",
     msg: (d) => d.message || `Your plan allows up to ${d.limit} ${METRIC_LABELS[d.metric] || "units"}.`,
   },
   FEATURE_NOT_AVAILABLE: {
-    icon: "🔒", title: "Not included in your plan",
+    icon: "lock", title: "Not included in your plan",
     msg: (d) => `${FEATURE_NAMES[d.feature] || String(d.feature || "This feature").replace(/_/g, " ")} isn't included in ${d.plan || "your current plan"}.`,
   },
   ORGANIZATION_INACTIVE: {
-    icon: "⏸", title: "Your workspace is inactive",
+    icon: "pause", title: "Your workspace is inactive",
     msg: (d) => (d.message ? d.message + " " : "") + "Reactivate a plan or contact support to continue.",
   },
 };
@@ -2101,7 +2123,7 @@ function showQuotaExceededModal(detail) {
   const copy = ENTITLEMENT_COPY[code] || ENTITLEMENT_COPY.QUOTA_EXCEEDED;
   const modal = $("quotaExceededModal");
   if (!modal) return false;
-  $("quotaExceededIcon").textContent = copy.icon;
+  $("quotaExceededIcon").innerHTML = ico(copy.icon, "ico-entitlement");
   $("quotaExceededTitle").textContent = copy.title;
   $("quotaExceededMsg").textContent = copy.msg(d);
   const stats = $("quotaExceededStats");
@@ -2474,7 +2496,7 @@ async function loadBillingData() {
     const plansGrid = $("plansCatalogGrid");
     if (plansGrid) {
       if (!plans.length) {
-        plansGrid.innerHTML = emptyState({ icon: "💳", title: "No plans available", sub: "Plans will appear here once they are published." });
+        plansGrid.innerHTML = emptyState({ icon: "card", title: "No plans available", sub: "Plans will appear here once they are published." });
       } else {
         plansGrid.innerHTML = plans.map((p) => {
           const isCurrent = activeSlug && p.slug === activeSlug;
@@ -2517,7 +2539,7 @@ async function loadBillingData() {
     const invList = $("invoicesList");
     if (invList) {
       if (!canView) {
-        invList.innerHTML = `<tr><td colspan="4" class="td-empty">🔒 Invoices are visible to your workspace admins.</td></tr>`;
+        invList.innerHTML = `<tr><td colspan="4" class="td-empty">${ico("lock")} Invoices are visible to your workspace admins.</td></tr>`;
       } else if (invRes && !invRes.ok) {
         invList.innerHTML = `<tr><td colspan="4" class="td-empty">Couldn't load invoices. <button type="button" class="link-btn" data-retry="billing">Try again</button></td></tr>`;
         RETRY.billing = loadBillingData;
@@ -2816,14 +2838,14 @@ function renderDashboard(s) {
   const rs = s.recent_searches || [];
   $("dashRecentSearches").innerHTML = rs.length
     ? `<ul class="mini-list">${rs.map((r) => {
-        const [label, icon] = URL_LABELS[r.platform] || [r.platform || "URL", "🔗"];
+        const [label, icon] = URL_LABELS[r.platform] || [r.platform || "URL", ico("link")];
         return `<li><button type="button" class="mini-row" data-open-run="${esc(r.run_id)}">
           <span class="mini-icon" aria-hidden="true">${icon}</span>
           <span class="mini-main"><span class="mini-title">${esc(r.query)}</span><span class="mini-sub">${esc(label)} · ${esc(relativeTime(r.created_at))}</span></span>
           ${statusPill(r.status)}
         </button></li>`;
       }).join("")}</ul>`
-    : emptyState({ icon: "🔎", title: "No searches yet", sub: "Start with a Facebook, Instagram, YouTube or LinkedIn URL.", cta: can("search.create") ? "Start a search" : "", ctaNav: "search" });
+    : emptyState({ icon: "search", title: "No searches yet", sub: "Start with a Facebook, Instagram, YouTube or LinkedIn URL.", cta: can("search.create") ? "Start a search" : "", ctaNav: "search" });
 
   // recent leads
   const rl = s.recent_leads || [];
@@ -2833,7 +2855,7 @@ function renderDashboard(s) {
           <span class="mini-main"><span class="mini-title">${esc(l.commenter_name || "Prospect")}${l.assigned_to_me ? ' <span class="badge badge-lead">Assigned</span>' : ""}</span><span class="mini-sub">${esc((l.comment_text || "").slice(0, 80))}</span></span>
           <span class="mini-score">${scoreBar(l.lead_score)}<b>${esc(l.lead_score || 0)}</b></span>
         </button></li>`).join("")}</ul>`
-    : emptyState({ icon: "🎯", title: "No leads yet", sub: "Leads appear here as the AI qualifies comments from your searches." });
+    : emptyState({ icon: "target", title: "No leads yet", sub: "Leads appear here as the AI qualifies comments from your searches." });
 
   // plan & usage
   const plan = usage.plan || {};
@@ -2882,6 +2904,22 @@ function setLeadsView(view, reload = true) {
   if (reload) loadLeads();
 }
 
+/** Query string of the Leads table's current view + filters (shared by the
+    list and its CSV export so the download matches what is on screen). */
+function leadsQuery(extra) {
+  const f = leadsFilters();
+  const params = new URLSearchParams(Object.assign({ view: leadsState.view, sort: f.sort || "score" }, extra || {}));
+  ["q", "status", "quality", "min_score", "platform"].forEach((k) => { if (f[k]) params.set(k, f[k]); });
+  return params;
+}
+async function exportMyLeadsCsv(btn) {
+  if (btn) { btn.disabled = true; btn.setAttribute("aria-busy", "true"); }
+  try {
+    await downloadCsv("/api/me/leads.csv?" + leadsQuery().toString(), "my_leads.csv");
+  } finally {
+    if (btn) { btn.removeAttribute("aria-busy"); btn.disabled = !TABLES.leads; }
+  }
+}
 function leadsFilters() {
   return {
     q: $("leadsSearch").value.trim(), status: $("leadsStatus").value, quality: $("leadsQuality").value,
@@ -2894,8 +2932,9 @@ async function loadLeads() {
   if (!can("leads.view") && portal.user) { list.innerHTML = deniedState("Your role can't view leads."); $("leadsPager").innerHTML = ""; clearTable("leads"); return; }
   list.innerHTML = skeletonRows(6);
   const f = leadsFilters();
-  const params = new URLSearchParams({ view: leadsState.view, page: String(leadsState.page), page_size: "20", sort: f.sort || "score" });
-  ["q", "status", "quality", "min_score", "platform"].forEach((k) => { if (f[k]) params.set(k, f[k]); });
+  const exportBtn = $("leadsExport");
+  if (exportBtn) exportBtn.classList.toggle("hidden", Boolean(portal.user) && !(can("exports.create") && can("leads.export")));
+  const params = leadsQuery({ page: String(leadsState.page), page_size: "20" });
   const res = await api("/api/me/leads?" + params.toString());
   if (!res.ok) {
     RETRY.leads = loadLeads;
@@ -2918,10 +2957,10 @@ async function loadLeads() {
   if (!items.length) {
     clearTable("leads");
     list.innerHTML = filtered
-      ? emptyState({ icon: "🔍", title: "No leads match these filters", sub: "Try a broader search or clear the filters.", cta: "Clear filters", ctaAction: "clear-lead-filters" })
+      ? emptyState({ icon: "search", title: "No leads match these filters", sub: "Try a broader search or clear the filters.", cta: "Clear filters", ctaAction: "clear-lead-filters" })
       : leadsState.view === "assigned"
-        ? emptyState({ icon: "🤝", title: "Nothing assigned to you yet", sub: "When an admin assigns a lead to you, it shows up here." })
-        : emptyState({ icon: "🎯", title: "No leads yet", sub: "Run a search — the AI qualifies comments and scores every lead.", cta: can("search.create") ? "Start a search" : "", ctaNav: "search" });
+        ? emptyState({ icon: "users", title: "Nothing assigned to you yet", sub: "When an admin assigns a lead to you, it shows up here." })
+        : emptyState({ icon: "target", title: "No leads yet", sub: "Run a search — the AI qualifies comments and scores every lead.", cta: can("search.create") ? "Start a search" : "", ctaNav: "search" });
     renderPager($("leadsPager"), d, "leads");
     return;
   }
@@ -2953,7 +2992,7 @@ async function loadLeads() {
         html: (l) => leadStatusPill(l.lead_status) },
       { id: "contact", label: "Contact", cls: "col-contact", text: (l) => [l.phone, l.email].filter(Boolean).join(" / "),
         html: (l) => l.phone || l.email
-          ? `<span class="contact-links">${l.phone ? `<a class="contact-mini" href="tel:${esc(l.phone)}" data-stop title="Call ${esc(l.phone)}">📞 <span>${esc(l.phone)}</span></a>` : ""}${l.email ? `<a class="contact-mini" href="mailto:${esc(l.email)}" data-stop title="Email ${esc(l.email)}">✉️ <span>${esc(l.email)}</span></a>` : ""}</span>`
+          ? `<span class="contact-links">${l.phone ? `<a class="contact-mini" href="tel:${esc(l.phone)}" data-stop title="Call ${esc(l.phone)}">${ico("phone")} <span>${esc(l.phone)}</span></a>` : ""}${l.email ? `<a class="contact-mini" href="mailto:${esc(l.email)}" data-stop title="Email ${esc(l.email)}">${ico("mail")} <span>${esc(l.email)}</span></a>` : ""}</span>`
           : `<span class="muted">—</span>` },
       { id: "found", label: "Found", cls: "col-date", sort: { desc: "newest", asc: "oldest" },
         text: (l) => l.lead_created_at || l.created_at || "",
@@ -2994,8 +3033,8 @@ async function loadHistory() {
   if (!items.length) {
     clearTable("history");
     list.innerHTML = filtered
-      ? emptyState({ icon: "🔍", title: "No searches match", sub: "Try different filters.", cta: "Clear filters", ctaAction: "clear-history-filters" })
-      : emptyState({ icon: "🕑", title: "No searches yet", sub: "Your search runs will be listed here.", cta: can("search.create") ? "Start a search" : "", ctaNav: "search" });
+      ? emptyState({ icon: "search", title: "No searches match", sub: "Try different filters.", cta: "Clear filters", ctaAction: "clear-history-filters" })
+      : emptyState({ icon: "clock", title: "No searches yet", sub: "Your search runs will be listed here.", cta: can("search.create") ? "Start a search" : "", ctaNav: "search" });
     renderPager($("historyPager"), res.data, "history");
     return;
   }
@@ -3004,10 +3043,11 @@ async function loadHistory() {
     key: "history", el: list, label: "Search history", rows: items, sort: $("historySort").value || "newest",
     onSort: (v) => { $("historySort").value = v; historyState.page = 1; loadHistory(); },
     fetchAll: () => fetchAllPages((p, n) => "/api/me/searches?" + historyParams(p, n).toString()),
+    filters: () => filtersOf(historyParams(1, 20)),
     columns: [
       { id: "url", label: "URL", required: true, cls: "col-main", text: (s) => s.query,
         html: (s) => {
-          const [label, icon] = URL_LABELS[s.platform] || [s.platform || "URL", "🔗"];
+          const [label, icon] = URL_LABELS[s.platform] || [s.platform || "URL", ico("link")];
           return `<span class="dt-main"><span class="mini-icon" aria-hidden="true">${icon}</span>
             <span class="mini-main"><span class="mini-title cell-url">${esc(s.query)}</span>
             <span class="mini-sub">${esc(label)}${s.limit ? ` · ${esc(s.limit)} posts` : ""}${s.max_comments_per_post ? ` · ${esc(s.max_comments_per_post)} comments/post` : ""}${s.error ? ` · <span class="text-danger">${esc(String(s.error).slice(0, 80))}</span>` : ""}</span></span></span>`;
@@ -3034,8 +3074,14 @@ PAGERS.history = (p) => { historyState.page = p; loadHistory(); };
 // EXPORTS
 // ═════════════════════════════════════════════════════════════════════════
 const exportsState = { page: 1 };
-const EXPORT_LABELS = { pages: "Pages", posts: "Posts", comments: "Comments" };
+const EXPORT_LABELS = { pages: "Pages", posts: "Posts", comments: "Comments", leads: "My leads", history: "Search history", exports: "Export history", ledger: "Token activity" };
 function exportUrl(e) {
+  if (e.source === "user_portal_client") return "";   // in-browser table download — nothing to re-run
+  if (e.scope === "leads") {
+    const params = new URLSearchParams();
+    Object.entries(e.filters || {}).forEach(([k, v]) => { if (v !== null && v !== undefined && v !== "") params.set(k, String(v)); });
+    return "/api/me/leads.csv" + (params.toString() ? "?" + params.toString() : "");
+  }
   if (e.scope === "pages") return e.run_id ? `/api/export/pages.csv?run_id=${encodeURIComponent(e.run_id)}` : "/api/export/pages.csv";
   if (e.scope === "posts" && e.page_id) return `/api/export/posts.csv?page_id=${encodeURIComponent(e.page_id)}`;
   if (e.scope === "comments" && e.post_id) return `/api/export/comments.csv?post_id=${encodeURIComponent(e.post_id)}&only_leads=${e.only_leads ? "true" : "false"}`;
@@ -3062,21 +3108,22 @@ async function loadExports() {
   if (!items.length) {
     clearTable("exports");
     list.innerHTML = $("exportsScope").value
-      ? emptyState({ icon: "🔍", title: "No exports of this type", sub: "Choose “All types” to see everything." })
-      : emptyState({ icon: "📄", title: "No exports yet", sub: "Use “Export CSV” on a page, post or comments screen — your downloads are listed here." });
+      ? emptyState({ icon: "search", title: "No exports of this type", sub: "Choose “All types” to see everything." })
+      : emptyState({ icon: "file", title: "No exports yet", sub: "Use “Export CSV” on a page, post or comments screen — your downloads are listed here." });
     renderPager($("exportsPager"), res.data, "exports");
     return;
   }
   const canCreate = can("exports.create");
   const labelOf = (e) => e.scope === "comments" && e.only_leads ? "Leads" : (EXPORT_LABELS[e.scope] || e.scope);
-  const srcOf = (e) => e.run_id ? `Search ${String(e.run_id).slice(-8)}` : e.page_id ? `Page …${String(e.page_id).slice(-6)}` : e.post_id ? `Post …${String(e.post_id).slice(-6)}` : "All";
+  const srcOf = (e) => e.source === "user_portal_client" ? "Table download" : e.scope === "leads" ? (e.filters && e.filters.view === "assigned" ? "Assigned to me" : e.filters && e.filters.view === "mine" ? "Found by me" : "All my leads") : e.run_id ? `Search ${String(e.run_id).slice(-8)}` : e.page_id ? `Page …${String(e.page_id).slice(-6)}` : e.post_id ? `Post …${String(e.post_id).slice(-6)}` : "All";
   renderTable({
     key: "exports", el: list, label: "Exports", rows: items, sort: $("exportsSort").value || "newest",
     onSort: (v) => { $("exportsSort").value = v; exportsState.page = 1; loadExports(); },
     fetchAll: () => fetchAllPages((p, n) => "/api/me/exports?" + exportsParams(p, n).toString()),
+    filters: () => filtersOf(exportsParams(1, 20)),
     columns: [
       { id: "export", label: "Export", required: true, cls: "col-main", text: (e) => labelOf(e) + " export",
-        html: (e) => `<span class="dt-main"><span class="mini-icon" aria-hidden="true">📄</span><span class="mini-main"><span class="mini-title">${esc(labelOf(e))} export</span><span class="mini-sub cell-mono">${esc(srcOf(e))}</span></span></span>` },
+        html: (e) => `<span class="dt-main"><span class="mini-icon" aria-hidden="true">${ico("file", "ico-sm")}</span><span class="mini-main"><span class="mini-title">${esc(labelOf(e))} export</span><span class="mini-sub cell-mono">${esc(srcOf(e))}</span></span></span>` },
       { id: "source", label: "Source", cls: "col-tag", text: (e) => srcOf(e), html: (e) => `<span class="cell-mono">${esc(srcOf(e))}</span>` },
       { id: "format", label: "Format", cls: "col-num", text: (e) => String(e.format || "csv").toUpperCase(), html: (e) => `<span class="cell-mono">${esc(String(e.format || "csv").toUpperCase())}</span>` },
       { id: "status", label: "Status", cls: "col-tag", text: (e) => e.status || "completed", html: (e) => statusPill(e.status || "completed") },
@@ -3143,7 +3190,7 @@ async function loadUsage() {
         <div class="panel-head"><h2 class="panel-title">Where your tokens went</h2></div>
         <div class="panel-body">
           ${reasons.length ? `<ul class="bar-list" aria-label="Tokens used by activity">${reasons.map(([k, v], i) => `<li class="bar-row"><span class="bar-label"><span class="bar-key" style="background:var(--chart-${(i % 8) + 1})" aria-hidden="true"></span>${esc(REASON_LABELS[k] || k)}</span><span class="bar-track" aria-hidden="true"><span class="bar-fill" style="width:${maxReason ? Math.max(4, Math.round(v / maxReason * 100)) : 0}%;background:var(--chart-${(i % 8) + 1})"></span></span><span class="bar-val cell-mono">${esc(fmt(v))}<span class="sr-only"> tokens</span></span></li>`).join("")}</ul>`
-          : emptyState({ icon: "🪙", title: "No tokens used yet", sub: "Searches, collections and exports use tokens." })}
+          : emptyState({ icon: "coins", title: "No tokens used yet", sub: "Searches, collections and exports use tokens." })}
         </div>
       </section>
     </div>
@@ -3180,8 +3227,8 @@ async function loadLedger() {
   if (!items.length) {
     clearTable("ledger");
     list.innerHTML = $("ledgerReason").value
-      ? emptyState({ icon: "🔍", title: "No activity of this type", sub: "Choose “All activity” to see everything." })
-      : emptyState({ icon: "🧾", title: "No token activity yet", sub: "Every token you spend is listed here." });
+      ? emptyState({ icon: "search", title: "No activity of this type", sub: "Choose “All activity” to see everything." })
+      : emptyState({ icon: "file", title: "No token activity yet", sub: "Every token you spend is listed here." });
     $("ledgerPager").innerHTML = "";
     return;
   }
@@ -3189,6 +3236,7 @@ async function loadLedger() {
   renderTable({
     key: "ledger", el: list, label: "Token activity", rows: items,
     fetchAll: () => fetchAllPages(ledgerUrl),
+    filters: () => filtersOf(new URLSearchParams(ledgerUrl(1, 15).split("?")[1] || "")),
     columns: [
       { id: "activity", label: "Activity", required: true, cls: "col-main", text: (r) => REASON_LABELS[r.reason] || r.reason || r.type,
         html: (r) => `<span class="dt-main"><span class="mini-main"><span class="mini-title">${esc(REASON_LABELS[r.reason] || r.reason || r.type)}</span><span class="mini-sub cell-mono">${esc(r.reference || "")}</span></span></span>` },
@@ -3380,7 +3428,7 @@ async function loadSessions() {
   const items = res.data.sessions || [];
   const others = items.filter((s) => !s.current).length;
   $("revokeOthersBtn").disabled = !others;
-  if (!items.length) { list.innerHTML = emptyState({ icon: "🔐", title: "No active sessions", sub: "" }); return; }
+  if (!items.length) { list.innerHTML = emptyState({ icon: "lock", title: "No active sessions", sub: "" }); return; }
   list.innerHTML = `<ul class="session-list">${items.map((s) => `<li class="session-row">
       <span class="mini-main"><span class="mini-title">${esc(deviceName(s.user_agent))} ${s.current ? '<span class="badge badge-ok">This device</span>' : ""}${s.impersonated_by ? ' <span class="badge badge-warm">Support session</span>' : ""}</span>
       <span class="mini-sub">Signed in ${esc(formatDate(s.created_at))}${s.expires_at ? " · expires " + esc(formatDate(s.expires_at)) : ""}</span></span>
@@ -3532,6 +3580,7 @@ function onDocumentClick(e) {
     const a = act.dataset.action;
     if (a === "upgrade") { closeQuotaModal(); navigateToView("billing", { userInitiated: true }); }
     else if (a === "retry-search") { $("urlSearchInput").focus(); $("urlSearchProgress").classList.add("hidden"); }
+    else if (a === "export-leads") exportMyLeadsCsv(act);
     else if (a === "clear-lead-filters") { ["leadsSearch", "leadsStatus", "leadsQuality", "leadsMinScore", "leadsPlatform"].forEach((id) => { $(id).value = ""; }); leadsState.page = 1; loadLeads(); }
     else if (a === "clear-history-filters") { ["historySearch", "historyStatus", "historyPlatform"].forEach((id) => { $(id).value = ""; }); historyState.page = 1; loadHistory(); }
     else if (a === "focus-url") { if (currentView !== "search") navigateToView("search", { userInitiated: true }); setTimeout(() => { const i = $("urlSearchInput"); if (i) i.focus(); }, 30); }

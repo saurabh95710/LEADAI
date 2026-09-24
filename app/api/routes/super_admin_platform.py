@@ -838,6 +838,9 @@ async def list_leads(organization_id: Optional[str] = None, run_id: Optional[str
 
 # ── Analytics ──────────────────────────────────────────────────────────────
 
+GRANULARITIES = ("day", "week", "month")
+
+
 def _days(start: datetime, end: datetime) -> List[str]:
     out, d = [], start.replace(hour=0, minute=0, second=0, microsecond=0)
     while d < end and len(out) < 800:
@@ -846,73 +849,176 @@ def _days(start: datetime, end: datetime) -> List[str]:
     return out
 
 
+def bucket_key(day: str, granularity: str) -> str:
+    """Bucket label of a UTC day ``YYYY-MM-DD``: the day itself, the ISO
+    week's Monday (``YYYY-MM-DD``) or the month (``YYYY-MM``)."""
+    if granularity == "month":
+        return day[:7]
+    if granularity == "week":
+        d = datetime.strptime(day, "%Y-%m-%d")
+        return (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
+    return day
+
+
+def bucket_labels(days: List[str], granularity: str) -> List[str]:
+    """Dense, ordered bucket labels covering every day of the range (a
+    partially covered first/last week or month still gets its bucket)."""
+    out: List[str] = []
+    for day in days:
+        k = bucket_key(day, granularity)
+        if not out or out[-1] != k:
+            out.append(k)
+    return out
+
+
+def rollup(by_day: Dict[str, Any], days: List[str], granularity: str) -> Dict[str, Any]:
+    """Sum daily values into buckets; buckets with no data are 0. Days
+    outside ``days`` are ignored."""
+    out: Dict[str, Any] = {k: 0 for k in bucket_labels(days, granularity)}
+    for day in days:
+        v = by_day.get(day) or 0
+        out[bucket_key(day, granularity)] += v
+    return out
+
+
+def norm_currency(value: Any) -> str:
+    cur = str(value or "").strip().upper()
+    return cur if re.fullmatch(r"[A-Z]{3}", cur) else "USD"
+
+
+def currency_totals(rows: Iterable[Dict[str, Any]], amount_field: str = "amount",
+                    currency_field: str = "currency") -> Dict[str, float]:
+    """Group amounts by (normalised) currency — never adds different
+    currencies together. ``rows`` may be raw docs or ``$group`` output."""
+    totals: Dict[str, float] = {}
+    for r in rows:
+        cur = norm_currency(r.get(currency_field))
+        try:
+            amt = float(r.get(amount_field) or 0)
+        except (TypeError, ValueError):
+            amt = 0.0
+        totals[cur] = round(totals.get(cur, 0.0) + amt, 2)
+    return dict(sorted(totals.items()))
+
+
+def single_amount(totals: Dict[str, float]) -> Optional[float]:
+    """The one total when at most one currency is involved (0.0 for none);
+    None when several currencies would otherwise be added together."""
+    if not totals:
+        return 0.0
+    if len(totals) == 1:
+        return round(next(iter(totals.values())), 2)
+    return None
+
+
+def single_currency(totals: Dict[str, float], default: str = "USD") -> Optional[str]:
+    if not totals:
+        return default
+    return next(iter(totals)) if len(totals) == 1 else None
+
+
 async def _series(coll, field: str, start: datetime, end: datetime, days: List[str],
                   match: Optional[Dict[str, Any]] = None, sum_field: Optional[str] = None,
-                  distinct: Optional[str] = None, unwind: Optional[str] = None) -> Dict[str, Any]:
-    """Daily buckets of a collection (dense, zero-filled) + the total."""
+                  distinct: Optional[str] = None, unwind: Optional[str] = None,
+                  granularity: str = "day", by_currency: bool = False) -> Dict[str, Any]:
+    """Buckets (day / ISO week / month, UTC) of a collection — dense and
+    zero-filled — plus the total. ``by_currency`` (money series) never adds
+    currencies together: one series per currency under ``by_currency``;
+    the flat ``values``/``total`` are kept only when there is one currency."""
     pipeline: List[Dict[str, Any]] = []
     if unwind:
         pipeline += [{"$match": {field: {"$gte": start, "$lt": end}}}, {"$unwind": f"${unwind}"}]
     pipeline.append({"$match": {field: {"$gte": start, "$lt": end}, **(match or {})}})
-    group: Dict[str, Any] = {"_id": {"$dateToString": {"format": "%Y-%m-%d", "date": f"${field}"}},
+    day_expr = {"$dateToString": {"format": "%Y-%m-%d", "date": f"${field}"}}
+    group: Dict[str, Any] = {"_id": {"d": day_expr, "c": "$currency"} if by_currency else day_expr,
                              "n": {"$sum": f"${sum_field}" if sum_field else 1}}
     if distinct:
         group["d"] = {"$addToSet": f"${distinct}"}
     pipeline.append({"$group": group})
     rows = await _agg(coll, pipeline)
-    by_day = {r["_id"]: r for r in rows}
-    values = []
-    all_distinct: set = set()
-    for day in days:
-        r = by_day.get(day)
-        if distinct:
-            vals = [v for v in ((r or {}).get("d") or []) if v]
-            all_distinct.update(vals)
-            values.append(len(vals))
+    labels = bucket_labels(days, granularity)
+
+    def _fmt(n: Any) -> Any:
+        return round(n, 2) if isinstance(n, float) else n
+
+    if by_currency:
+        per_cur: Dict[str, Dict[str, float]] = {}
+        for r in rows:
+            key = r.get("_id") or {}
+            day = key.get("d")
+            cur = norm_currency(key.get("c"))
+            bucket = per_cur.setdefault(cur, {})
+            bucket[day] = bucket.get(day, 0) + (r.get("n") or 0)
+        series: Dict[str, Dict[str, Any]] = {}
+        for cur in sorted(per_cur):
+            sums = rollup(per_cur[cur], days, granularity)
+            values = [_fmt(sums[k]) for k in labels]
+            series[cur] = {"values": values, "total": round(sum(values), 2)}
+        out: Dict[str, Any] = {"by_currency": series, "currencies": list(series)}
+        if len(series) <= 1:
+            only = next(iter(series.values()), None)
+            out.update({"values": only["values"] if only else [0 for _ in labels],
+                        "total": only["total"] if only else 0,
+                        "currency": next(iter(series), None) or "USD"})
         else:
-            n = (r or {}).get("n") or 0
-            values.append(round(n, 2) if isinstance(n, float) else n)
-    total = len(all_distinct) if distinct else round(sum(values), 2)
-    return {"values": values, "total": total}
+            out.update({"values": None, "total": None, "currency": None, "multi_currency": True})
+        return out
+
+    by_day = {r["_id"]: r for r in rows}
+    if distinct:
+        sets: Dict[str, set] = {k: set() for k in labels}
+        for day in days:
+            vals = [v for v in ((by_day.get(day) or {}).get("d") or []) if v]
+            sets[bucket_key(day, granularity)].update(vals)
+        values = [len(sets[k]) for k in labels]
+        total = len(set().union(*sets.values())) if sets else 0
+        return {"values": values, "total": total}
+    sums = rollup({d: (r.get("n") or 0) for d, r in by_day.items()}, days, granularity)
+    values = [_fmt(sums[k]) for k in labels]
+    return {"values": values, "total": round(sum(values), 2)}
 
 
 @router.get("/analytics")
 async def analytics(range: str = "30d", from_: Optional[str] = Query(None, alias="from"),
                     to: Optional[str] = None, organization_id: Optional[str] = None,
-                    ctx: TenantContext = Depends(SUPER)):
+                    granularity: str = "day", ctx: TenantContext = Depends(SUPER)):
+    if granularity not in GRANULARITIES:
+        raise HTTPException(status_code=422, detail="granularity must be day, week or month")
     db = _db()
     start, end = _date_range(range, from_, to)
     days = _days(start, end)
+    labels = bucket_labels(days, granularity)
     org = {"organization_id": organization_id} if organization_id else {}
     org_self = {"_id": _oid(organization_id)} if organization_id and _oid(organization_id) else {}
+
+    async def s(coll, field, match=None, **kw):
+        return await _series(coll, field, start, end, days, match, granularity=granularity, **kw)
+
     business = {
-        "registrations": await _series(db.organizations, "created_at", start, end, days, org_self),
-        "demo_requests": await _series(db.demo_requests, "created_at", start, end, days, org),
-        "demo_conversions": await _series(db.demo_requests, "history.at", start, end, days,
-                                          {**org, "history.status": "converted"}, unwind="history"),
-        "subscriptions_activated": await _series(db.subscriptions, "status_history.at", start, end, days,
-                                                 {**org, "status_history.to": "active"}, unwind="status_history"),
-        "churn": await _series(db.subscriptions, "status_history.at", start, end, days,
-                               {**org, "status_history.to": {"$in": ["cancelled", "expired"]},
-                                "status_history.from": {"$in": ["active", "suspended", "trialing", "past_due"]}},
-                               unwind="status_history"),
-        "revenue": await _series(db.payments, "created_at", start, end, days,
-                                 {**org, "status": "succeeded"}, sum_field="amount"),
+        "registrations": await s(db.organizations, "created_at", org_self),
+        "demo_requests": await s(db.demo_requests, "created_at", org),
+        "demo_conversions": await s(db.demo_requests, "history.at",
+                                    {**org, "history.status": "converted"}, unwind="history"),
+        "subscriptions_activated": await s(db.subscriptions, "status_history.at",
+                                           {**org, "status_history.to": "active"}, unwind="status_history"),
+        "churn": await s(db.subscriptions, "status_history.at",
+                         {**org, "status_history.to": {"$in": ["cancelled", "expired"]},
+                          "status_history.from": {"$in": ["active", "suspended", "trialing", "past_due"]}},
+                         unwind="status_history"),
+        "revenue": await s(db.payments, "created_at", {**org, "status": "succeeded"},
+                           sum_field="amount", by_currency=True),
     }
     product = {
-        "searches": await _series(db.search_history, "created_at", start, end, days, org),
-        "failed_searches": await _series(db.search_history, "created_at", start, end, days,
-                                         {**org, "status": {"$in": list(_FAILED)}}),
-        "active_users": await _series(db.search_history, "created_at", start, end, days, org, distinct="user_id"),
-        "apify_jobs": await _series(db.search_history, "created_at", start, end, days,
-                                    {**org, "provider": "apify"}),
-        "leads": await _series(db.ai_comments, "created_at", start, end, days, {**org, "is_lead": True}),
-        "ai_calls": await _series(db.ai_requests, "created_at", start, end, days, org),
-        "tokens_consumed": await _series(db.token_ledger, "created_at", start, end, days,
-                                         {**org, "type": "consume"}, sum_field="amount"),
-        "errors": await _series(db.security_events, "at", start, end, days,
-                                {**org, "severity": {"$in": ["high", "critical"]}}),
-        "new_users": await _series(db.users, "created_at", start, end, days),
+        "searches": await s(db.search_history, "created_at", org),
+        "failed_searches": await s(db.search_history, "created_at", {**org, "status": {"$in": list(_FAILED)}}),
+        "active_users": await s(db.search_history, "created_at", org, distinct="user_id"),
+        "apify_jobs": await s(db.search_history, "created_at", {**org, "provider": "apify"}),
+        "leads": await s(db.ai_comments, "created_at", {**org, "is_lead": True}),
+        "ai_calls": await s(db.ai_requests, "created_at", org),
+        "tokens_consumed": await s(db.token_ledger, "created_at", {**org, "type": "consume"},
+                                   sum_field="amount"),
+        "errors": await s(db.security_events, "at", {**org, "severity": {"$in": ["high", "critical"]}}),
+        "new_users": await s(db.users, "created_at"),
     }
     # current-state snapshots
     plan_dist = {r["_id"] or "none": r["n"] for r in await _agg(db.subscriptions, [
@@ -924,7 +1030,10 @@ async def analytics(range: str = "30d", from_: Optional[str] = Query(None, alias
         "total_users": await _count(db.users, {}),
         "plan_distribution": plan_dist,
     }
-    return {"success": True, "from": start.isoformat(), "to": end.isoformat(), "days": days,
+    # ``days`` holds the bucket labels (kept under its historic name for
+    # older clients); ``buckets`` is the same list.
+    return {"success": True, "from": start.isoformat(), "to": end.isoformat(),
+            "granularity": granularity, "days": labels, "buckets": labels,
             "business": business, "product": product, "snapshot": snapshot}
 
 
@@ -1640,6 +1749,40 @@ async def export_report(kind: str, request: Request, organization_id: Optional[s
     return Response(content=body, media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="leadai-{kind}-{stamp}.csv"',
                              "Cache-Control": "no-store"})
+
+
+class ClientExportLog(BaseModel):
+    table: str
+    rows: int = 0
+    columns: List[str] = []
+    filters: Dict[str, Any] = {}
+
+
+def _short(v: Any, n: int = 200) -> Any:
+    if isinstance(v, (int, float, bool)) or v is None:
+        return v
+    return str(v)[:n]
+
+
+@router.post("/exports/client-log")
+async def log_client_export(body: ClientExportLog, request: Request, ctx: TenantContext = Depends(SUPER)):
+    """Audit a "Current view" CSV that the browser built itself (the rows
+    never pass through the server, so the download is recorded here)."""
+    table = re.sub(r"[^A-Za-z0-9_.:/ -]", "", (body.table or "").strip())[:80]
+    if not table:
+        raise HTTPException(status_code=422, detail="table is required")
+    if body.rows < 0 or body.rows > 1_000_000:
+        raise HTTPException(status_code=422, detail="rows out of range")
+    if len(body.columns) > 200 or len(body.filters) > 50:
+        raise HTTPException(status_code=422, detail="Too many columns or filters")
+    columns = [_short(c, 80) for c in body.columns]
+    filters = {str(k)[:50]: _short(v) for k, v in body.filters.items()
+               if isinstance(v, (str, int, float, bool)) or v is None}
+    await aaudit("export.client", "exports", user=ctx.audit_user(), resource_type="client_export",
+                 resource_id=table, details={"table": table, "rows": body.rows, "columns": columns,
+                                             "filters": redact(filters), "source": "current_view"},
+                 **_meta(request))
+    return {"success": True}
 
 
 # ── Support tickets (created by org admins in /org-admin) ──────────────────

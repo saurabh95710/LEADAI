@@ -29,23 +29,14 @@ COOKIE_NAME = "leadai_session"
 _HEADER = {"v": 1}
 _FALLBACK_SECRET: Optional[str] = None
 
-# ── Brute-force throttling (in-memory, per IP) ────────────────────────────
+# ── Brute-force throttling (per IP, MongoDB backed — app/auth/rate_limit.py) ──
+from app.auth.rate_limit import RateLimiter  # noqa: E402
+
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_WINDOW_SEC = 300  # 5 minutes (was 60s — increased for better protection)
-_login_attempts: Dict[str, List[float]] = {}
-
-# Maximum entries in the in-memory rate limiter to prevent memory exhaustion
-_MAX_RATE_LIMIT_ENTRIES = 10000
-
-
-def _prune_login_attempts(now: float) -> None:
-    to_delete = []
-    for ip, stamps in _login_attempts.items():
-        _login_attempts[ip] = [t for t in stamps if now - t < _LOGIN_WINDOW_SEC]
-        if not _login_attempts[ip]:
-            to_delete.append(ip)
-    for ip in to_delete:
-        del _login_attempts[ip]
+# Durable + shared across processes; ``_login_attempts.clear()`` is the
+# test reset hook (clears the in-memory fallback).
+_login_attempts = RateLimiter("login_ip", _LOGIN_MAX_ATTEMPTS, _LOGIN_WINDOW_SEC)
 
 
 def _get_client_ip(request: Request) -> str:
@@ -68,57 +59,37 @@ def _get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def _login_protection_enabled() -> bool:
+    try:
+        from app.admin.settings import get_setting
+        return bool(get_setting("security.login_protection"))
+    except Exception:
+        return True
+
+
 def login_allowed(ip: str) -> bool:
     """True when this IP may still try to log in within the rate window.
 
     The Security page can disable brute-force protection entirely
     (``security.login_protection``); when disabled every attempt passes."""
-    try:
-        from app.admin.settings import get_setting
-        if not bool(get_setting("security.login_protection")):
-            return True
-    except Exception:
-        pass
-    now = time.time()
-    _prune_login_attempts(now)
-    return len(_login_attempts.get(ip, [])) < _LOGIN_MAX_ATTEMPTS
+    if not _login_protection_enabled():
+        return True
+    return _login_attempts.allowed(ip)
 
 
 def login_denied_seconds(ip: str) -> int:
     """Seconds until the IP may try again (0 = allowed)."""
-    now = time.time()
-    _prune_login_attempts(now)
-    stamps = _login_attempts.get(ip, [])
-    if not stamps:
-        return 0
-    remaining = len(stamps) - _LOGIN_MAX_ATTEMPTS + 1
-    if remaining <= 0:
-        return 0
-    return max(1, int(_LOGIN_WINDOW_SEC - (now - stamps[-1])) + 1)
+    return _login_attempts.retry_after(ip)
 
 
 def record_login_failure(ip: str) -> None:
-    try:
-        from app.admin.settings import get_setting
-        if not bool(get_setting("security.login_protection")):
-            return
-    except Exception:
-        pass
-    _prune_login_attempts(time.time())
-    # Prevent memory exhaustion from spoofed/flooded IPs
-    if len(_login_attempts) >= _MAX_RATE_LIMIT_ENTRIES:
-        _prune_login_attempts(time.time())
-        if len(_login_attempts) >= _MAX_RATE_LIMIT_ENTRIES:
-            # Evict oldest entries
-            oldest_ips = sorted(_login_attempts.keys(),
-                                key=lambda k: _login_attempts[k][0] if _login_attempts[k] else 0)
-            for evict_ip in oldest_ips[:len(oldest_ips) // 2]:
-                _login_attempts.pop(evict_ip, None)
-    _login_attempts.setdefault(ip, []).append(time.time())
+    if not _login_protection_enabled():
+        return
+    _login_attempts.hit(ip)
 
 
 def reset_login_attempts(ip: str) -> None:
-    _login_attempts.pop(ip, None)
+    _login_attempts.reset(ip)
 
 
 # ── Per-account lockout (DB backed) ───────────────────────────────────────

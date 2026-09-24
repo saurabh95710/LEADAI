@@ -372,6 +372,13 @@ def ensure_indexes():
         _create_index_safe(db.security_events, [("type", ASCENDING), ("at", DESCENDING)])
         _create_index_safe(db.security_events, [("organization_id", ASCENDING), ("at", DESCENDING)])
         _create_index_safe(db.login_lockouts, [("email", ASCENDING)], unique=True)
+        # durable rate-limit counters (app/auth/rate_limit.py): one doc per
+        # {bucket, key, window_start}; old slots expire on their own
+        _create_index_safe(db.rate_limits, [("bucket", ASCENDING), ("key", ASCENDING),
+                                            ("window_start", ASCENDING)],
+                           unique=True, name="rate_limits_bucket_key_window")
+        _create_index_safe(db.rate_limits, [("expires_at", ASCENDING)],
+                           expireAfterSeconds=0, name="rate_limits_expires_at_ttl")
         _create_index_safe(db.password_resets, [("token_hash", ASCENDING)], unique=True, sparse=True)
         # reset tokens are deleted as soon as they expire (matches the
         # existing production index, so startup never fights over it)

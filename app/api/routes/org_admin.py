@@ -29,12 +29,15 @@ sessions/password (/api/auth/*).
   GET  /searches/{run_id}             one run with result counts
   GET  /leads                         all / assigned / unassigned leads (filters)
   GET  /leads/pipeline                lifecycle counts + owners
+  POST /leads/bulk                    assign | status | priority for many leads (one audit)
+  POST /members/bulk                  suspend | restore | deactivate many members (one audit)
   GET/PUT /lead-rules, POST /lead-rules/test   org lead keywords
   GET  /data/{pages|posts|comments}   org-wide scraped data
   GET  /apify/summary, /apify/jobs, /apify/runs   Apify activity (view only)
   GET  /analytics                     charts data for a date range
   GET  /billing/history               subscriptions + payments
   GET  /exports                       export history
+  POST /exports/client-log            record + audit an in-browser (client-side) CSV export
   GET  /exports/{kind}.csv            users|activity|usage|leads|searches|posts|comments
   GET  /audit-logs, /audit-logs/facets, /audit-logs.csv
   GET/POST /support/tickets, GET /support/tickets/{id},
@@ -695,6 +698,96 @@ async def reset_user_access(user_id: str, request: Request, body: Optional[Reset
             "message": f"A password reset link was emailed to {record['email']}."}
 
 
+class MemberBulkBody(BaseModel):
+    ids: List[str]
+    action: str
+
+
+_MEMBER_BULK_STATUS = {"suspend": "suspended", "restore": "active", "deactivate": "inactive"}
+
+
+@router.post("/members/bulk")
+async def bulk_members(body: MemberBulkBody, request: Request,
+                       ctx: TenantContext = Depends(require_portal(P.MEMBERS_UPDATE))):
+    """Suspend / restore / deactivate many members at once.
+
+    Every id must be a member of the caller's organization - otherwise the
+    WHOLE request is 404 (security event logged) and nothing changes. The
+    single-member rules apply per member (never yourself, never the owner,
+    Admins only by the owner - reported in ``skipped``); restoring inactive
+    members must fit the plan's seats. One update_many, one audit entry;
+    sessions of every changed member are revoked."""
+    from app.auth.service import revoke_user_sessions
+    action = (body.action or "").strip().lower()
+    status = _MEMBER_BULK_STATUS.get(action)
+    if not status:
+        raise HTTPException(status_code=422, detail="action must be suspend, restore or deactivate")
+    if status in ("suspended", "inactive") and P.MEMBERS_SUSPEND not in ctx.permissions:
+        _permission_denied(request, ctx, P.MEMBERS_SUSPEND)
+    ids = _bulk_ids(body.ids, "member")
+    db = _db()
+    members = [m async for m in db.organization_members.find(
+        {"organization_id": ctx.organization_id, "user_id": {"$in": ids},
+         "status": {"$ne": "removed"}})]
+    found = {m["user_id"] for m in members}
+    missing = [i for i in ids if i not in found]
+    if missing:
+        async for other in db.organization_members.find(
+                {"user_id": {"$in": missing}, "organization_id": {"$ne": ctx.organization_id}},
+                {"_id": 1, "organization_id": 1}):
+            report_out_of_scope(request, ctx, "organization_members", other)
+        raise HTTPException(status_code=404, detail="One or more team members were not found")
+
+    skipped: List[Dict[str, str]] = []
+    targets: List[Dict[str, Any]] = []
+    for m in members:
+        try:
+            assert_can_manage_member(ctx, target_role=m.get("role"), target_user_id=m["user_id"])
+        except HTTPException as e:
+            d = e.detail
+            skipped.append({"id": m["user_id"],
+                            "reason": d.get("message") if isinstance(d, dict) else str(d)})
+            continue
+        if m.get("status") == status:
+            skipped.append({"id": m["user_id"], "reason": f"Already {status}"})
+            continue
+        targets.append(m)
+
+    restoring = [m for m in targets if status == "active" and m.get("status") == "inactive"]
+    if restoring:
+        from app.billing.entitlements import EntitlementService
+        allowed, used, limit = await EntitlementService.check_limit(
+            ctx.organization_id, "team_members", requested=len(restoring), db=db)
+        if not allowed:
+            raise HTTPException(status_code=402, detail={
+                "code": "PLAN_LIMIT", "metric": "team_members", "used": used, "limit": limit,
+                "message": f"Your plan allows {limit} team members. Upgrade to restore "
+                           f"{_plural(len(restoring), 'user')}."})
+
+    updated: List[str] = []
+    revoked = 0
+    if targets:
+        await db.organization_members.update_many(
+            {"_id": {"$in": [m["_id"] for m in targets]}, "organization_id": ctx.organization_id,
+             "status": {"$ne": "removed"}},
+            {"$set": {"status": status, "updated_at": utcnow()}})
+        for m in targets:
+            updated.append(m["user_id"])
+            revoked += revoke_user_sessions(m["user_id"], revoked_by=f"org_admin:{ctx.email}") or 0
+    await _audit(ctx, request, "member.bulk_updated", "team", resource_type="member",
+                 details={"action": action, "status": status, "ids": ids, "updated": updated,
+                          "before": {m["user_id"]: m.get("status") for m in targets},
+                          "skipped": skipped, "sessions_revoked": revoked})
+    if status == "suspended" and updated:
+        from app.events.notifications import notify_org_admins
+        notify_org_admins(ctx.organization_id, "user_suspended",
+                          f"{_plural(len(updated), 'team member')} suspended",
+                          f"Suspended by {ctx.email}", severity="warning", link="/org-admin#team",
+                          data={"user_ids": updated})
+    return {"success": True, "action": action, "status": status, "updated": len(updated),
+            "updated_ids": updated, "skipped": skipped}
+
+
 @router.get("/invitations")
 async def list_invitations(
     status: str = Query("pending", pattern="^(pending|accepted|cancelled|expired|all)$"),
@@ -912,6 +1005,149 @@ async def lead_pipeline(ctx: TenantContext = Depends(require_portal(P.LEADS_VIEW
     return {"success": True, "statuses": statuses, "owners": owners,
             "transitions": {k: list(v) for k, v in VALID_TRANSITIONS.items()},
             "total": sum(statuses.values())}
+
+
+# ── Bulk actions (atomic: all ids validated first, one audit entry) ─────────
+
+BULK_MAX = 500
+
+
+class LeadBulkBody(BaseModel):
+    ids: List[str]
+    action: str
+    value: Optional[str] = None
+    reason: Optional[str] = ""
+
+
+def _bulk_ids(raw: List[Any], noun: str) -> List[str]:
+    ids = list(dict.fromkeys(str(i).strip() for i in (raw or []) if str(i).strip()))
+    if not ids:
+        raise HTTPException(status_code=422, detail=f"Select at least one {noun}")
+    if len(ids) > BULK_MAX:
+        raise HTTPException(status_code=422, detail=f"At most {BULK_MAX} {noun}s per request")
+    return ids
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+@router.post("/leads/bulk")
+async def bulk_leads(body: LeadBulkBody, request: Request,
+                     ctx: TenantContext = Depends(require_portal(P.LEADS_MANAGE))):
+    """Assign / change status / change priority of many leads at once.
+
+    Every id must be a lead of the caller's organization - any other id makes
+    the WHOLE request 404 (and logs a security event) with nothing changed.
+    Same rules as PATCH /api/leads/{id}: assignment needs ``leads.assign`` and
+    an active member; status changes must be valid transitions (others are
+    reported in ``skipped``). One ``update_many`` per group, one audit entry."""
+    from app.api.routes.search import (
+        LEAD_PRIORITIES, LEAD_STATUSES as VALID_STATUSES, VALID_TRANSITIONS, _resolve_assignee)
+    from app.pipeline.lead_lifecycle import create_assignment_history_entry
+    action = (body.action or "").strip().lower()
+    if action not in ("assign", "status", "priority"):
+        raise HTTPException(status_code=422, detail="action must be assign, status or priority")
+    if action == "assign" and not ctx.has(P.LEADS_ASSIGN):
+        _permission_denied(request, ctx, P.LEADS_ASSIGN)
+    ids = _bulk_ids(body.ids, "lead")
+    oids = []
+    for i in ids:
+        o = _oid(i)
+        if o is None:
+            raise HTTPException(status_code=400, detail="Invalid lead id")
+        oids.append(o)
+    value = (body.value or "").strip()
+    if action == "status" and value not in VALID_STATUSES:
+        raise HTTPException(status_code=422, detail=f"Invalid status: {value}")
+    if action == "priority" and value not in LEAD_PRIORITIES:
+        raise HTTPException(status_code=422, detail=f"Invalid priority: {value}")
+
+    db = _db()
+    docs = [d async for d in db.ai_comments.find(
+        scope_query(ctx, {"_id": {"$in": oids}, "is_lead": True}, **_LEAD))]
+    found = {str(d["_id"]) for d in docs}
+    missing = [o for o in oids if str(o) not in found]
+    if missing:
+        async for other in db.ai_comments.find({"_id": {"$in": missing}},
+                                               {"_id": 1, "organization_id": 1}):
+            report_out_of_scope(request, ctx, "ai_comments", other)
+        raise HTTPException(status_code=404, detail="One or more leads were not found")
+
+    assignee = None
+    if action == "assign":
+        assignee = await _resolve_assignee(db, ctx, {"assigned_user_id": value or None})
+    to_uid = assignee["user_id"] if assignee else None
+    to_email = assignee["email"] if assignee else None
+
+    now = utcnow()
+    skipped: List[Dict[str, str]] = []
+    groups: Dict[Any, List[ObjectId]] = {}
+    for d in docs:
+        lid = str(d["_id"])
+        if action == "assign":
+            cur = d.get("assigned_user_id") or None
+            if cur == to_uid:
+                skipped.append({"id": lid, "reason": "Already assigned to this member" if to_uid
+                                else "Already unassigned"})
+                continue
+            groups.setdefault(cur, []).append(d["_id"])
+        elif action == "status":
+            cur = d.get("lead_status") or "new"
+            if cur == value:
+                skipped.append({"id": lid, "reason": f"Already {value}"})
+                continue
+            if value not in VALID_TRANSITIONS.get(cur, ()):
+                skipped.append({"id": lid, "reason": f"Cannot move from {cur} to {value}"})
+                continue
+            groups.setdefault(cur, []).append(d["_id"])
+        else:
+            if (d.get("lead_priority") or None) == value:
+                skipped.append({"id": lid, "reason": f"Priority already {value}"})
+                continue
+            groups.setdefault(None, []).append(d["_id"])
+
+    updated: List[str] = []
+    for key, group in groups.items():
+        match: Dict[str, Any] = {"_id": {"$in": group}}
+        if action == "assign":
+            # the value we validated must still be there (no lost concurrent change)
+            match["assigned_user_id"] = key if key else {"$in": [None, ""]}
+            update = {"$set": {"assigned_user_id": to_uid, "assigned_to": to_email,
+                               "lead_updated_at": now},
+                      "$push": {"assignment_history": create_assignment_history_entry(
+                          key, to_uid, to_email, changed_by=ctx.email, method="bulk")}}
+        elif action == "status":
+            match["lead_status"] = {"$in": ["new", None]} if key == "new" else key
+            update = {"$set": {"lead_status": value, "lead_updated_at": now},
+                      "$push": {"status_history": {
+                          "from_status": key, "to_status": value, "changed_at": now,
+                          "changed_by": ctx.email, "changed_by_user_id": ctx.user_id,
+                          "reason": (body.reason or "")[:300]}}}
+        else:
+            update = {"$set": {"lead_priority": value, "lead_updated_at": now}}
+        scoped = scope_query(ctx, match, **_LEAD)
+        matched = {str(d["_id"]) async for d in db.ai_comments.find(scoped, {"_id": 1})}
+        if matched:
+            await db.ai_comments.update_many(
+                scope_query(ctx, {**match, "_id": {"$in": [ObjectId(i) for i in matched]}}, **_LEAD),
+                update)
+        updated.extend(sorted(matched))
+        for o in group:  # changed by someone else between the read and the write
+            if str(o) not in matched:
+                skipped.append({"id": str(o), "reason": "Changed by someone else - reload and retry"})
+
+    await _audit(ctx, request, "leads.bulk_updated", "leads", resource_type="lead",
+                 details={"action": action, "value": value or None, "ids": ids,
+                          "updated": updated, "skipped": skipped, "count": len(updated)})
+    if action == "assign" and to_uid and updated and to_uid != ctx.user_id:
+        from app.events.notifications import notify_user
+        notify_user(to_uid, "lead_assigned", f"{_plural(len(updated), 'lead')} assigned to you",
+                    f"{ctx.name or ctx.email} assigned {_plural(len(updated), 'lead')} to you.",
+                    organization_id=ctx.organization_id, link="/dashboard#leads",
+                    data={"lead_ids": updated[:50]}, email=True)
+    return {"success": True, "action": action, "updated": len(updated),
+            "updated_ids": updated, "skipped": skipped}
 
 
 # ── Lead rules (org keywords) ───────────────────────────────────────────────
@@ -1261,7 +1497,14 @@ async def billing_history(page: int = Query(1, ge=1), limit: int = Query(20, ge=
         payments.append({"id": str(p["_id"]), "amount": p.get("amount"), "currency": p.get("currency"),
                          "status": p.get("status"), "subscription_id": p.get("subscription_id"),
                          "invoice_id": p.get("invoice_id"), "created_at": _ser(p.get("created_at"))})
-    return _paged(subs, total, page, limit, payments=payments)
+    # money is never added across currencies (missing currency = USD), same
+    # rule as the platform billing views
+    from app.api.routes.super_admin_platform import currency_totals
+    paid = [p async for p in db.payments.find(
+        {**q, "status": {"$in": ["paid", "succeeded", "completed", "confirmed"]}},
+        {"amount": 1, "currency": 1})]
+    return _paged(subs, total, page, limit, payments=payments,
+                  paid_totals=currency_totals(paid))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1419,6 +1662,44 @@ async def export_csv(
                  details={"scope": kind, "rows": len(rows), "filters": filters, "portal": "org_admin"})
     return _csv_response(rows, EXPORT_KINDS[kind],
                          f"{kind}_{datetime.utcnow().strftime('%Y%m%d')}.csv", max_rows=_EXPORT_MAX)
+
+
+class ClientExportLog(BaseModel):
+    table: str
+    rows: int = 0
+    columns: List[str] = []
+    filters: Dict[str, Any] = {}
+
+
+def _clean_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for k, v in list((filters or {}).items())[:30]:
+        key = re.sub(r"[^A-Za-z0-9_.-]", "", str(k))[:40]
+        if not key or v is None or v == "":
+            continue
+        out[key] = v if isinstance(v, (bool, int, float)) else str(v)[:200]
+    return out
+
+
+@router.post("/exports/client-log")
+async def log_client_export(body: ClientExportLog, request: Request,
+                            ctx: TenantContext = Depends(require_portal(P.EXPORTS_CREATE))):
+    """A table was exported in the browser (no server CSV): record it in the
+    export history and the audit trail, like a server export."""
+    table = re.sub(r"[^A-Za-z0-9 _.:-]", "", (body.table or "").strip())[:80] or "table"
+    rows = max(0, min(int(body.rows or 0), 10_000_000))
+    columns = [str(c)[:80] for c in (body.columns or [])][:100]
+    filters = _clean_filters(body.filters)
+    db = _db()
+    doc = stamp(ctx, {"scope": table, "format": "csv", "status": "completed", "rows": rows,
+                      "filters": filters, "columns": columns, "source": "admin_portal_client",
+                      "created_at": utcnow()})
+    res = await db.exports.insert_one(doc)
+    await _audit(ctx, request, "export.client", "exports", resource_type=table,
+                 resource_id=str(res.inserted_id),
+                 details={"scope": table, "rows": rows, "columns": columns, "filters": filters,
+                          "portal": "org_admin", "client_side": True})
+    return {"success": True, "id": str(res.inserted_id)}
 
 
 # ═══════════════════════════════════════════════════════════════════════════

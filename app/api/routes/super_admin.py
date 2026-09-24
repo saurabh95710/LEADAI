@@ -148,24 +148,54 @@ async def super_admin_dashboard(
         org_stats[str(doc["_id"])] = int(doc.get("count") or 0)
     total_orgs = sum(org_stats.values())
 
+    # Money is never added across currencies: every amount is grouped by
+    # currency first; the historic single-number fields are only filled
+    # when exactly one currency is involved (None otherwise).
+    from app.api.routes.super_admin_platform import (currency_totals, norm_currency,
+                                                     single_amount, single_currency)
+    sub_rows = await _a(db.subscriptions, [
+        {"$group": {"_id": {"s": "$status", "c": "$currency"}, "count": {"$sum": 1},
+                    "total_amount": {"$sum": "$amount"}}}])
     sub_stats: Dict[str, Dict[str, Any]] = {}
-    for doc in await _a(db.subscriptions, [
-            {"$group": {"_id": "$status", "count": {"$sum": 1}, "total_amount": {"$sum": "$amount"}}}]):
-        sub_stats[str(doc["_id"])] = {"count": int(doc.get("count") or 0),
-                                      "total_amount": _num(doc.get("total_amount"))}
-    mrr = 0.0
+    for doc in sub_rows:
+        st = str((doc.get("_id") or {}).get("s"))
+        entry = sub_stats.setdefault(st, {"count": 0, "amount_by_currency": {}})
+        entry["count"] += int(doc.get("count") or 0)
+        cur = norm_currency((doc.get("_id") or {}).get("c"))
+        entry["amount_by_currency"][cur] = round(entry["amount_by_currency"].get(cur, 0.0)
+                                                 + _num(doc.get("total_amount")), 2)
+    for entry in sub_stats.values():
+        entry["total_amount"] = single_amount(entry["amount_by_currency"])
+
+    mrr_rows = []
     for doc in await _a(db.subscriptions, [
             {"$match": {"status": "active"}},
-            {"$group": {"_id": "$billing_cycle", "total": {"$sum": "$amount"}}}]):
-        mrr += _num(doc.get("total")) / (12 if doc.get("_id") == "yearly" else 1)
+            {"$group": {"_id": {"b": "$billing_cycle", "c": "$currency"}, "total": {"$sum": "$amount"}}}]):
+        key = doc.get("_id") or {}
+        mrr_rows.append({"currency": key.get("c"),
+                         "amount": _num(doc.get("total")) / (12 if key.get("b") == "yearly" else 1)})
+    mrr_by_currency = currency_totals(mrr_rows)
+    mrr = single_amount(mrr_by_currency)
 
-    pay: Dict[str, Dict[str, float]] = {}
+    pay: Dict[str, Dict[str, Any]] = {}
     for doc in await _a(db.payments, [
-            {"$group": {"_id": "$status", "n": {"$sum": 1}, "amount": {"$sum": "$amount"}}}]):
-        pay[str(doc["_id"])] = {"count": int(doc.get("n") or 0), "amount": _num(doc.get("amount"))}
+            {"$group": {"_id": {"s": "$status", "c": "$currency"}, "n": {"$sum": 1},
+                        "amount": {"$sum": "$amount"}}}]):
+        st = str((doc.get("_id") or {}).get("s"))
+        entry = pay.setdefault(st, {"count": 0, "amount_by_currency": {}})
+        entry["count"] += int(doc.get("n") or 0)
+        cur = norm_currency((doc.get("_id") or {}).get("c"))
+        entry["amount_by_currency"][cur] = round(entry["amount_by_currency"].get(cur, 0.0)
+                                                 + _num(doc.get("amount")), 2)
+    for entry in pay.values():
+        entry["amount"] = single_amount(entry["amount_by_currency"])
     rev30 = await _a(db.payments, [{"$match": {"status": "succeeded", "created_at": {"$gte": d30}}},
                                    {"$group": {"_id": "$currency", "amount": {"$sum": "$amount"}}}])
-    currency = (rev30[0].get("_id") if rev30 else None) or "USD"
+    rev30_by_currency = currency_totals([{"currency": r.get("_id"), "amount": r.get("amount")}
+                                         for r in rev30])
+    succeeded_by_currency = dict(sorted((pay.get("succeeded") or {}).get("amount_by_currency", {}).items()))
+    all_currencies = sorted(set(mrr_by_currency) | set(rev30_by_currency) | set(succeeded_by_currency))
+    currency = single_currency({c: 0 for c in all_currencies})
 
     tok = await _a(db.token_balances, [{"$group": {"_id": None, "allocated": {"$sum": "$allocated"},
                                                    "used": {"$sum": "$used"},
@@ -237,17 +267,23 @@ async def super_admin_dashboard(
                 "expired": sub_stats.get("expired", {}).get("count", 0),
                 "cancelled": sub_stats.get("cancelled", {}).get("count", 0),
                 "suspended": sub_stats.get("suspended", {}).get("count", 0),
-                "monthly_revenue": round(mrr, 2),
-                "mrr": round(mrr, 2),
+                "monthly_revenue": mrr,
+                "mrr": mrr,
+                "mrr_by_currency": mrr_by_currency,
+                "multi_currency": len(mrr_by_currency) > 1,
             },
             "payments": {
                 "by_status": pay,
-                "succeeded_amount": round(pay.get("succeeded", {}).get("amount", 0.0), 2),
-                "revenue_30d": round(sum(_num(r.get("amount")) for r in rev30), 2),
+                "succeeded_amount": single_amount(succeeded_by_currency),
+                "succeeded_by_currency": succeeded_by_currency,
+                "revenue_30d": single_amount(rev30_by_currency),
+                "revenue_30d_by_currency": rev30_by_currency,
                 "pending": pay.get("pending", {}).get("count", 0),
                 "failed": pay.get("failed", {}).get("count", 0),
                 "refund_required": await _c(db.payments, {"refund_required": True}),
                 "currency": currency,
+                "currencies": all_currencies,
+                "multi_currency": len(all_currencies) > 1,
             },
             "tokens": {
                 "allocated": int(tok.get("allocated") or 0), "used": int(tok.get("used") or 0),

@@ -184,12 +184,28 @@ def refund(organization_id: str, amount: int, *, reason: str,
                 balance_after=bal.get("remaining"))
 
 
+def _org_thresholds(db, org_id: str):
+    """Warning thresholds: the organization's ``usage_warning_percent``
+    (Org Admin settings) replaces the default warning level; 100% always fires."""
+    warn = _THRESHOLDS[0]
+    try:
+        from bson import ObjectId
+        org = db.organizations.find_one({"_id": ObjectId(str(org_id))},
+                                        {"settings.usage_warning_percent": 1}) or {}
+        value = int((org.get("settings") or {}).get("usage_warning_percent") or warn)
+        if 1 <= value < 100:
+            warn = value
+    except Exception:
+        pass
+    return (warn, 100)
+
+
 def _check_thresholds(db, org_id: str, bal: Dict[str, Any]) -> None:
     allocated = bal.get("allocated") or 0
     if allocated <= 0:
         return
     pct = bal.get("used", 0) * 100 / allocated
-    for t in _THRESHOLDS:
+    for t in _org_thresholds(db, org_id):
         if pct < t:
             continue
         res = db[BALANCES].update_one(
@@ -203,7 +219,7 @@ def _check_thresholds(db, org_id: str, bal: Dict[str, Any]) -> None:
             msg = f"{bal.get('used')}/{allocated} tokens used, {bal.get('remaining')} remaining."
             notify_org_admins(org_id, "usage_threshold", title, msg,
                               severity="warning" if t < 100 else "danger",
-                              link="/org-admin#subscription")
+                              link="/org-admin#subscription", data={"percent": t})
             notify_super_admins("high_token_usage", title, f"Organization {org_id}: {msg}",
                                 severity="warning", data={"organization_id": org_id})
         except Exception:

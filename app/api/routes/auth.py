@@ -48,6 +48,7 @@ from app.auth.service import (
     verify_saas_user_login,
     verify_site_login,
 )
+from app.auth.rate_limit import RateLimiter
 from app.db.models import utcnow
 from app.db.mongo import get_sync_db
 from app.events.email import absolute_url, send_email
@@ -56,27 +57,19 @@ from app.events.security import log_security_event
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-# ── Signup / reset rate limiting (in-memory, per-IP) ────────────────────────
-_signup_attempts: dict[str, list[float]] = {}
+# ── Signup / reset rate limiting (per IP, MongoDB backed — durable and
+# shared across processes; ``.clear()`` resets the in-memory fallback) ──────
 _MAX_SIGNUP_ATTEMPTS = 5
 _SIGNUP_WINDOW = 3600  # 1 hour
-_reset_attempts: dict[str, list[float]] = {}
+_MAX_RESET_ATTEMPTS = 5
+_RESET_WINDOW = 3600  # 1 hour
+_signup_attempts = RateLimiter("signup_ip", _MAX_SIGNUP_ATTEMPTS, _SIGNUP_WINDOW)
+_reset_attempts = RateLimiter("password_reset_ip", _MAX_RESET_ATTEMPTS, _RESET_WINDOW)
 _RESET_TOKEN_TTL_MIN = 60
 
 
-def _window_allowed(bucket: dict, key: str, limit: int, window: int) -> bool:
-    now = _time.time()
-    stamps = [t for t in bucket.get(key, []) if now - t < window]
-    if len(stamps) >= limit:
-        bucket[key] = stamps
-        return False
-    stamps.append(now)
-    bucket[key] = stamps
-    return True
-
-
 def _signup_allowed(ip: str) -> bool:
-    return _window_allowed(_signup_attempts, ip, _MAX_SIGNUP_ATTEMPTS, _SIGNUP_WINDOW)
+    return _signup_attempts.consume(ip)
 
 
 class LoginRequest(BaseModel):
@@ -428,7 +421,7 @@ async def forgot_password(body: ForgotRequest, request: Request):
     email = (body.email or "").strip().lower()
     generic = {"success": True,
                "message": "If an account exists for that email, a reset link is on its way."}
-    if not _window_allowed(_reset_attempts, ip, 5, 3600):
+    if not _reset_attempts.consume(ip):
         log_security_event("password_reset_rate_limited", "low", actor_email=email, ip=ip)
         return generic
     db = get_sync_db()

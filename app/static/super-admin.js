@@ -270,6 +270,16 @@
     return n < 2 && Number.isInteger(v) ? 2 : n;
   }
   function dayLabel(l) { return /^\d{4}-\d{2}-\d{2}$/.test(String(l)) ? fmtDate(l + 'T00:00:00') : String(l || ''); }
+  // bucket labels from /analytics: day "YYYY-MM-DD", week = its ISO Monday "YYYY-MM-DD", month "YYYY-MM" (all UTC)
+  var UNIT_NAME = { day: ['day', 'days', 'Day'], week: ['week', 'weeks', 'Week'], month: ['month', 'months', 'Month'] };
+  function bucketLabel(l, unit) {
+    if (unit === 'week') return 'Week of ' + dayLabel(l);
+    if (unit === 'month' && /^\d{4}-\d{2}$/.test(String(l))) {
+      var d = new Date(l + '-01T00:00:00');
+      return isNaN(d.getTime()) ? String(l) : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short' });
+    }
+    return dayLabel(l);
+  }
   function lineChart(values, labels, o) {
     o = o || {};
     values = (values || []).map(function (v) { return Number(v) || 0; });
@@ -277,21 +287,23 @@
     var n = values.length;
     var top = niceMax(Math.max.apply(null, values.concat([0])));
     var fmt = o.money ? function (v) { return fmtMoney(v, o.currency); } : fmtN;
+    var unit = UNIT_NAME[o.unit] ? o.unit : 'day', un = UNIT_NAME[unit];
+    var lbl = function (l) { return bucketLabel(l, unit); };
     var total = o.total != null ? o.total : values.reduce(function (a, b) { return a + b; }, 0);
     var ticks = [top, top / 2, 0];
     var cols = values.map(function (v, i) {
-      var tip = dayLabel(labels[i]) + ': ' + fmt(v);
+      var tip = lbl(labels[i]) + ': ' + fmt(v);
       return '<span class="c" data-i="' + i + '" data-tip="' + esc(tip) + '"><i style="height:' + (v > 0 ? Math.max(1.5, v * 100 / top).toFixed(2) : 0) + '%"></i></span>';
     }).join('');
     var mid = n > 2 ? labels[Math.floor((n - 1) / 2)] : '';
     var tid = 'ct' + Math.random().toString(36).slice(2, 8);
-    return '<figure class="sa-chart" data-chart tabindex="0" role="group" aria-label="' + esc((o.title || 'Chart') + ' — total ' + fmt(total) + ' over ' + n + ' days. Use the left and right arrow keys to read daily values.') + '">' +
+    return '<figure class="sa-chart" data-chart tabindex="0" role="group" aria-label="' + esc((o.title || 'Chart') + ' — total ' + fmt(total) + ' over ' + n + ' ' + un[1] + '. Use the left and right arrow keys to read each ' + un[0] + '.') + '">' +
       '<div class="sa-plot" style="height:' + H + 'px"><div class="sa-yaxis" aria-hidden="true">' + ticks.map(function (t) { return '<span>' + esc(o.money ? fmtMoney(t, o.currency) : fmtN(t)) + '</span>'; }).join('') + '</div>' +
       '<div class="sa-area"><div class="sa-grid-l" aria-hidden="true"><i></i><i></i><i></i></div><div class="sa-cols' + (n > 60 ? ' dense' : '') + '">' + cols + '</div></div></div>' +
-      '<div class="sa-xaxis" aria-hidden="true"><span>' + esc(dayLabel(labels[0])) + '</span><span>' + esc(dayLabel(mid)) + '</span><span>' + esc(dayLabel(labels[n - 1])) + '</span></div>' +
-      '<div class="sa-chart-foot"><span class="sa-small sa-muted">' + esc(o.axisLabel || (o.money ? 'Amount per day' : 'Count per day')) + '</span><button type="button" class="sa-link sa-small" data-tbl aria-expanded="false" aria-controls="' + tid + '">Table view</button></div>' +
-      '<div class="sa-chart-table" id="' + tid + '" hidden><table class="sa-table"><thead><tr><th>Day</th><th class="num">' + esc(o.money ? 'Amount' : 'Value') + '</th></tr></thead><tbody>' +
-      values.map(function (v, i) { return '<tr><td>' + esc(dayLabel(labels[i])) + '</td><td class="num">' + esc(fmt(v)) + '</td></tr>'; }).join('') + '</tbody></table></div></figure>';
+      '<div class="sa-xaxis" aria-hidden="true"><span>' + esc(lbl(labels[0])) + '</span><span>' + esc(mid ? lbl(mid) : '') + '</span><span>' + esc(lbl(labels[n - 1])) + '</span></div>' +
+      '<div class="sa-chart-foot"><span class="sa-small sa-muted">' + esc(o.axisLabel || ((o.money ? 'Amount per ' : 'Count per ') + un[0])) + '</span><button type="button" class="sa-link sa-small" data-tbl aria-expanded="false" aria-controls="' + tid + '">Table view</button></div>' +
+      '<div class="sa-chart-table" id="' + tid + '" hidden><table class="sa-table"><thead><tr><th>' + esc(un[2]) + '</th><th class="num">' + esc(o.money ? 'Amount' : 'Value') + '</th></tr></thead><tbody>' +
+      values.map(function (v, i) { return '<tr><td>' + esc(lbl(labels[i])) + '</td><td class="num">' + esc(fmt(v)) + '</td></tr>'; }).join('') + '</tbody></table></div></figure>';
   }
   function barList(items, o) {
     o = o || {};
@@ -344,7 +356,7 @@
     o = o || {};
     var tag = o.href ? 'button' : 'div';
     return '<' + tag + ' class="sa-kpi ' + (o.tone || '') + '"' + (o.href ? ' type="button" data-go="' + esc(o.href) + '"' : '') + '>' +
-      '<div class="k" title="' + esc(label) + '">' + (o.icon ? ICON_SVG(o.icon) : '') + '<span>' + esc(label) + '</span></div><div class="v">' + esc(value) + '</div>' + (sub ? '<div class="s">' + sub + '</div>' : '') +
+      '<div class="k" title="' + esc(label) + '">' + (o.icon ? ICON_SVG(o.icon) : '') + '<span>' + esc(label) + '</span></div>' + (Array.isArray(value) && value.length > 1 ? '<div class="v v-multi">' + value.map(function (x) { return '<span>' + esc(x) + '</span>'; }).join('') + '</div>' : '<div class="v">' + esc(Array.isArray(value) ? value[0] : value) + '</div>') + (sub ? '<div class="s">' + sub + '</div>' : '') +
       (o.href ? '<span class="go" aria-hidden="true">' + (/^\/admin/.test(o.href) ? '↗' : '→') + '</span>' : '') + '</' + tag + '>';
   }
 
@@ -372,6 +384,19 @@
     var url = URL.createObjectURL(new Blob([body], { type: 'text/csv;charset=utf-8' }));
     var a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  }
+  // Browser-built "Current view" CSVs never pass through the server, so record them
+  // in the audit log (export.client). Fire-and-forget: the download never waits on it.
+  function logClientExport(table, rows, columns, st, filterKeys) {
+    var filters = {};
+    (filterKeys || []).concat(['sort']).forEach(function (k) { if (st && st[k] != null && String(st[k]) !== '') filters[k] = String(st[k]); });
+    try {
+      fetch('/api/super-admin/exports/client-log', {
+        method: 'POST', credentials: 'same-origin', keepalive: true,
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ table: String(table).slice(0, 80), rows: rows, columns: columns, filters: filters })
+      }).catch(function () {});
+    } catch (e) { /* never block the download */ }
   }
   function listView(el, cfg) {
     var local = typeof cfg.data === 'function';
@@ -452,6 +477,7 @@
         downloadCsv('leadai-' + (cfg.key || String(cfg.exportName || 'export')).replace(/[^a-z0-9]+/gi, '-') + '-' + isoDay(new Date()) + '.csv',
           vc.map(function (c) { return c.label; }),
           lastRows.map(function (r) { return vc.map(function (c) { return c.csv ? c.csv(r) : c.render ? htmlText(c.render(r)) : r[c.key]; }); }));
+        logClientExport(cfg.key || cfg.exportName || 'table', lastRows.length, vc.map(function (c) { return c.label; }), st, filterKeys);
         toast('Exported ' + lastRows.length + ' row' + (lastRows.length === 1 ? '' : 's'));
       };
     });
@@ -680,6 +706,14 @@
     var d = r[0].dashboard, h = r[1] && r[1].health, an = r[2];
     var cur = (d.payments && d.payments.currency) || 'USD';
     var sub = d.subscriptions || {};
+    // never add currencies together: one figure per currency when there are several
+    var perCur = function (map, single, c) { // -> one formatted figure per currency
+      var ks = Object.keys(map || {});
+      if (ks.length > 1) return ks.map(function (k) { return fmtMoney(map[k], k); });
+      return [fmtMoney(ks.length ? map[ks[0]] : (single || 0), ks[0] || c)];
+    };
+    var mrrTxt = perCur(sub.mrr_by_currency, sub.mrr, cur);
+    var rev30Txt = perCur(d.payments.revenue_30d_by_currency, d.payments.revenue_30d, cur).join(' · ');
     var errs = (d.errors.security_high_7d || 0) + (d.errors.system_errors_7d || 0);
     var html = header('Global dashboard', 'Every organization, user, subscription and job across the platform · updated ' + ago(d.generated_at),
       '<button type="button" class="btn btn-secondary btn-sm" id="dRefresh">' + ICON_SVG('repeat') + 'Refresh</button>' +
@@ -690,7 +724,7 @@
       kpi('Users', fmtN(d.users.total), fmtN(d.users.active) + ' active · +' + fmtN(d.users.new_7d) + ' this week', { href: '#/users', icon: 'users' }) +
       kpi('Demo accounts', fmtN(d.demo.accounts), fmtN(d.demo.pending_requests) + ' requests pending', { href: '#/demo', tone: d.demo.pending_requests ? 'warn' : '', icon: 'gift' }) +
       kpi('Active subscriptions', fmtN(sub.active), fmtN(sub.awaiting_confirmation) + ' awaiting confirmation', { href: '#/subscriptions', tone: sub.awaiting_confirmation ? 'warn' : '', icon: 'repeat' }) +
-      kpi('MRR', fmtMoney(sub.mrr, cur), fmtMoney(d.payments.revenue_30d, cur) + ' collected (30d)', { href: '#/payments', icon: 'card' }) +
+      kpi('MRR', mrrTxt, esc(rev30Txt) + ' collected (30d)', { href: '#/payments', icon: 'card' }) +
       kpi('Tokens used (24h)', fmtN(d.tokens.consumed_24h), fmtN(d.tokens.consumed_30d) + ' in 30 days', { href: '#/tokens', icon: 'coin' }) +
       kpi('Searches', fmtN(d.searches.total), fmtN(d.searches.running) + ' running · ' + fmtN(d.searches.failed) + ' failed', { href: '#/ops/searches', tone: d.searches.failed ? 'warn' : '', icon: 'search' }) +
       kpi('Apify jobs', fmtN(d.apify.total), fmtN(d.apify.failed) + ' failed · ' + fmtN(d.apify.failed_24h) + ' in 24h', { href: '#/ops/jobs', tone: d.apify.failed_24h ? 'bad' : '', icon: 'cpu' }) +
@@ -728,11 +762,14 @@
     // 30-day trends (drill-down to analytics)
     if (an && an.days) {
       var tr = function (title, s, href, o) {
-        return '<div class="sa-card"><h3><span>' + esc(title) + ' <span class="sa-small sa-muted">30d</span></span><a class="sa-link" href="' + esc(href) + '">Drill down →</a></h3><div class="total">' + esc(o && o.money ? fmtMoney(s.total, cur) : fmtN(s.total)) + '</div>' +
-          lineChart(s.values, an.days, Object.assign({ title: title, total: s.total, height: 110, currency: cur }, o || {})) + '</div>';
+        var c = (o && o.currency) || cur;
+        return '<div class="sa-card"><h3><span>' + esc(title) + ' <span class="sa-small sa-muted">30d</span></span><a class="sa-link" href="' + esc(href) + '">Drill down →</a></h3><div class="total">' + esc(o && o.money ? fmtMoney(s.total, c) : fmtN(s.total)) + '</div>' +
+          lineChart(s.values, an.days, Object.assign({ title: title, total: s.total, height: 110 }, o || {}, { currency: c })) + '</div>';
       };
+      var rv = an.business.revenue || {}, rvCur = Object.keys(rv.by_currency || {});
       html += '<div class="sa-grid sa-3 sa-section">' + tr('New organizations', an.business.registrations, '#/analytics') + tr('Searches', an.product.searches, '#/ops/searches') +
-        tr('Revenue collected', an.business.revenue, '#/payments?status=succeeded', { money: true }) + '</div>';
+        (rvCur.length > 1 ? rvCur.map(function (c) { return tr('Revenue collected · ' + c, rv.by_currency[c], '#/payments?status=succeeded', { money: true, currency: c }); }).join('')
+          : tr('Revenue collected', rv, '#/payments?status=succeeded', { money: true, currency: rvCur[0] || rv.currency || cur })) + '</div>';
     }
     var rec = d.recent || {};
     function feed(items, fn, emptyTxt) {
@@ -1533,9 +1570,14 @@
       exportUrl: function (st) { return reportUrl('payments', { status: st.status }); },
       filters: [{ key: 'q', label: 'Organization name…' }, { key: 'status', type: 'select', label: 'Status', options: [['', 'All'], ['pending', 'Pending'], ['succeeded', 'Successful'], ['failed', 'Failed'], ['refunded', 'Refunded / refund due']] }],
       onData: function (d) {
-        var s = d.summary || {}, cur = ((d.items || [])[0] || {}).currency;
-        $('#pySum', root).innerHTML = kpi('Successful', fmtN((s.succeeded || {}).count || 0), esc(fmtMoney((s.succeeded || {}).amount || 0, cur))) +
-          kpi('Pending', fmtN((s.pending || {}).count || 0), esc(fmtMoney((s.pending || {}).amount || 0, cur))) +
+        var s = d.summary || {}, cur = ((d.currencies || [])[0]) || ((d.items || [])[0] || {}).currency;
+        var amt = function (x) { // one figure per currency, never summed across currencies
+          x = x || {}; var m = x.amount_by_currency || {}, ks = Object.keys(m);
+          if (ks.length > 1) return ks.map(function (k) { return fmtMoney(m[k], k); }).join(' · ');
+          return fmtMoney(ks.length ? m[ks[0]] : (x.amount || 0), ks[0] || cur);
+        };
+        $('#pySum', root).innerHTML = kpi('Successful', fmtN((s.succeeded || {}).count || 0), esc(amt(s.succeeded))) +
+          kpi('Pending', fmtN((s.pending || {}).count || 0), esc(amt(s.pending))) +
           kpi('Failed', fmtN((s.failed || {}).count || 0), '', { tone: (s.failed || {}).count ? 'bad' : '' }) +
           kpi('Refund required', fmtN((s.refund_required || {}).count || 0), 'paid, then rejected/cancelled', { tone: (s.refund_required || {}).count ? 'warn' : '' });
       },
@@ -1848,27 +1890,36 @@
   // ════════════════════════════════════════════════════════
   async function viewAnalytics(root, q) {
     var range = q.range || (q.from ? '' : '30d');
-    var a = await api('/api/super-admin/analytics' + qs({ range: range || '30d', from: q.from, to: q.to, organization_id: q.org }));
-    var cur = 'USD';
-    var labels = a.days;
+    var gran = ['day', 'week', 'month'].indexOf(q.g) >= 0 ? q.g : 'day';
+    var a = await api('/api/super-admin/analytics' + qs({ range: range || '30d', from: q.from, to: q.to, organization_id: q.org, granularity: gran }));
+    var unit = a.granularity || gran;
+    var labels = a.buckets || a.days;
     function chart(title, s, href, o) {
       o = o || {};
+      var cur = o.currency || s.currency || 'USD';
       return '<div class="sa-card"><h3><span>' + esc(title) + '</span>' + (href ? '<a class="sa-link" href="' + esc(href) + '"' + (/^\/admin/.test(href) ? ' target="_blank" rel="noopener"' : '') + '>Drill down →</a>' : '') + '</h3>' +
         '<div class="total">' + esc(o.money ? fmtMoney(s.total, cur) : fmtN(s.total)) + (o.distinct ? ' <span class="sa-small sa-muted">distinct</span>' : '') + '</div>' +
-        lineChart(s.values, labels, { money: o.money, currency: cur, title: title, total: s.total }) + '</div>';
+        lineChart(s.values, labels, { money: o.money, currency: cur, title: title, total: s.total, unit: unit }) + '</div>';
+    }
+    // money never mixes currencies: one revenue chart per currency
+    function revenueCharts(rev, href) {
+      var byCur = (rev && rev.by_currency) || {}, curs = Object.keys(byCur);
+      if (curs.length <= 1) return chart('Revenue (collected)' + (curs.length ? ' · ' + curs[0] : ''), rev, href, { money: true, currency: curs[0] || rev.currency });
+      return curs.map(function (c) { return chart('Revenue (collected) · ' + c, byCur[c], href, { money: true, currency: c }); }).join('');
     }
     var fromTo = qs({ from: labels[0], to: labels[labels.length - 1] }).replace('?', '');
     var b = a.business, p = a.product, snap = a.snapshot;
-    root.innerHTML = header('Analytics', 'Business and product metrics · ' + fmtDate(a.from) + ' – ' + fmtDate(a.to) + (q.org ? ' · organization ' + q.org : ' · all organizations'),
+    root.innerHTML = header('Analytics', 'Business and product metrics · ' + fmtDate(a.from) + ' – ' + fmtDate(a.to) + ' · per ' + (UNIT_NAME[unit] || UNIT_NAME.day)[0] + ' (UTC' + (unit === 'week' ? ', weeks start Monday' : '') + ')' + (q.org ? ' · organization ' + q.org : ' · all organizations'),
       '<button type="button" class="btn btn-secondary btn-sm" id="anTable">Table view</button>') +
-      '<form class="sa-filters" id="anForm"><div class="sa-chips" style="margin:0">' + ['7d', '30d', '90d', '365d'].map(function (r) { return '<a class="sa-chip' + (r === range ? ' active' : '') + '" href="#/analytics' + qs({ range: r, org: q.org }) + '">' + r + '</a>'; }).join('') + '</div>' +
+      '<form class="sa-filters" id="anForm"><div class="sa-chips" style="margin:0">' + ['7d', '30d', '90d', '365d'].map(function (r) { return '<a class="sa-chip' + (r === range ? ' active' : '') + '" href="#/analytics' + qs({ range: r, org: q.org, g: gran === 'day' ? '' : gran }) + '"' + (r === range ? ' aria-current="true"' : '') + '>' + r + '</a>'; }).join('') + '</div>' +
+      '<div class="sa-chips" style="margin:0" role="group" aria-label="Group by">' + [['day', 'Day'], ['week', 'Week'], ['month', 'Month']].map(function (g) { return '<a class="sa-chip' + (g[0] === unit ? ' active' : '') + '" href="#/analytics' + qs({ range: range, from: q.from, to: q.to, org: q.org, g: g[0] === 'day' ? '' : g[0] }) + '"' + (g[0] === unit ? ' aria-current="true"' : '') + '>' + g[1] + '</a>'; }).join('') + '</div>' +
       '<label class="sa-small sa-muted" for="anFrom">From</label><input class="form-input" type="date" id="anFrom" name="from" value="' + esc(q.from || '') + '"><label class="sa-small sa-muted" for="anTo">To</label><input class="form-input" type="date" id="anTo" name="to" value="' + esc(q.to || '') + '">' +
       '<label class="sr-only" for="anOrg">Organization ID</label><input class="form-input" id="anOrg" name="org" placeholder="Organization ID (optional)" value="' + esc(q.org || '') + '"><button class="btn btn-secondary btn-sm" type="submit">Apply</button></form>' +
       '<div class="sa-grid sa-kpis">' + kpi('Active customers', fmtN(snap.active_customers), '', { href: '#/organizations?status=active' }) + kpi('Demo accounts', fmtN(snap.demo_accounts), '', { href: '#/organizations?status=demo' }) + kpi('Total users', fmtN(snap.total_users), '', { href: '#/users' }) +
       kpi('Demo → paid', fmtN(b.demo_conversions.total), b.demo_requests.total ? Math.round(b.demo_conversions.total * 100 / b.demo_requests.total) + '% of requests in range' : '') + kpi('Churned', fmtN(b.churn.total), 'cancelled / expired in range', { tone: b.churn.total ? 'warn' : '' }) + '</div>' +
       '<h3 class="sa-section" style="font-size:15px">Business</h3><div class="sa-grid sa-3">' +
       chart('Registrations (organizations)', b.registrations, '#/organizations') + chart('Demo requests', b.demo_requests, '#/demo') + chart('Demo conversions', b.demo_conversions, '#/demo?status=converted') +
-      chart('Subscriptions activated', b.subscriptions_activated, '#/subscriptions?status=active') + chart('Churn', b.churn, '#/subscriptions?status=cancelled') + chart('Revenue (collected)', b.revenue, '#/payments?status=succeeded', { money: true }) +
+      chart('Subscriptions activated', b.subscriptions_activated, '#/subscriptions?status=active') + chart('Churn', b.churn, '#/subscriptions?status=cancelled') + revenueCharts(b.revenue, '#/payments?status=succeeded') +
       '<div class="sa-card"><h3>Plan distribution (active)</h3>' + barList(Object.keys(snap.plan_distribution).map(function (k) { return { label: k, value: snap.plan_distribution[k] }; }).sort(function (x, y) { return y.value - x.value; }), { emptyTitle: 'No active subscriptions' }) + '</div></div>' +
       '<h3 class="sa-section" style="font-size:15px">Product</h3><div class="sa-grid sa-3">' +
       chart('Searches', p.searches, '#/ops/searches?' + fromTo) + chart('Failed searches', p.failed_searches, '#/ops/searches?status=failed&' + fromTo) + chart('Active users', p.active_users, '#/users', { distinct: true }) +
@@ -1878,14 +1929,17 @@
     bindCharts(root); bindGo(root);
     $('#anForm', root).onsubmit = function (e) {
       e.preventDefault(); var fd = new FormData(this);
-      go('#/analytics' + qs({ from: fd.get('from'), to: fd.get('to'), org: String(fd.get('org') || '').trim(), range: fd.get('from') || fd.get('to') ? '' : range }));
+      go('#/analytics' + qs({ from: fd.get('from'), to: fd.get('to'), org: String(fd.get('org') || '').trim(), range: fd.get('from') || fd.get('to') ? '' : range, g: unit === 'day' ? '' : unit }));
     };
     $('#anTable', root).onclick = function () {
       var t = $('#anTbl', root);
       if (t.hidden) {
-        var series = [['Registrations', b.registrations], ['Demo requests', b.demo_requests], ['Conversions', b.demo_conversions], ['Activated', b.subscriptions_activated], ['Churn', b.churn], ['Revenue', b.revenue], ['Searches', p.searches], ['Failed', p.failed_searches], ['Active users', p.active_users], ['Leads', p.leads], ['AI calls', p.ai_calls], ['Tokens', p.tokens_consumed], ['Errors', p.errors]];
-        t.innerHTML = '<h3>Daily values</h3><div class="sa-table-wrap"><table class="sa-table"><thead><tr><th>Day</th>' + series.map(function (s) { return '<th class="num">' + esc(s[0]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-          labels.map(function (d, i) { return '<tr><td class="sa-mono">' + esc(d) + '</td>' + series.map(function (s) { return '<td class="num">' + esc(fmtN(s[1].values[i])) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
+        var revCur = (b.revenue && b.revenue.by_currency) || {};
+        var revCols = Object.keys(revCur).length > 1 ? Object.keys(revCur).map(function (c) { return ['Revenue ' + c, revCur[c]]; }) : [['Revenue' + (b.revenue.currency ? ' ' + b.revenue.currency : ''), b.revenue]];
+        var series = [['Registrations', b.registrations], ['Demo requests', b.demo_requests], ['Conversions', b.demo_conversions], ['Activated', b.subscriptions_activated], ['Churn', b.churn]].concat(revCols).concat([['Searches', p.searches], ['Failed', p.failed_searches], ['Active users', p.active_users], ['Leads', p.leads], ['AI calls', p.ai_calls], ['Tokens', p.tokens_consumed], ['Errors', p.errors]]);
+        var un = UNIT_NAME[unit] || UNIT_NAME.day;
+        t.innerHTML = '<h3>Values per ' + esc(un[0]) + '</h3><div class="sa-table-wrap"><table class="sa-table"><thead><tr><th>' + esc(un[2]) + '</th>' + series.map(function (s) { return '<th class="num">' + esc(s[0]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+          labels.map(function (d, i) { return '<tr><td class="sa-mono">' + esc(bucketLabel(d, unit)) + '</td>' + series.map(function (s) { return '<td class="num">' + esc(fmtN((s[1].values || [])[i])) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
       }
       t.hidden = !t.hidden; this.textContent = t.hidden ? 'Table view' : 'Hide table';
     };

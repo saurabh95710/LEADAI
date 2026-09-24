@@ -284,12 +284,28 @@ async def list_payments(status: Optional[str] = None, organization_id: Optional[
         p["invoice_status"] = ("paid" if p.get("status") == "succeeded" and not p.get("refund_required")
                                else "refund_due" if p.get("refund_required")
                                else "void" if p.get("status") == "failed" else "open")
+    # per status, amounts grouped by currency (never summed across
+    # currencies); "amount" only when a single currency is involved
+    from app.api.routes.super_admin_platform import norm_currency, single_amount
     summary: Dict[str, Any] = {}
-    async for row in db.payments.aggregate([{"$group": {"_id": "$status", "n": {"$sum": 1},
+    async for row in db.payments.aggregate([{"$group": {"_id": {"s": "$status", "c": "$currency"},
+                                                        "n": {"$sum": 1},
                                                         "amount": {"$sum": "$amount"}}}]):
-        summary[str(row["_id"])] = {"count": row["n"], "amount": round(float(row.get("amount") or 0), 2)}
+        key = row.get("_id") or {}
+        entry = summary.setdefault(str(key.get("s")), {"count": 0, "amount_by_currency": {}})
+        entry["count"] += int(row.get("n") or 0)
+        cur = norm_currency(key.get("c"))
+        entry["amount_by_currency"][cur] = round(entry["amount_by_currency"].get(cur, 0.0)
+                                                 + float(row.get("amount") or 0), 2)
+    currencies: set = set()
+    for entry in summary.values():
+        entry["amount_by_currency"] = dict(sorted(entry["amount_by_currency"].items()))
+        entry["amount"] = single_amount(entry["amount_by_currency"])
+        currencies.update(entry["amount_by_currency"])
+    summary_currencies = sorted(currencies)
     summary["refund_required"] = {"count": await db.payments.count_documents({"refund_required": True})}
     res["summary"] = summary
+    res["currencies"] = summary_currencies
     return {"success": True, **res}
 
 

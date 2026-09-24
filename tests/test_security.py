@@ -248,12 +248,13 @@ class TestCORSConfiguration:
 
     def test_cors_configurable(self):
         """CORS origins should be configurable via settings."""
-        import app.config as cfg
-        cfg.get_settings.cache_clear()
-        settings = cfg.get_settings()
+        # A fresh Settings() instead of get_settings.cache_clear(): clearing the
+        # shared cache split modules holding the old object from later tests
+        # that patch the new one (order-dependent test_auth failures).
+        from app.config import Settings
+        settings = Settings()
         # Default should be empty (same-origin only)
         assert settings.allowed_origins == "" or isinstance(settings.allowed_origins, str)
-        cfg.get_settings.cache_clear()
 
 
 # ── Secret Management Tests ─────────────────────────────────────────────────

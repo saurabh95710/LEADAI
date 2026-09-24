@@ -1448,6 +1448,22 @@ async def update_lead(lead_id: str, body: dict, request: Request,
                      resource_type="lead", resource_id=lead_id,
                      details={k: v for k, v in updates.items() if k != "lead_updated_at"})
 
+    new_assignee_id = assignee["user_id"] if assignee else None
+    if assignment_requested and new_assignee_id != lead.get("assigned_user_id"):
+        # same trail + notice as bulk / automatic assignment
+        from app.pipeline.lead_lifecycle import create_assignment_history_entry
+        await db.ai_comments.update_one(lead_filter, {"$push": {"assignment_history":
+            create_assignment_history_entry(lead.get("assigned_user_id"), new_assignee_id,
+                                            assignee["email"] if assignee else None,
+                                            changed_by=ctx.email, method="manual")}})
+        if new_assignee_id and new_assignee_id != ctx.user_id:
+            from app.events.notifications import notify_user
+            await asyncio.to_thread(
+                notify_user, new_assignee_id, "lead_assigned", "A lead was assigned to you",
+                f"{ctx.name or ctx.email} assigned you a lead.",
+                organization_id=ctx.organization_id, link="/dashboard#leads",
+                data={"lead_id": lead_id}, email=True)
+
     return {"ok": True, "lead_id": lead_id}
 
 

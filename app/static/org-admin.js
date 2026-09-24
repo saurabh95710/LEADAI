@@ -517,6 +517,7 @@
       if (!list.length) { toast('Nothing to export.', 'info'); return; }
       saveCsv(cfg.caption || 'export', vc.map(c => c.label), list.map(r => vc.map(c => cellText(c, r))));
       toast(`Exported ${num(list.length)} row${list.length === 1 ? '' : 's'}.`, 'success'); void btn;
+      logClientExport(cfg.key || cfg.caption || 'table', list.length, vc.map(c => c.label), params());
     }
     load();
     return { reload: load, state: st, params, exportSelected: () => exportRows(Array.from(selected.values())), selected: () => Array.from(selected.values()), clearSelection: () => { selected.clear(); syncBulk(); } };
@@ -548,15 +549,25 @@
     const m = $('#oa-rowmenu'); if (m && m._close) m._close(false);
     $$('.oa-colpop').forEach(p => { if (!p.hidden) { p.hidden = true; const b = p.parentElement && $('[data-colbtn]', p.parentElement); if (b) b.setAttribute('aria-expanded', 'false'); } });
   }
-  // Promise pool for bulk actions: runs fn over items with limited concurrency.
-  async function runBulk(items, fn, verb, noun) {
+  // Client-side (in-browser) CSV exports are recorded + audited server side.
+  // Fire-and-forget: never blocks or fails the download.
+  function logClientExport(table, rows, columns, filters) {
+    if (!can('exports.create')) return;
+    const f = {}; Object.keys(filters || {}).forEach(k => { if (['page', 'limit'].indexOf(k) < 0 && filters[k] !== '' && filters[k] != null) f[k] = filters[k]; });
+    try { api('/api/org-admin/exports/client-log', { method: 'POST', body: { table: String(table).slice(0, 80), rows, columns: (columns || []).slice(0, 100), filters: f }, noRedirect: true, noGate: true }).catch(() => {}); } catch (_) { /* never block the export */ }
+  }
+  // Bulk actions: one atomic request (all ids validated server side, one audit
+  // entry). Reports updated + skipped-with-reason. Returns the updated count.
+  async function runBulk(url, body, verb, noun) {
     noun = noun || 'item';
-    let ok = 0; const errs = []; let idx = 0;
-    const worker = async () => { while (idx < items.length) { const it = items[idx++]; try { await fn(it); ok++; } catch (e) { errs.push(e.message || 'failed'); } } };
-    await Promise.all(Array.from({ length: Math.min(4, items.length) }, worker));
-    if (!errs.length) toast(`${verb} ${num(ok)} ${noun}${ok === 1 ? '' : 's'}.`, 'success');
-    else toast(`${verb} ${num(ok)} of ${num(items.length)}. ${num(errs.length)} failed: ${errs[0]}`, ok ? 'warning' : 'error');
-    return ok;
+    const plural = (n) => `${num(n)} ${noun}${n === 1 ? '' : 's'}`;
+    try {
+      const r = await api(url, { method: 'POST', body });
+      const skipped = r.skipped || [];
+      if (!skipped.length) toast(`${verb} ${plural(r.updated || 0)}.`, 'success');
+      else toast(`${verb} ${plural(r.updated || 0)}. ${num(skipped.length)} skipped: ${skipped[0].reason}${skipped.length > 1 ? ' (and others)' : ''}`, r.updated ? 'warning' : 'info');
+      return r.updated || 0;
+    } catch (e) { toast(e.message || 'Bulk action failed', 'error'); return 0; }
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -825,7 +836,7 @@
           </div></div>
           <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Lead settings</div><a class="oa-link oa-small" href="#rules">Lead keywords →</a></div><div class="oa-form-grid">
             ${fld('min_lead_score', 'Minimum lead score', s.min_lead_score == null ? '' : s.min_lead_score, 'number', ro, 'min="0" max="100" placeholder="0"', 'Leads below this score are de-emphasised.')}
-            <div class="oa-field"><label for="f-lead_assignment">Lead assignment</label><select class="form-select" id="f-lead_assignment" name="lead_assignment" ${ro}>${selectOpts([['manual', 'Manual (Admin assigns)'], ['creator', 'Whoever ran the search'], ['round_robin', 'Round robin']], s.lead_assignment || 'manual')}</select></div>
+            <div class="oa-field"><label for="f-lead_assignment">Lead assignment</label><select class="form-select" id="f-lead_assignment" name="lead_assignment" ${ro}>${selectOpts([['manual', 'Manual (Admin assigns)'], ['creator', 'Whoever ran the search'], ['round_robin', 'Round robin']], s.lead_assignment === 'search_owner' ? 'creator' : (s.lead_assignment || 'manual'))}</select><span class="oa-hint">Applies to new leads. Round robin rotates across active members who can view leads (viewers are skipped).</span></div>
           </div>${switchRow('auto_export', 'Auto-export leads', 'Prepare a CSV automatically when a search completes.', s.auto_export, !editable)}</div>
           <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Notifications</div></div>
             ${switchRow('email_notifications', 'Email notifications', 'Send organization alerts by email as well as in-app.', s.email_notifications !== false, !editable)}
@@ -1003,7 +1014,8 @@
     const text = { inactive: ['Deactivate ' + who + '?', 'They lose access immediately and free up seats. You can restore them later.', 'Deactivate'], suspended: ['Suspend ' + who + '?', 'They lose access immediately (e.g. for a security concern). You can restore them later.', 'Suspend'], active: ['Restore access for ' + who + '?', 'They can sign in again with their existing account.', 'Restore'] }[st];
     if (!(await confirmDialog(text[0], text[1], { danger: st !== 'active', confirm: text[2] }))) return false;
     busy(btn, true, 'Working…');
-    try { return await runBulk(targets, (r) => api('/api/organizations/current/members/' + encodeURIComponent(r.user_id), { method: 'PATCH', body: { status: st } }), st === 'active' ? 'Restored' : st === 'inactive' ? 'Deactivated' : 'Suspended', 'user'); }
+    const action = { active: 'restore', inactive: 'deactivate', suspended: 'suspend' }[st];
+    try { return await runBulk('/api/org-admin/members/bulk', { ids: targets.map(r => r.user_id), action }, st === 'active' ? 'Restored' : st === 'inactive' ? 'Deactivated' : 'Suspended', 'user'); }
     finally { busy(btn, false); S.members = null; }
   }
   function inviteModal(done) {
@@ -1302,10 +1314,10 @@
         export: can('leads.export'),
         bulk: can('leads.assign') || can('leads.manage') ? {
           rowId: r => r.id,
-          actions: [].concat(can('leads.assign') ? [{ id: 'assign', label: 'Assign…' }] : [], can('leads.manage') ? [{ id: 'status', label: 'Change status…' }] : [], can('leads.export') ? [{ id: 'export', label: 'Export selected' }] : []),
+          actions: [].concat(can('leads.assign') ? [{ id: 'assign', label: 'Assign…' }] : [], can('leads.manage') ? [{ id: 'status', label: 'Change status…' }, { id: 'priority', label: 'Priority…' }] : [], can('leads.export') ? [{ id: 'export', label: 'Export selected' }] : []),
           run: (act, list, btn) => { if (act === 'export') { t.exportSelected(); return false; } return leadBulk(act, list, btn, members); },
         } : null,
-        rowMenu: r => [{ act: 'open', label: 'Open lead' }].concat(can('leads.assign') ? [{ act: 'assign', label: r.assigned_user_id ? 'Reassign…' : 'Assign…' }] : [], can('leads.manage') ? [{ act: 'status', label: 'Change status…' }] : []),
+        rowMenu: r => [{ act: 'open', label: 'Open lead' }].concat(can('leads.assign') ? [{ act: 'assign', label: r.assigned_user_id ? 'Reassign…' : 'Assign…' }] : [], can('leads.manage') ? [{ act: 'status', label: 'Change status…' }, { act: 'priority', label: 'Change priority…' }] : []),
         async onAction(act, r) { if (act === 'open') { location.hash = '#lead/' + r.id; return; } if (await leadBulk(act, [r], null, members)) t.reload(); },
         defaults: assignedView ? { assignee: 'assigned' } : {},
         fixed: { run_id: v.query.run_id },
@@ -1330,22 +1342,28 @@
       });
     },
   };
-  // Assign / change status for one or many leads (modal → PATCH /api/leads/{id} per lead).
+  // Assign / change status / change priority for one or many leads
+  // (modal → one atomic POST /api/org-admin/leads/bulk; skipped leads are reported).
   async function leadBulk(act, list, btn, members) {
-    if (act !== 'assign' && act !== 'status') return false;
+    if (['assign', 'status', 'priority'].indexOf(act) < 0) return false;
     const many = list.length > 1; const who = many ? num(list.length) + ' leads' : '“' + (list[0].name || 'this lead') + '”';
     const transitions = act === 'status' ? await getTransitions() : {};
     const choices = act === 'assign' ? [['', 'Unassigned']].concat(memberOptions(members, true))
-      : LEAD_STATUSES.filter(s => list.some(l => (transitions[l.status || 'new'] || []).indexOf(s) >= 0)).map(s => [s, cap(label(s))]);
+      : act === 'priority' ? [['high', 'High'], ['medium', 'Medium'], ['low', 'Low']]
+        : LEAD_STATUSES.filter(s => list.some(l => (transitions[l.status || 'new'] || []).indexOf(s) >= 0)).map(s => [s, cap(label(s))]);
     if (act === 'status' && !choices.length) { toast(many ? 'None of the selected leads can move to another status.' : 'This lead is in a final status.', 'info'); return false; }
+    const title = { assign: 'Assign ', status: 'Change status of ', priority: 'Change priority of ' }[act] + who;
+    const fieldLabel = { assign: 'Assign to', status: 'New status', priority: 'New priority' }[act];
+    const hint = act === 'assign' ? 'Assigned leads appear in that member\'s User Portal.' : act === 'priority' ? 'Leads that already have this priority are skipped.' : (many ? 'Leads where this is not a valid next step are skipped.' : 'Only valid next steps are listed.');
+    const current = !many ? (act === 'assign' ? (list[0].assigned_user_id || '') : act === 'priority' ? (list[0].priority || '') : '') : '';
     const res = await new Promise((resolve) => {
       let picked = null;
       openModal({
-        title: act === 'assign' ? 'Assign ' + who : 'Change status of ' + who,
-        body: `<form class="oa-form" data-f novalidate><div class="oa-field"><label for="bk-v">${act === 'assign' ? 'Assign to' : 'New status'}</label><select class="form-select" id="bk-v" name="v">${selectOpts(choices, act === 'assign' && !many ? (list[0].assigned_user_id || '') : '')}</select>
-          <span class="oa-hint">${act === 'assign' ? 'Assigned leads appear in that member\'s User Portal.' : (many ? 'Leads where this is not a valid next step are skipped.' : 'Only valid next steps are listed.')}</span></div>
+        title,
+        body: `<form class="oa-form" data-f novalidate><div class="oa-field"><label for="bk-v">${fieldLabel}</label><select class="form-select" id="bk-v" name="v">${selectOpts(choices, current)}</select>
+          <span class="oa-hint">${hint}</span></div>
           ${act === 'status' ? '<div class="oa-field"><label for="bk-r">Reason <span class="optional">(optional)</span></label><input class="form-input" id="bk-r" name="r" maxlength="300"/></div>' : ''}</form>`,
-        foot: `<button type="button" class="btn btn-secondary" data-close>Cancel</button><button type="button" class="btn btn-primary" data-ok>${act === 'assign' ? 'Assign' : 'Update status'}</button>`,
+        foot: `<button type="button" class="btn btn-secondary" data-close>Cancel</button><button type="button" class="btn btn-primary" data-ok>${{ assign: 'Assign', status: 'Update status', priority: 'Update priority' }[act]}</button>`,
         onMount(root, close) {
           const f = $('[data-f]', root);
           const ok = () => { picked = { v: f.v.value, r: f.r ? f.r.value.trim() : '' }; close(); };
@@ -1356,15 +1374,9 @@
       });
     });
     if (!res) return false;
-    let targets = list; let skipped = 0;
-    if (act === 'status') { targets = list.filter(l => (transitions[l.status || 'new'] || []).indexOf(res.v) >= 0); skipped = list.length - targets.length; }
-    else targets = list.filter(l => (l.assigned_user_id || '') !== res.v);
-    if (!targets.length) { toast('Nothing to change.', 'info'); return false; }
     busy(btn, true, 'Updating…');
     try {
-      const n = await runBulk(targets, (l) => api('/api/leads/' + encodeURIComponent(l.id), { method: 'PATCH', body: act === 'assign' ? { assigned_user_id: res.v || null } : { lead_status: res.v, reason: res.r } }), 'Updated', 'lead');
-      if (skipped) toast(num(skipped) + ' lead' + (skipped === 1 ? ' was' : 's were') + ' skipped (not a valid next step).', 'info');
-      return n;
+      return await runBulk('/api/org-admin/leads/bulk', { ids: list.map(l => l.id), action: act, value: res.v || null, reason: res.r || '' }, 'Updated', 'lead');
     } finally { busy(btn, false); }
   }
   ROUTES.lead = {
@@ -1376,7 +1388,11 @@
       const status = lead.lead_status || 'new';
       const next = (transitions[status] || []);
       const src = lead.source_post || {}; const page = lead.source_page || {};
-      const notes = lead.notes || []; const hist = (lead.status_history || []).slice().reverse();
+      const notes = lead.notes || []; const hist = (lead.status_history || []).map(h => Object.assign({ kind: 'status' }, h))
+        .concat((lead.assignment_history || []).map(h => Object.assign({ kind: 'assign' }, h)))
+        .sort((a, b) => String(b.changed_at || '').localeCompare(String(a.changed_at || '')));
+      const memberName = (uid, email) => { if (!uid) return 'Unassigned'; const m = (members || []).find(x => x.user_id === uid); return (m && (m.name || m.email)) || email || 'a member'; };
+      const histMethod = (m) => String(m || '').indexOf('auto:') === 0 ? 'automatically (' + label(String(m).slice(5)) + ')' : m === 'bulk' ? 'bulk action' : '';
       const canManage = can('leads.manage'); const canAssign = can('leads.assign');
       const asg = (members || []).find(m => m.user_id === lead.assigned_user_id);
       const assigneeName = lead.assigned_user_id ? ((asg && (asg.name || asg.email)) || lead.assigned_to || 'Assigned') : 'Unassigned';
@@ -1401,7 +1417,9 @@
           <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Notes</div><span class="oa-card-sub">${num(notes.length)}</span></div>
             ${notes.length ? `<div class="oa-thread">${notes.map((n, i) => `<div class="oa-msg"><div class="oa-msg-head"><span>${esc(n.author || '')}</span><span>${esc(fmtDate(n.created_at, true))}${canManage ? ` · <button type="button" class="btn btn-ghost btn-sm" data-del-note="${i}" aria-label="Delete note">Delete</button>` : ''}</span></div><div class="oa-msg-body">${esc(n.text)}</div></div>`).join('')}</div>` : '<p class="oa-muted oa-small">No notes yet.</p>'}
             ${canManage ? `<form class="oa-form" data-note style="margin-top:14px"><label class="sr-only" for="l-note">Add a note</label><textarea class="form-textarea" id="l-note" name="text" rows="3" maxlength="2000" placeholder="Add a note for your team…" style="min-height:80px"></textarea><div class="oa-actions" style="justify-content:flex-end"><button type="submit" class="btn btn-secondary btn-sm">Add note</button></div></form>` : ''}</div>
-          <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">History</div></div>${hist.length ? `<ul class="oa-feed">${hist.map(h => `<li><div class="oa-feed-main">${pill(h.from_status)} → ${pill(h.to_status)} <span class="oa-small oa-muted">by ${esc(h.changed_by || '')}${h.reason ? ' — ' + esc(h.reason) : ''}</span></div>${timeTag(h.changed_at)}</li>`).join('')}</ul>` : '<p class="oa-muted oa-small">No status changes yet.</p>'}</div>
+          <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">History</div></div>${hist.length ? `<ul class="oa-feed">${hist.map(h => h.kind === 'assign'
+            ? `<li><div class="oa-feed-main">${h.to_user_id ? 'Assigned to <b>' + esc(memberName(h.to_user_id, h.to_email)) + '</b>' : 'Unassigned'} <span class="oa-small oa-muted">${h.changed_by === 'system' ? '' : 'by ' + esc(h.changed_by || '')}${histMethod(h.method) ? ' · ' + esc(histMethod(h.method)) : ''}</span></div>${timeTag(h.changed_at)}</li>`
+            : `<li><div class="oa-feed-main">${pill(h.from_status)} → ${pill(h.to_status)} <span class="oa-small oa-muted">by ${esc(h.changed_by || '')}${h.reason ? ' — ' + esc(h.reason) : ''}</span></div>${timeTag(h.changed_at)}</li>`).join('')}</ul>` : '<p class="oa-muted oa-small">No status or assignment changes yet.</p>'}</div>
         </div>`;
       const mf = $('[data-manage]', v.el);
       if (mf) mf.onsubmit = async (e) => {

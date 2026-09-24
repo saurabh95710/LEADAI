@@ -947,6 +947,16 @@ def analyze_comments_for_post(post_ref: str, max_comments: int = 500,
         summary["analyzed"] += 1
         if flat["is_lead"] and getattr(res, "upserted_id", None) is not None:
             leads_created += 1
+        if flat["is_lead"] and update.get("organization_id"):
+            # the org's lead_assignment setting (manual / round_robin / creator)
+            try:
+                from app.pipeline.lead_assignment import auto_assign_lead
+                lead_doc = db.ai_comments.find_one({"comment_ref": str(doc["_id"])})
+                if lead_doc and not lead_doc.get("assigned_user_id")                         and not lead_doc.get("auto_assignment"):
+                    if auto_assign_lead(db, lead_doc):
+                        summary["auto_assigned"] = summary.get("auto_assigned", 0) + 1
+            except Exception as e:  # assignment must never break the analysis
+                logger.warning(f"[CommentAI] lead auto-assignment failed: {e}")
         if flat["is_lead"]:
             summary["useful"] += 1
             summary["displayed"] += 1

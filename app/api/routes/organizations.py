@@ -71,7 +71,8 @@ _SETTING_RANGES: Dict[str, tuple] = {
     "default_comments_per_post": (1, 100000),
 }
 _SETTING_CHOICES: Dict[str, tuple] = {
-    "lead_assignment": ("manual", "round_robin", "creator"),
+    # acted on by app/pipeline/lead_assignment.py; "search_owner" == "creator"
+    "lead_assignment": ("manual", "round_robin", "creator", "search_owner"),
     "default_member_role": CONFIGURABLE_ORG_ROLES,
 }
 _URL_FIELDS = ("website", "logo_url")

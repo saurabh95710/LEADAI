@@ -109,6 +109,25 @@ def create_status_history_entry(
     }
 
 
+def create_assignment_history_entry(
+    from_user_id: Optional[str],
+    to_user_id: Optional[str],
+    to_email: Optional[str] = None,
+    changed_by: str = "system",
+    method: str = "manual",
+) -> Dict[str, Any]:
+    """An ``assignment_history`` entry (who a lead moved from/to, by whom and
+    how: ``manual``, ``bulk`` or ``auto:<mode>``)."""
+    return {
+        "from_user_id": from_user_id or None,
+        "to_user_id": to_user_id or None,
+        "to_email": to_email,
+        "changed_at": datetime.now(timezone.utc),
+        "changed_by": changed_by,
+        "method": method,
+    }
+
+
 def create_note(
     text: str,
     author: str = "user",

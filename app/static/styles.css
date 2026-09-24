@@ -3672,3 +3672,54 @@ a.btn-ghost { display: inline-flex; align-items: center; text-decoration: none; 
 /* result cards: stat labels wrap instead of truncating ("FOLLOWER…") */
 .pc-stats { grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); }
 .pc-stat-label, .pt-stats .pc-stat-label { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.3; }
+
+/* ── Inline SVG icons (sprite in index.html; replaced the emoji glyphs) ── */
+.ico-inline { width: 1.05em; height: 1.05em; vertical-align: -0.17em; }
+.ico-empty { width: 34px; height: 34px; stroke-width: 1.6; }
+.ico-thumb { width: 26px; height: 26px; color: var(--text-dim); stroke-width: 1.6; }
+.entitlement-icon .ico { width: 28px; height: 28px; color: var(--amber-deep); }
+.comments-post-icon .ico { width: 18px; height: 18px; color: var(--amber-deep); }
+.input-icon { display: inline-flex; align-items: center; }
+.input-icon .ico { width: 16px; height: 16px; }
+.search-box-icon { display: inline-flex; align-items: center; }
+.search-box-icon .ico { width: 14px; height: 14px; }
+.results-ico { width: 18px; height: 18px; vertical-align: -3px; color: var(--amber-deep); }
+.rs-icon .ico, .mini-icon .ico { width: 16px; height: 16px; }
+.mini-icon .ico { vertical-align: middle; }
+.platform-badge .ico-inline { width: 1em; height: 1em; }
+.filter-pill .ico-inline, .pc-chip .ico-inline, .lc-chip .ico-inline, .contact-mini .ico-inline, .contact-pill .ico-inline { opacity: .85; }
+.prio-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--text-faint); }
+.prio-dot.prio-high { background: var(--red); }
+.prio-dot.prio-medium { background: var(--amber); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Shared design system compatibility
+   index.html loads design/components.css into the cascade layer `ds`
+   (@layer ds, ds-reset). Unlayered portal rules above ALWAYS beat layered
+   rules, whatever their specificity, so every class the portal defines keeps
+   its look. The `ds-reset` layer below only neutralises properties that
+   components.css adds to class names both stylesheets share and that the
+   portal never sets itself (it sits after `ds`, and every portal rule still
+   wins over it). Verified by a computed-style diff of every view.
+   ══════════════════════════════════════════════════════════════════════ */
+@layer ds-reset {
+  .skip-link { font-size: inherit; font-weight: inherit; line-height: inherit; }
+  .notif-count { display: block; justify-content: normal; align-items: normal; width: auto; }
+  .main-content { background-color: transparent; min-height: 0; }
+  .page-title { line-height: inherit; }
+  .page-actions { align-items: normal; }
+  .section-title { letter-spacing: normal; }
+  .status-pill { max-width: none; vertical-align: baseline; }
+  .badge { gap: normal; align-items: normal; }
+  .filter-chip { display: block; gap: normal; align-items: normal; }
+  .empty-state { display: block; }
+  .btn-icon { border-radius: 0; width: auto; height: auto; }
+  .col-menu { min-width: auto; padding: 0; }
+  .th-sort { gap: normal; }
+  .th-sort::after { content: none; }
+  .tab-btn { white-space: normal; }
+  .toast { display: block; gap: normal; align-items: normal; }
+  .bar-label { color: inherit; overflow: visible; white-space: normal; }
+  .modal-close { justify-content: normal; }
+  .modal-footer { gap: normal; align-items: normal; }
+}

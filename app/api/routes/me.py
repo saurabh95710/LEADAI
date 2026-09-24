@@ -10,7 +10,9 @@
   GET   /api/me/searches          own search history (paginated, filter, sort)
   GET   /api/me/leads             own leads + leads assigned to me
                                   (view=all|mine|assigned, filters, paginated)
+  GET   /api/me/leads.csv         CSV of the same leads (same filters), quota-metered
   GET   /api/me/exports           own export history (paginated, filter, sort)
+  POST  /api/me/exports/client-log  audit an in-browser table CSV download
 
 Every endpoint resolves the caller through ``get_org_context`` /
 ``require_org_permission`` and ANDs ``scope_query(..., force_own=True)`` onto
@@ -35,6 +37,7 @@ from app.auth.tenant import (
     org_match,
     require_org_permission,
     scope_query,
+    stamp,
 )
 from app.db.models import utcnow
 from app.db.mongo import get_async_db
@@ -456,8 +459,10 @@ async def _own_counts(db, ctx: TenantContext, since: Optional[datetime]) -> Dict
             {"is_lead": True, "lead_status": {"$in": [None, "new"]}}, **_LEAD)),
         "assigned_to_me": await db.ai_comments.count_documents(scope_query(
             ctx, {"is_lead": True, "assigned_user_id": ctx.user_id}, **_LEAD)),
-        "exports": await db.exports.count_documents(own()),
-        "exports_period": await db.exports.count_documents(own(period_q)) if since else None,
+        # metered exports only (in-browser table downloads are logged with client=True)
+        "exports": await db.exports.count_documents(own({"client": {"$ne": True}})),
+        "exports_period": await db.exports.count_documents(
+            own({**period_q, "client": {"$ne": True}})) if since else None,
     }
 
 
@@ -673,28 +678,14 @@ _LEAD_SORTS = {
 }
 
 
-@router.get("/leads")
-async def my_leads(
-    view: str = Query("all", pattern="^(all|mine|assigned)$"),
-    status: Optional[str] = Query(None, max_length=30),
-    priority: Optional[str] = Query(None, pattern="^(high|medium|low)$"),
-    quality: Optional[str] = Query(None, pattern="^(hot|warm|cold)$"),
-    platform: Optional[str] = Query(None, pattern="^(facebook|instagram|youtube|linkedin)$"),
-    min_score: Optional[int] = Query(None, ge=0, le=100),
-    q: Optional[str] = Query(None, max_length=200),
-    run_id: Optional[str] = Query(None, max_length=80),
-    comment_ref: Optional[str] = Query(None, max_length=40,
-                                       description="AI analysis of one raw comment "
-                                                   "(also non-leads)"),
-    sort: str = Query("score"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    ctx: TenantContext = Depends(require_org_permission(P.LEADS_VIEW)),
-):
-    """My leads: ``view=mine`` (found by my searches), ``view=assigned``
-    (assigned to me by an Admin) or ``all`` (both). Always inside my tenant
-    and never another member's unassigned leads."""
-    db = _db()
+def _my_leads_query(ctx: TenantContext, *, view: str = "all", status: Optional[str] = None,
+                    priority: Optional[str] = None, quality: Optional[str] = None,
+                    platform: Optional[str] = None, min_score: Optional[int] = None,
+                    q: Optional[str] = None, run_id: Optional[str] = None,
+                    comment_ref: Optional[str] = None) -> Dict[str, Any]:
+    """The ONE lead filter used by ``GET /api/me/leads`` and its CSV export,
+    so a download always contains exactly the rows the table shows. The
+    result is ANDed with the own + assigned-to-me scope."""
     # comment_ref resolves the AI analysis of one comment (lead or not) for
     # the lead-intelligence dossier opened from the comments view
     base: Dict[str, Any] = {"comment_ref": comment_ref} if comment_ref else {"is_lead": True}
@@ -720,7 +711,34 @@ async def my_leads(
         clauses.append({"assigned_user_id": ctx.user_id})
     elif view == "mine":
         clauses.append(scope_query(ctx, {}, **_OWN))
-    query = scope_query(ctx, {"$and": clauses} if len(clauses) > 1 else base, **_LEAD)
+    return scope_query(ctx, {"$and": clauses} if len(clauses) > 1 else base, **_LEAD)
+
+
+@router.get("/leads")
+async def my_leads(
+    view: str = Query("all", pattern="^(all|mine|assigned)$"),
+    status: Optional[str] = Query(None, max_length=30),
+    priority: Optional[str] = Query(None, pattern="^(high|medium|low)$"),
+    quality: Optional[str] = Query(None, pattern="^(hot|warm|cold)$"),
+    platform: Optional[str] = Query(None, pattern="^(facebook|instagram|youtube|linkedin)$"),
+    min_score: Optional[int] = Query(None, ge=0, le=100),
+    q: Optional[str] = Query(None, max_length=200),
+    run_id: Optional[str] = Query(None, max_length=80),
+    comment_ref: Optional[str] = Query(None, max_length=40,
+                                       description="AI analysis of one raw comment "
+                                                   "(also non-leads)"),
+    sort: str = Query("score"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    ctx: TenantContext = Depends(require_org_permission(P.LEADS_VIEW)),
+):
+    """My leads: ``view=mine`` (found by my searches), ``view=assigned``
+    (assigned to me by an Admin) or ``all`` (both). Always inside my tenant
+    and never another member's unassigned leads."""
+    db = _db()
+    query = _my_leads_query(ctx, view=view, status=status, priority=priority, quality=quality,
+                            platform=platform, min_score=min_score, q=q, run_id=run_id,
+                            comment_ref=comment_ref)
 
     total = await db.ai_comments.count_documents(query)
     items = []
@@ -740,12 +758,215 @@ async def my_leads(
             **_page_meta(total, page, page_size)}
 
 
+# Columns of GET /api/me/leads.csv (keys of _lead_view + the resolved priority).
+LEADS_CSV = [
+    "commenter_name", "platform", "lead_score", "lead_quality", "lead_status", "lead_priority",
+    "intent", "phone", "email", "whatsapp", "location", "budget", "requirement",
+    "comment_text", "reason", "confidence", "assigned_to", "assigned_to_me", "owned_by_me",
+    "search_run_id", "lead_created_at",
+]
+_LEADS_EXPORT_MAX = 50000
+
+
+def _require_perms(request: Request, ctx: TenantContext, *perms: str) -> None:
+    from app.auth.tenant import _permission_denied
+    for perm in perms:
+        if perm not in ctx.permissions:
+            _permission_denied(request, ctx, perm)
+
+
+@router.get("/leads.csv")
+async def export_my_leads(
+    request: Request,
+    view: str = Query("all", pattern="^(all|mine|assigned)$"),
+    status: Optional[str] = Query(None, max_length=30),
+    priority: Optional[str] = Query(None, pattern="^(high|medium|low)$"),
+    quality: Optional[str] = Query(None, pattern="^(hot|warm|cold)$"),
+    platform: Optional[str] = Query(None, pattern="^(facebook|instagram|youtube|linkedin)$"),
+    min_score: Optional[int] = Query(None, ge=0, le=100),
+    q: Optional[str] = Query(None, max_length=200),
+    run_id: Optional[str] = Query(None, max_length=80),
+    sort: str = Query("score"),
+    ctx: TenantContext = Depends(require_org_permission(P.EXPORTS_CREATE)),
+):
+    """CSV of MY leads with exactly the filters of ``GET /api/me/leads``
+    (own + assigned to me only). Metered like every other export: the
+    ``csv_export`` feature + ``monthly_exports`` quota, the ``export`` token
+    cost, an ``exports`` record and an ``export.csv`` audit entry. Cells are
+    formula-injection safe (``_sanitize_csv_value`` via ``_csv_response``)."""
+    _require_perms(request, ctx, P.LEADS_VIEW, P.LEADS_EXPORT)
+    from app.admin.settings import get_bool
+    if not get_bool("features.exports.enabled"):
+        raise HTTPException(status_code=403,
+                            detail="CSV exports are currently disabled by the administrator.")
+    from app.api.routes.search import _audit, _charge_tokens, _csv_response
+    db = _db()
+    if run_id:
+        # validate the run BEFORE consuming quota (like /api/export/*): only a
+        # search of mine, or one a lead assigned to me came from — a foreign id
+        # is never charged for nor stored in my export history
+        visible = await db.search_history.find_one(
+            scope_query(ctx, {"run_id": run_id}, **_OWN), {"_id": 1}) \
+            or await db.ai_comments.find_one(
+                scope_query(ctx, {"search_run_id": run_id, "is_lead": True}, **_LEAD), {"_id": 1})
+        if not visible:
+            raise HTTPException(status_code=404, detail="Search not found")
+    query = _my_leads_query(ctx, view=view, status=status, priority=priority, quality=quality,
+                            platform=platform, min_score=min_score, q=q, run_id=run_id)
+
+    from app.billing.entitlements import EntitlementService
+    await EntitlementService.enforce_quota_and_consume(
+        organization_id=ctx.organization_id, feature_key="csv_export",
+        metric="monthly_exports", quantity=1, user_id=ctx.user_id,
+        source="export_my_leads", db=db)
+    await _charge_tokens(ctx, "export", "export:leads")
+
+    rows: List[Dict[str, Any]] = []
+    total = await db.ai_comments.count_documents(query)
+    async for d in db.ai_comments.find(query) \
+            .sort(_LEAD_SORTS.get(sort, _LEAD_SORTS["score"])).limit(_LEADS_EXPORT_MAX):
+        r = _lead_view(d, ctx)
+        r["lead_priority"] = r.get("lead_priority") or r.get("priority") or ""
+        rows.append(r)
+
+    filters = {k: v for k, v in {"view": view, "status": status, "priority": priority,
+                                 "quality": quality, "platform": platform,
+                                 "min_score": min_score, "q": q, "run_id": run_id,
+                                 "sort": sort}.items() if v not in (None, "")}
+    try:
+        await db.exports.insert_one(stamp(ctx, {
+            "scope": "leads", "run_id": run_id, "format": "csv", "status": "completed",
+            "rows": len(rows), "filters": filters, "source": "user_portal",
+            "created_at": utcnow()}))
+    except Exception:
+        pass
+    await _audit(ctx, request, "export.csv", "exports", resource_type="leads",
+                 resource_id=run_id, details={"scope": "leads", "rows": len(rows),
+                                              "filters": filters, "portal": "user"})
+    resp = _csv_response(rows, LEADS_CSV,
+                         f"my_leads_{datetime.now().strftime('%Y%m%d')}.csv",
+                         max_rows=_LEADS_EXPORT_MAX)
+    if total > len(rows):
+        resp.headers["X-Export-Truncated"] = "true"
+        resp.headers["X-Export-Total"] = str(total)
+    return resp
+
+
+# In-browser CSV downloads of the portal tables (built client-side from
+# /api/me/* lists the user can already read) — logged for the audit trail.
+CLIENT_EXPORT_TABLES = {
+    "history": P.SEARCH_VIEW,
+    "exports": P.EXPORTS_VIEW,
+    "ledger": None,          # own token ledger: any member (GET /api/me/usage/ledger)
+}
+_CLIENT_LOG_WINDOW = 60
+_CLIENT_LOG_MAX = 30
+_client_log_hits: Dict[str, List[float]] = {}
+
+
+class ClientExportLog(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    table: str
+    rows: int = 0
+    columns: List[str] = []
+    filters: Dict[str, Any] = {}
+
+    @field_validator("table")
+    @classmethod
+    def _table(cls, v: str) -> str:
+        if v not in CLIENT_EXPORT_TABLES:
+            raise ValueError(f"table must be one of {', '.join(CLIENT_EXPORT_TABLES)}")
+        return v
+
+    @field_validator("rows")
+    @classmethod
+    def _rows(cls, v: int) -> int:
+        if v < 0 or v > 1_000_000:
+            raise ValueError("rows out of range")
+        return v
+
+    @field_validator("columns")
+    @classmethod
+    def _columns(cls, v: List[str]) -> List[str]:
+        if len(v) > 50:
+            raise ValueError("too many columns")
+        return [_CONTROL_RE.sub("", str(c))[:80] for c in v]
+
+    @field_validator("filters")
+    @classmethod
+    def _filters(cls, v: Dict[str, Any]) -> Dict[str, Any]:
+        if len(v) > 20:
+            raise ValueError("too many filters")
+        out: Dict[str, Any] = {}
+        for k, val in v.items():
+            key = _CONTROL_RE.sub("", str(k))[:40]
+            if key.startswith("$") or "." in key:
+                raise ValueError("invalid filter name")
+            if val is None or isinstance(val, (bool, int, float)):
+                out[key] = val
+            elif isinstance(val, str):
+                out[key] = _CONTROL_RE.sub("", val)[:200]
+            else:
+                raise ValueError("filter values must be plain text or numbers")
+        return out
+
+
+@router.post("/exports/client-log")
+async def log_client_export(request: Request, ctx: TenantContext = Depends(get_org_context)):
+    """Record an in-browser CSV download (search history, export history,
+    token ledger): ``export.client`` audit entry + an ``exports`` row owned by
+    the caller. Nothing is metered — the data came from the caller's own lists."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_BODY",
+                                                     "message": "Send a JSON object."})
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail={"code": "INVALID_BODY",
+                                                     "message": "Send a JSON object."})
+    try:
+        log = ClientExportLog(**body)
+    except ValidationError as e:
+        first = e.errors()[0] if e.errors() else {}
+        raise HTTPException(status_code=422, detail={
+            "code": "VALIDATION_ERROR",
+            "field": ".".join(str(x) for x in first.get("loc", [])),
+            "message": str(first.get("msg", "Invalid value")).replace("Value error, ", "")})
+    perm = CLIENT_EXPORT_TABLES[log.table]
+    if perm:
+        _require_perms(request, ctx, perm)
+
+    import time as _t
+    now = _t.time()
+    key = f"{ctx.organization_id}:{ctx.user_id}"
+    hits = [h for h in _client_log_hits.get(key, []) if now - h < _CLIENT_LOG_WINDOW]
+    if len(hits) >= _CLIENT_LOG_MAX:
+        _client_log_hits[key] = hits
+        raise HTTPException(status_code=429, detail={"code": "RATE_LIMITED",
+                                                     "message": "Too many downloads — try again shortly."})
+    hits.append(now)
+    _client_log_hits[key] = hits
+
+    db = _db()
+    doc = stamp(ctx, {"scope": log.table, "format": "csv", "status": "completed",
+                      "rows": log.rows, "columns": log.columns, "filters": log.filters,
+                      "source": "user_portal_client", "client": True, "created_at": utcnow()})
+    res = await db.exports.insert_one(doc)
+    meta = request_meta(request)
+    await aaudit("export.client", "exports", user=ctx.audit_user(), ip=meta["ip"],
+                 user_agent=meta["user_agent"], organization_id=ctx.organization_id,
+                 resource_type=log.table, resource_id=str(res.inserted_id),
+                 details={"table": log.table, "rows": log.rows, "columns": log.columns,
+                          "filters": log.filters, "portal": "user"})
+    return {"success": True, "id": str(res.inserted_id)}
+
+
 _EXPORT_SORTS = {"newest": [("created_at", -1)], "oldest": [("created_at", 1)]}
 
 
 @router.get("/exports")
 async def my_exports(
-    scope: Optional[str] = Query(None, pattern="^(pages|posts|comments)$"),
+    scope: Optional[str] = Query(None, pattern="^(pages|posts|comments|leads|history|exports|ledger)$"),
     sort: str = Query("newest"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -765,5 +986,5 @@ async def my_exports(
         c = _clean(d)
         items.append({k: c.get(k) for k in (
             "id", "scope", "run_id", "page_id", "post_id", "only_leads", "format",
-            "status", "created_at")})
+            "status", "rows", "filters", "source", "created_at")})
     return {"success": True, "items": items, **_page_meta(total, page, page_size)}

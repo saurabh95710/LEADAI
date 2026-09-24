@@ -21,6 +21,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 
 from app.admin import audit as a
+from app.auth.rate_limit import RateLimiter
 from app.cms import service as svc
 from app.cms.models import PAGE_PATHS
 from app.db.mongo import get_async_db
@@ -28,11 +29,13 @@ from app.db.mongo import get_async_db
 router = APIRouter(prefix="/api/public", tags=["public_website"])
 logger = logging.getLogger(__name__)
 
-# Contact form throttles (in-memory sliding windows; accepted messages only)
-_contact_rate: Dict[str, List[float]] = {}
+# Contact form throttles (sliding windows over accepted messages only).
+# MongoDB backed (app/auth/rate_limit.py): durable across restarts and
+# shared by every server process; per-key limits are passed at check time.
 CONTACT_WINDOW_SECONDS = 600          # 10 minutes
 CONTACT_MAX_PER_IP = 3
 CONTACT_MAX_PER_EMAIL = 3
+_contact_rate = RateLimiter("contact_form", CONTACT_MAX_PER_IP, CONTACT_WINDOW_SECONDS)
 
 
 async def _db():
@@ -152,10 +155,8 @@ _EMAIL_RE = re.compile(r"^[A-Za-z0-9_.+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 _TOPICS = {"", "general", "sales", "demo", "support", "partnership", "billing", "other"}
 
 
-def _throttled(key: str, limit: int, now: float) -> bool:
-    hits = [t for t in _contact_rate.get(key, []) if now - t < CONTACT_WINDOW_SECONDS]
-    _contact_rate[key] = hits
-    return len(hits) >= limit
+def _throttled(key: str, limit: int, now: float = 0.0) -> bool:
+    return not _contact_rate.allowed(key, limit)
 
 
 def reset_contact_rate_limit() -> None:
@@ -213,8 +214,8 @@ async def submit_contact(request: Request):
     sub_id = await svc.create_contact_submission(
         db, {"name": name, "email": email, "company": company, "topic": topic, "message": message},
         ip=ip, user_agent=meta["user_agent"] or "")
-    _contact_rate.setdefault(f"ip:{ip}", []).append(now)
-    _contact_rate.setdefault(f"email:{email}", []).append(now)
+    _contact_rate.hit(f"ip:{ip}")
+    _contact_rate.hit(f"email:{email}")
 
     try:
         from app.events.notifications import notify_super_admins
