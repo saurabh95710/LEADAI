@@ -14,6 +14,8 @@ const state = {
   filters: {},
 };
 
+let _viewRefreshTimer = null;
+
 const $ = (sel, root) => (root || document).querySelector(sel);
 const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
@@ -30,7 +32,7 @@ async function api(path, opts = {}) {
     throw new Error("Network error — is the server running?");
   }
   if (res.status === 401) {
-    location.href = "/login";
+    location.href = "/login?admin=1";
     throw new Error("Sign in required");
   }
   let data = null;
@@ -103,6 +105,14 @@ function relativeTime(value) {
   return `${Math.floor(secs / 86400)}d ago`;
 }
 
+function fmtMoney(amount, currency) {
+  const v = Number(amount || 0);
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "USD",
+      maximumFractionDigits: v % 1 ? 2 : 0 }).format(v);
+  } catch (_) { return `${v} ${currency || ""}`.trim(); }
+}
+
 function money(value) {
   const n = Number(value);
   if (isNaN(n)) return "—";
@@ -167,6 +177,7 @@ const ICONS = {
   download: '<path d="M12 4v11M8 11l4 4 4-4"/><path d="M4 20h16"/>',
   history: '<path d="M4 12a8 8 0 101.5-4.9"/><path d="M4 4v4h4"/><path d="M12 8v4l3 2"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l3 3M14 9l2 2"/>',
+  organizations: '<path d="M3 21h18M3 7v14M21 7v14M6 7V3h12v4M9 7v4M15 7v4M9 15v2M15 15v2M9 11h6"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/>',
 };
 
@@ -186,7 +197,7 @@ function initials(name) {
 /* ──────────────────────────────── Badges ──────────────────────────── */
 function statusBadge(status) {
   const map = {
-    running: ["green", "running"], started: ["green", "started"],
+    running: ["blue", "running"], started: ["blue", "started"],
     completed: ["green", "completed"], error: ["red", "error"],
     cancelled: ["gray", "cancelled"], queued: ["amber", "queued"],
     skipped: ["gray", "skipped"], empty: ["gray", "empty"],
@@ -324,8 +335,9 @@ const CRUMBS = {
   limits: "Operations", database: "Operations", logs: "Operations",
   health: "Operations", exports: "Operations",
   users: "Administration", security: "Administration", features: "Administration",
-  maintenance: "Administration", audit: "Administration",
+  maintenance: "Administration", audit: "Administration", organizations: "Customers",
   pages: "Main", posts: "Main",
+  plans: "SaaS & Billing", subscriptions: "SaaS & Billing", invoices: "SaaS & Billing",
 };
 
 function pageHead(title, sub, actions = "") {
@@ -578,7 +590,7 @@ function jobReportHtml(data, runId) {
           <div class="adm-kv-row"><dt>Phase</dt><dd>${esc(j.phase || "—")}</dd></div>
           <div class="adm-kv-row"><dt>Provider</dt><dd>${esc(j.provider || "—")}</dd></div>
           <div class="adm-kv-row"><dt>Created</dt><dd>${fmtTime(j.created_at)}</dd></div>
-          <div class="adm-kv-row"><dt>Completed</dt><dd>${j.completed_at ? fmtTime(j.completed_at) : running ? `<span class="adm-badge green pulse">in progress</span>` : "—"}</dd></div>
+          <div class="adm-kv-row"><dt>Completed</dt><dd>${j.completed_at ? fmtTime(j.completed_at) : running ? `<span class="adm-badge blue pulse">in progress</span>` : "—"}</dd></div>
           <div class="adm-kv-row"><dt>Duration</dt><dd>${duration}</dd></div>
         </div>
         ${j.status === "error" ? `<div class="adm-note" style="color:var(--red)">${esc((j.message || j.error || "Failed").slice(0, 300))}</div>` : ""}
@@ -732,10 +744,35 @@ function renderShell() {
   $$("#nav .adm-nav-item").forEach((el) => {
     const view = el.dataset.view;
     if (!view) return;
-    if (view === "users" || view === "security") {
-      el.style.display = role === "super_admin" ? "" : "none";
+    if (view === "users" || view === "security" || view === "organizations") {
+      el.style.display = (role === "super_admin" || role === "operations_admin") ? "" : "none";
     }
   });
+
+  // Support Impersonation Banner wiring
+  if (state.user && state.user.impersonated_by) {
+    const banner = $("#impersonationBanner");
+    const notice = $("#impersonationNotice");
+    if (banner && notice) {
+      banner.hidden = false;
+      const orgName = state.user.organization_name || state.user.organization_id || "Customer";
+      const uName = state.user.name || state.user.email;
+      const reason = state.user.impersonation_reason || "Customer Support";
+      notice.innerHTML = `Viewing Org: <strong>${esc(orgName)}</strong> · User: <strong>${esc(uName)}</strong> · Reason: <em>${esc(reason)}</em>`;
+    }
+    const exitBtn = $("#exitImpersonationBtn");
+    if (exitBtn) {
+      exitBtn.onclick = async () => {
+        try {
+          await api("/api/admin/impersonate/exit", { method: "POST" });
+          toast("Exited impersonation", "ok");
+          location.reload();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      };
+    }
+  }
   // Global Settings: nav overrides (labels / order / hidden)
   applyNavOverrides();
   // Sidebar collapsed-by-default — only when the user has no saved preference
@@ -746,7 +783,7 @@ function renderShell() {
   }
   const doLogout = async () => {
     try { await api("/api/auth/logout", { method: "POST" }); } catch (err) {}
-    location.href = "/login";
+    location.href = "/login?admin=1";
   };
   $("#logoutBtn").onclick = doLogout;
   $("#burger").onclick = () => $("#sidebar").classList.toggle("open");
@@ -981,7 +1018,7 @@ function navigate(view, params = null) {
   const paramType = match && match[2];
   const paramValue = match && match[3];
   const renderers = {
-    dashboard: viewDashboard, jobs: viewJobs, failed: viewFailed, leads: viewLeads,
+    dashboard: viewDashboard, organizations: viewOrganizations, jobs: viewJobs, failed: viewFailed, leads: viewLeads,
     analytics: viewAnalytics, platforms: viewPlatforms, apify: viewApify,
     actors: viewActors, usage: viewUsage, environment: viewEnvironment,
     limits: viewLimits, ai: viewAI,
@@ -990,9 +1027,10 @@ function navigate(view, params = null) {
     features: viewFeatures, maintenance: viewMaintenance, health: viewHealth,
     audit: viewAudit, pages: viewPages, posts: viewPosts,
     "keyword-rules": viewKeywordRules, settings: viewSettings,
+    plans: viewPlans, subscriptions: viewSubscriptions, invoices: viewInvoices,
   };
   const labels = {
-    dashboard: "Dashboard", jobs: "Jobs", failed: "Failed Jobs", leads: "Leads",
+    dashboard: "Dashboard", organizations: "Organizations", jobs: "Jobs", failed: "Failed Jobs", leads: "Leads",
     analytics: "Analytics", platforms: "Platforms", apify: "Apify",
     actors: "Actors", usage: "Usage & Cost", environment: "Environment",
     limits: "Scraping & Global Limits",
@@ -1002,12 +1040,14 @@ function navigate(view, params = null) {
     security: "Security", features: "Features", maintenance: "Maintenance",
     health: "Health", audit: "Audit Log", pages: "Pages", posts: "Posts",
     settings: "Global Settings",
+    plans: "Plans Catalog", subscriptions: "Subscriptions", invoices: "Invoices",
   };
   let target = null;
   if (paramType) {
     if (base === "jobs" && paramType === "details") target = () => viewJobDetail(paramValue);
     else if (base === "leads" && paramType === "details") target = () => viewLeadDetail(paramValue);
     else if (base === "platforms" && paramType === "details") target = () => viewPlatformDetail(paramValue);
+    else if (base === "organizations" && (paramType === "details" || paramType === "")) target = () => viewOrgDetail(paramValue);
     else target = viewNotFound;
   } else {
     target = renderers[base];
@@ -1027,6 +1067,8 @@ function navigate(view, params = null) {
   // Close any open modal or drawer when navigating
   if ($("#modalBackdrop") && !$("#modalBackdrop").hidden) closeModal();
   if ($("#drawer") && !$("#drawer").hidden) closeDrawer();
+  // Clear any view auto-refresh timer
+  if (_viewRefreshTimer) { clearInterval(_viewRefreshTimer); _viewRefreshTimer = null; }
   state.view = base;
   if (params) {
     const qs = typeof params === "string" ? params : new URLSearchParams(params).toString();
@@ -1105,7 +1147,10 @@ async function viewDashboard() {
   } else {
     params.set("days", r.days);
   }
-  const data = await api(`/api/admin/dashboard?${params}`);
+  const [data, saas] = await Promise.all([
+    api(`/api/admin/dashboard?${params}`),
+    api(`/api/admin/saas/overview`).catch(() => null)
+  ]);
   const kpiOf = (key) => data.kpis.find((k) => k.key === key) || { key, label: key, value: 0, change: null, series: [] };
   const leads = kpiOf("leads");
   const searches = kpiOf("searches");
@@ -1135,6 +1180,46 @@ async function viewDashboard() {
   root.innerHTML = `
     ${pageHead("Dashboard", "Live overview of the LeadAI platform — every number is real data from the database.", `
       <a class="adm-btn primary" href="/" target="_blank">${icon("plus", 14)} New Search</a>`)}
+    ${saas ? `
+    <div class="adm-card" style="margin-bottom:16px;background:linear-gradient(135deg,rgba(124,92,255,0.06) 0%,rgba(240,165,49,0.04) 100%);border:1px solid rgba(124,92,255,0.22)">
+      <div class="adm-card-head-row" style="margin-bottom:12px">
+        <div class="adm-card-title" style="display:flex;align-items:center;gap:8px">
+          ${icon("organizations", 18)} <span>LeadAI SaaS Platform Foundation</span>
+          <span class="adm-badge violet">Multi-Tenant</span>
+        </div>
+        <a class="adm-btn small ghost" href="#/organizations">${icon("organizations", 13)} Manage Organizations →</a>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:12px;margin-bottom:14px">
+        <div style="background:var(--surface);padding:10px 14px;border-radius:var(--radius-sm);border:1px solid var(--border)">
+          <div class="adm-stat-label">Total Orgs</div>
+          <div style="font-size:20px;font-weight:700;color:var(--text)">${Number((saas.platform || {}).organizations_total || 0).toLocaleString()}</div>
+          <div class="adm-hint" style="color:var(--green)">${Number((saas.platform || {}).organizations_active || 0)} active</div>
+        </div>
+        <div style="background:var(--surface);padding:10px 14px;border-radius:var(--radius-sm);border:1px solid var(--border)">
+          <div class="adm-stat-label">Platform Users</div>
+          <div style="font-size:20px;font-weight:700;color:var(--text)">${Number((saas.platform || {}).users_total || 0).toLocaleString()}</div>
+          <div class="adm-hint" style="color:var(--green)">${Number((saas.platform || {}).users_active || 0)} active</div>
+        </div>
+        <div style="background:var(--surface);padding:10px 14px;border-radius:var(--radius-sm);border:1px solid var(--border)">
+          <div class="adm-stat-label">Total Searches</div>
+          <div style="font-size:20px;font-weight:700;color:var(--text)">${Number((saas.product || {}).searches_total || 0).toLocaleString()}</div>
+          <div class="adm-hint">All tenants</div>
+        </div>
+        <div style="background:var(--surface);padding:10px 14px;border-radius:var(--radius-sm);border:1px solid var(--border)">
+          <div class="adm-stat-label">Total Leads</div>
+          <div style="font-size:20px;font-weight:700;color:var(--amber-deep)">${Number((saas.product || {}).leads_total || 0).toLocaleString()}</div>
+          <div class="adm-hint">Identified</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 12px;background:rgba(0,0,0,0.03);border-radius:8px;font-size:12px">
+        <span style="font-weight:600;color:var(--text-dim)">System Health:</span>
+        <span>FastAPI: <span class="adm-badge green">ok</span></span>
+        <span>MongoDB: <span class="adm-badge ${(saas.health || {}).mongodb === "ok" ? "green" : "red"}">${esc((saas.health || {}).mongodb || "unknown")}</span></span>
+        <span>Apify: <span class="adm-badge ${(saas.health || {}).apify === "ok" ? "green" : "amber"}">${esc((saas.health || {}).apify || "unknown")}</span></span>
+        <span>Gemini AI: <span class="adm-badge ${(saas.health || {}).gemini === "ok" ? "violet" : "amber"}">${esc((saas.health || {}).gemini || "fallback")}</span></span>
+        <span>Background Jobs: <span class="adm-badge ${(saas.health || {}).background_jobs_active > 0 ? "blue pulse" : "gray plain"}">${Number((saas.health || {}).background_jobs_active || 0)} active</span></span>
+      </div>
+    </div>` : ""}
     <div class="adm-hero" data-widget="hero" style="${dashStyle("hero")}">
       <div class="adm-hero-num">${Number(leads.value).toLocaleString()}</div>
       <div class="adm-hero-main">
@@ -1299,6 +1384,12 @@ async function viewDashboard() {
     else { DASH_RANGE = { days: 0, from, to }; }
     viewDashboard();
   };
+
+  // Auto-refresh dashboard every 30s if jobs are running
+  _viewRefreshTimer = setInterval(() => {
+    if (document.hidden || state.view !== "dashboard") return;
+    viewDashboard();
+  }, 30000);
 }
 
 async function openJobDrawer(runId) {
@@ -1450,6 +1541,17 @@ async function viewJobs() {
       }
     };
   });
+
+  // Auto-refresh jobs list every 10s while any job is running
+  _viewRefreshTimer = setInterval(() => {
+    if (document.hidden || state.view !== "jobs") return;
+    const rows = document.querySelectorAll("[data-job]");
+    const hasRunning = Array.from(rows).some(r => {
+      const badge = r.querySelector(".adm-badge");
+      return badge && (badge.textContent.includes("running") || badge.textContent.includes("queued"));
+    });
+    if (hasRunning) viewJobs();
+  }, 10000);
 }
 
 /* ──────────────────────────────── JOB DETAIL ──────────────────────── */
@@ -2200,7 +2302,12 @@ async function viewPages() {
     viewPages();
   };
   $$("[data-page]", root).forEach((row) => {
-    row.onclick = () => openPageDetail(row.dataset.page);
+    row.onclick = async () => {
+      try {
+        const page = await api(`/api/pages/${row.dataset.page}`);
+        openPageDetail(page);
+      } catch(e) { toast("Failed to load page details", "error"); }
+    };
   });
 }
 
@@ -2279,7 +2386,12 @@ async function viewPosts() {
     viewPosts();
   };
   $$("[data-post]", root).forEach((row) => {
-    row.onclick = () => openPostDetail(row.dataset.post);
+    row.onclick = async () => {
+      try {
+        const post = await api(`/api/posts/${row.dataset.post}`);
+        openPostDetail(post);
+      } catch(e) { toast("Failed to load post details", "error"); }
+    };
   });
 }
 
@@ -3136,7 +3248,7 @@ async function viewKeywordRules() {
               <td>${krChips(r.include_keywords, "amber")}</td>
               <td>${krChips((r.categories || []).map((k) => krCatName(k, catalog)), "violet")}</td>
               <td>${r.created_at ? fmtTime(new Date(r.created_at)) : "—"}</td>
-              <td>${r.active ? `<span class="adm-badge green pulse">active</span>` : `<span class="adm-badge gray plain">inactive</span>`}</td>
+              <td>${r.active ? `<span class="adm-badge green">active</span>` : `<span class="adm-badge gray plain">inactive</span>`}</td>
               <td>
                 <div class="adm-row-actions">
                   ${canManage ? (r.active
@@ -3440,51 +3552,318 @@ async function viewDatabase() {
 }
 
 /* ──────────────────────────────── LOGS ────────────────────────────── */
+let _logAutoRefresh = null;
+let _logOffset = 0;
+const _LOG_PAGE_SIZE = 100;
+
+function _logLevelBadge(lv) {
+  const cls = ({ CRITICAL: "critical", ERROR: "error", WARNING: "warn", INFO: "info", DEBUG: "debug" })[lv] || "gray";
+  return `<span class="adm-log-badge ${cls}">${esc(lv || "—")}</span>`;
+}
+
+function _logSourceBadge(src) {
+  const cls = ({ Database: "blue", Apify: "teal", AI: "violet", Search: "green", Authentication: "amber", System: "gray", API: "blue", Application: "gray" })[src] || "gray";
+  return `<span class="adm-badge ${cls} plain">${esc(src || "—")}</span>`;
+}
+
 async function viewLogs() {
   const root = $("#view");
   const hashParams = new URLSearchParams(location.hash.split("?")[1] || "");
   const q = hashParams.get("q") || "";
   const lvl = hashParams.get("level") || "";
-  const qs = new URLSearchParams({ lines: 250, q, level: lvl });
-  const data = await api(`/api/admin/logs?${qs}`);
-  const entries = data.lines || [];
-  const levelClass = (lv) => ({ ERROR: "error", WARNING: "warn", INFO: "info", DEBUG: "debug" }[lv] || "info");
-  const lineHtml = (l) => `
-    <div class="adm-log-line" data-level="${esc(l.level || "")}">
-      <span class="adm-log-level ${levelClass(l.level)}">${esc(l.level || "—")}</span>
-      <span class="adm-log-time">${esc(String(l).slice(0, 23))}</span>
-      <span class="adm-log-msg">${esc(String(l).slice(24))}</span>
-    </div>`;
+  const src = hashParams.get("source") || "";
+  const mod = hashParams.get("module") || "";
+
   root.innerHTML = `
-    ${pageHead("Logs", "Raw application log lines (UTC). Error and warning lines are highlighted; every line stays copyable.", `
+    ${pageHead("Logs", "Structured application log viewer with search, filtering, and details.", `
       <label class="adm-check"><input type="checkbox" id="logAuto" checked> autoscroll</label>
-      <button class="adm-btn" id="logRefresh">${icon("refresh", 14)} Refresh</button>`)}
-    <div class="adm-log-filter">
-      <input class="adm-input" id="logQ" placeholder="Filter text…" value="${esc(q)}">
-      <select class="adm-input" id="logLevel">
-        <option value="">all levels</option>
-        ${["ERROR", "WARNING", "INFO", "DEBUG"].map((lv) => `<option value="${lv}" ${lvl === lv ? "selected" : ""}>${lv}</option>`).join("")}
+      <select class="adm-input adm-input-sm" id="logAutoRefresh">
+        <option value="0">Auto-refresh Off</option>
+        <option value="10">10 sec</option>
+        <option value="30" selected>30 sec</option>
+        <option value="60">60 sec</option>
       </select>
-      <button class="adm-btn primary" id="logApply">Apply</button>
+      <button class="adm-btn" id="logRefresh">${icon("refresh", 14)} Refresh</button>
+      <button class="adm-btn" id="logExportBtn">${icon("download", 14)} Export</button>`)}
+    <div class="adm-card" id="logSummaryCards">
+      <div class="adm-log-summary" id="logSummary">
+        <div class="adm-log-stat critical"><span class="num" id="logCritCount">—</span><span class="lbl">Critical</span></div>
+        <div class="adm-log-stat error"><span class="num" id="logErrCount">—</span><span class="lbl">Errors</span></div>
+        <div class="adm-log-stat warn"><span class="num" id="logWarnCount">—</span><span class="lbl">Warnings</span></div>
+        <div class="adm-log-stat info"><span class="num" id="logInfoCount">—</span><span class="lbl">Info</span></div>
+        <div class="adm-log-stat debug"><span class="num" id="logDebugCount">—</span><span class="lbl">Debug</span></div>
+      </div>
     </div>
-    <div class="adm-terminal" id="logBox">
-      ${entries.length ? entries.map((l) => lineHtml(l)).join("") : `<div class="adm-empty">No log lines match.</div>`}
+    <div class="adm-card">
+      <div class="adm-log-filter">
+        <input class="adm-input" id="logQ" placeholder="Search logs…" value="${esc(q)}">
+        <select class="adm-input" id="logLevel">
+          <option value="">All Levels</option>
+          ${["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"].map((lv) => `<option value="${lv}" ${lvl === lv ? "selected" : ""}>${lv}</option>`).join("")}
+        </select>
+        <select class="adm-input" id="logSource">
+          <option value="">All Sources</option>
+        </select>
+        <select class="adm-input" id="logModule">
+          <option value="">All Modules</option>
+        </select>
+        <button class="adm-btn primary" id="logApply">Apply</button>
+        <button class="adm-btn" id="logClear">Clear</button>
+      </div>
+    </div>
+    <div class="adm-card" style="position:relative">
+      <div id="logJumpBar" class="adm-log-jump" style="display:none">
+        <span>New logs available</span>
+        <button class="adm-btn primary adm-btn-sm" id="logJumpLatest">Jump to latest</button>
+      </div>
+      <div id="logLoading" class="adm-loading" style="display:none"><div class="adm-spinner"></div>Loading logs…</div>
+      <div id="logError" class="adm-empty" style="display:none;color:var(--red)">Unable to load logs <button class="adm-btn adm-btn-sm" id="logRetry">Retry</button></div>
+      <div id="logEmpty" class="adm-empty" style="display:none">No logs found. <button class="adm-btn adm-btn-sm" id="logClearFilters">Clear Filters</button></div>
+      <div id="logTable" class="adm-log-table"></div>
+      <div id="logPagination" class="adm-log-pagination"></div>
     </div>`;
-  const box = $("#logBox");
-  const load = async () => {
-    const params = new URLSearchParams({ lines: 250, q: $("#logQ").value.trim(), level: $("#logLevel").value });
+
+  const table = $("#logTable");
+  const summaryEl = $("#logSummary");
+  const jumpBar = $("#logJumpBar");
+  const loadingEl = $("#logLoading");
+  const errorEl = $("#logError");
+  const emptyEl = $("#logEmpty");
+
+  async function _loadLogs(opts = {}) {
+    const params = new URLSearchParams({
+      lines: 1000,
+      structured: true,
+      q: ($("#logQ").value || "").trim(),
+      level: $("#logLevel").value || "",
+      source: $("#logSource").value || "",
+      module: $("#logModule").value || "",
+      offset: opts.append ? _logOffset : 0,
+    });
+    if (!opts.append) {
+      loadingEl.style.display = "";
+      errorEl.style.display = "none";
+      emptyEl.style.display = "none";
+    }
     try {
       const d = await api(`/api/admin/logs?${params}`);
-      box.innerHTML = (d.lines || []).length ? d.lines.map((l) => lineHtml(l)).join("") : `<div class="adm-empty">No log lines match.</div>`;
-      if ($("#logAuto").checked) box.scrollTop = box.scrollHeight;
-    } catch (err) { toast(err.message, "error"); }
-  };
-  $("#logRefresh").onclick = load;
+      errorEl.style.display = "none";
+
+      // Update summary cards
+      if (d.summary) {
+        $("#logCritCount").textContent = d.summary.critical || 0;
+        $("#logErrCount").textContent = d.summary.error || 0;
+        $("#logWarnCount").textContent = d.summary.warning || 0;
+        $("#logInfoCount").textContent = d.summary.info || 0;
+        $("#logDebugCount").textContent = d.summary.debug || 0;
+      }
+
+      // Populate filter dropdowns
+      const srcSelect = $("#logSource");
+      const modSelect = $("#logModule");
+      const curSrc = srcSelect.value;
+      const curMod = modSelect.value;
+      if (d.sources && d.sources.length) {
+        srcSelect.innerHTML = `<option value="">All Sources</option>` +
+          d.sources.map(s => `<option value="${esc(s)}" ${s === curSrc ? "selected" : ""}>${esc(s)}</option>`).join("");
+      }
+      if (d.modules && d.modules.length) {
+        modSelect.innerHTML = `<option value="">All Modules</option>` +
+          d.modules.map(m => `<option value="${esc(m)}" ${m === curMod ? "selected" : ""}>${esc(m)}</option>`).join("");
+      }
+
+      const entries = d.entries || [];
+      if (!entries.length && !opts.append) {
+        table.innerHTML = "";
+        emptyEl.style.display = "";
+        loadingEl.style.display = "none";
+        _updatePagination(d.total || 0);
+        return;
+      }
+
+      emptyEl.style.display = "none";
+      loadingEl.style.display = "none";
+
+      const html = entries.map((e, i) => {
+        const msg = esc((e.event || e.message || "").slice(0, 120));
+        const fullMsg = esc(e.message || "");
+        return `<div class="adm-log-row" data-idx="${i}" tabindex="0" role="button" aria-label="View log details">
+          <span class="adm-log-cell time">${esc(e.timestamp || "")}</span>
+          <span class="adm-log-cell level">${_logLevelBadge(e.level)}</span>
+          <span class="adm-log-cell module" title="${esc(e.module || "")}">${esc((e.module || "").split(".").pop())}</span>
+          <span class="adm-log-cell msg" title="${fullMsg}">${msg}${(e.message || "").length > 120 ? "…" : ""}</span>
+          <span class="adm-log-cell source">${_logSourceBadge(e.source)}</span>
+        </div>`;
+      }).join("");
+
+      if (opts.append) {
+        table.insertAdjacentHTML("beforeend", html);
+      } else {
+        table.innerHTML = html;
+      }
+
+      _logOffset = (opts.append ? _logOffset : 0) + entries.length;
+      _updatePagination(d.total || 0);
+
+      // Attach click handlers for details
+      table.querySelectorAll(".adm-log-row").forEach((row) => {
+        row.onclick = () => _openLogDetail(entries[row.dataset.idx]);
+        row.onkeydown = (e) => { if (e.key === "Enter") _openLogDetail(entries[row.dataset.idx]); };
+      });
+
+      // Autoscroll
+      if ($("#logAuto").checked && !opts.append) {
+        table.scrollTop = table.scrollHeight;
+      }
+    } catch (err) {
+      loadingEl.style.display = "none";
+      errorEl.style.display = "";
+    }
+  }
+
+  function _updatePagination(total) {
+    const pag = $("#logPagination");
+    if (!pag) return;
+    const hasMore = _logOffset < total;
+    pag.innerHTML = `
+      <span class="adm-log-pag-info">Showing ${Math.min(_logOffset, total)} of ${total} entries</span>
+      ${hasMore ? `<button class="adm-btn adm-btn-sm" id="logLoadMore">Load more</button>` : ""}
+      <button class="adm-btn adm-btn-sm" id="logExportCsv">Export CSV</button>`;
+    const loadMore = $("#logLoadMore");
+    if (loadMore) loadMore.onclick = () => _loadLogs({ append: true });
+    const exportCsv = $("#logExportCsv");
+    if (exportCsv) exportCsv.onclick = _exportLogs;
+  }
+
+  function _openLogDetail(entry) {
+    if (!entry) return;
+    const fields = [
+      ["Timestamp", entry.timestamp],
+      ["Level", entry.level],
+      ["Module", entry.module],
+      ["Source", entry.source],
+      ["Event", entry.event],
+      ["Error Type", entry.error_type],
+      ["Error Code", entry.error_code],
+      ["Platform", entry.platform],
+      ["Run ID", entry.run_id],
+      ["Request ID", entry.request_id],
+      ["Job ID", entry.job_id],
+      ["Endpoint", entry.endpoint],
+      ["HTTP Method", entry.http_method],
+      ["HTTP Status", entry.http_status],
+      ["Duration", entry.duration],
+      ["Collection", entry.collection],
+    ].filter(([, v]) => v);
+
+    const fieldHtml = fields.map(([k, v]) =>
+      `<div class="adm-detail-row"><span class="adm-detail-label">${esc(k)}</span><span class="adm-detail-value">${esc(String(v))}</span></div>`
+    ).join("");
+
+    const bodyHtml = `
+      <div class="adm-detail-section">${fieldHtml}</div>
+      <div class="adm-detail-section">
+        <h4>Full Message</h4>
+        <pre class="adm-log-pre">${esc(entry.message || "")}</pre>
+      </div>
+      ${entry.stack_trace ? `<div class="adm-detail-section"><h4>Stack Trace</h4><pre class="adm-log-pre">${esc(entry.stack_trace)}</pre></div>` : ""}
+      <div class="adm-detail-section">
+        <h4>Raw Log</h4>
+        <pre class="adm-log-pre">${esc(entry.raw || "")}</pre>
+      </div>`;
+
+    const actionsHtml = `
+      <button class="adm-btn" onclick="navigator.clipboard.writeText(${JSON.stringify(JSON.stringify(entry, null, 2)).replace(/"/g, '&quot;')}).then(()=>toast('Copied JSON','ok'))">Copy JSON</button>
+      <button class="adm-btn" onclick="navigator.clipboard.writeText(${JSON.stringify(entry.raw || "").replace(/"/g, '&quot;')}).then(()=>toast('Copied raw log','ok'))">Copy Raw</button>
+      <button class="adm-btn" onclick="navigator.clipboard.writeText(${JSON.stringify(entry.message || "").replace(/"/g, '&quot;')}).then(()=>toast('Copied message','ok'))">Copy Message</button>
+      <button class="adm-btn primary" onclick="$('#modalBackdrop').hidden=true">Close</button>`;
+
+    openModal(`Log Detail — ${entry.level || "Unknown"}`, bodyHtml, actionsHtml);
+  }
+
+  async function _exportLogs() {
+    try {
+      const params = new URLSearchParams({
+        lines: 5000,
+        structured: true,
+        q: ($("#logQ").value || "").trim(),
+        level: $("#logLevel").value || "",
+        source: $("#logSource").value || "",
+        module: $("#logModule").value || "",
+      });
+      const d = await api(`/api/admin/logs?${params}`);
+      const entries = d.entries || [];
+      if (!entries.length) { toast("No logs to export", "warn"); return; }
+      const headers = ["timestamp", "level", "module", "source", "event", "message", "error_type", "run_id", "raw"];
+      const csv = [headers.join(",")];
+      entries.forEach(e => {
+        csv.push(headers.map(h => `"${String(e[h] || "").replace(/"/g, '""')}"`).join(","));
+      });
+      const blob = new Blob([csv.join("\n")], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `leadai-logs-${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+      toast("Logs exported", "ok");
+    } catch (err) { toast("Export failed: " + err.message, "error"); }
+  }
+
+  // Autoscroll detection — pause when user scrolls up
+  let _userScrolled = false;
+  if (table) {
+    table.onscroll = () => {
+      const atBottom = table.scrollHeight - table.scrollTop - table.clientHeight < 30;
+      if (!atBottom && $("#logAuto").checked) {
+        _userScrolled = true;
+        jumpBar.style.display = "";
+      } else if (atBottom) {
+        _userScrolled = false;
+        jumpBar.style.display = "none";
+      }
+    };
+  }
+
+  $("#logRefresh").onclick = () => { _userScrolled = false; _logOffset = 0; _loadLogs(); };
   $("#logApply").onclick = () => {
-    navigate(`#/logs?q=${encodeURIComponent($("#logQ").value.trim())}&level=${encodeURIComponent($("#logLevel").value)}`);
+    _logOffset = 0;
+    _userScrolled = false;
+    _loadLogs();
   };
+  $("#logClear").onclick = () => {
+    $("#logQ").value = "";
+    $("#logLevel").value = "";
+    $("#logSource").value = "";
+    $("#logModule").value = "";
+    _logOffset = 0;
+    _userScrolled = false;
+    _loadLogs();
+  };
+  $("#logClearFilters").onclick = $("#logClear").onclick;
   $("#logQ").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#logApply").onclick(); });
-  if ($("#logAuto").checked) box.scrollTop = box.scrollHeight;
+  $("#logJumpLatest").onclick = () => {
+    _userScrolled = false;
+    jumpBar.style.display = "none";
+    _logOffset = 0;
+    _loadLogs();
+  };
+  $("#logRetry").onclick = () => _loadLogs();
+  $("#logExportBtn").onclick = _exportLogs;
+
+  // Auto-refresh
+  const autoRefreshSelect = $("#logAutoRefresh");
+  autoRefreshSelect.onchange = () => {
+    if (_logAutoRefresh) clearInterval(_logAutoRefresh);
+    const sec = parseInt(autoRefreshSelect.value);
+    if (sec > 0) {
+      _logAutoRefresh = setInterval(() => {
+        if (!_userScrolled) _loadLogs();
+      }, sec * 1000);
+    }
+  };
+  // Trigger initial auto-refresh setup
+  autoRefreshSelect.onchange();
+
+  await _loadLogs();
 }
 
 /* ─────────────────────────────── EXPORTS ──────────────────────────── */
@@ -3493,6 +3872,7 @@ const EXPORT_SCOPES = [
   { scope: "pages", label: "Pages", hint: "Collected pages, sorted by followers.", platform: true },
   { scope: "posts", label: "Posts", hint: "Collected posts, sorted by publish date.", platform: true },
   { scope: "leads", label: "Leads", hint: "AI-analyzed comments that are leads, sorted by score. Includes phone/email when extracted." },
+  { scope: "follow-ups", label: "Follow-ups", hint: "All follow-up tasks across leads: title, due date, status, and notes." },
 ];
 
 async function viewExports() {
@@ -3519,35 +3899,1109 @@ async function viewExports() {
     </div>`;
 }
 
+/* ──────────────────────────────── ORGANIZATIONS ───────────────────── */
+async function viewOrganizations() {
+  const root = $("#view");
+  const data = await api("/api/admin/organizations");
+  const orgs = data.organizations || [];
+  const role = state.user.role;
+
+  const statusBadge = (s) => {
+    const map = { active: "green", trial: "violet", suspended: "red", disabled: "gray", pending: "amber" };
+    return `<span class="adm-badge ${map[s] || "gray"}">${esc(s || "—")}</span>`;
+  };
+
+  root.innerHTML = `
+    ${pageHead("Organizations", "Customer tenants, workspaces, subscription status, and memberships.", `
+      <button class="adm-btn primary" id="createOrgBtn" ${(role === "super_admin" || role === "operations_admin") ? "" : "disabled"}>${icon("plus", 14)} Create organization</button>`)}
+    
+    <div class="adm-filter-bar" style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+      <input class="adm-input" id="orgSearch" placeholder="Search by name or slug..." style="max-width:280px">
+      <select class="adm-input" id="orgStatusFilter" style="max-width:160px">
+        <option value="">All statuses</option>
+        <option value="active">Active</option>
+        <option value="trial">Trial</option>
+        <option value="suspended">Suspended</option>
+      </select>
+      <span class="adm-hint" id="orgCountHint" style="margin-left:auto">${orgs.length} organization(s)</span>
+    </div>
+
+    <div class="adm-card">
+      <div class="adm-table-wrap"><table class="adm-table" id="orgsTable">
+        <thead>
+          <tr>
+            <th>Organization</th>
+            <th>Slug</th>
+            <th>Owner</th>
+            <th>Users</th>
+            <th>Leads</th>
+            <th>Status</th>
+            <th>Plan</th>
+            <th>Created</th>
+            <th style="text-align:right">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="orgsTbody">
+          ${renderOrgRows(orgs)}
+        </tbody>
+      </table></div>
+    </div>`;
+
+  function renderOrgRows(list) {
+    if (!list.length) {
+      return `<tr><td colspan="9"><div class="adm-empty">No organizations found.</div></td></tr>`;
+    }
+    return list.map((o) => `
+      <tr data-org-id="${esc(o.id)}">
+        <td>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="adm-avatar" style="background:var(--violet-soft);color:var(--violet-deep)">${esc(initials(o.name))}</span>
+            <div>
+              <div class="adm-cell-main" style="font-weight:600">
+                <a href="#/organizations/details:${esc(o.id)}" style="color:var(--text)">${esc(o.name)}</a>
+              </div>
+              ${o.website ? `<div class="adm-hint"><a href="${esc(o.website)}" target="_blank" rel="noopener">${esc(o.website)}</a></div>` : ""}
+            </div>
+          </div>
+        </td>
+        <td><span class="adm-code">${esc(o.slug)}</span></td>
+        <td><span class="adm-cell-main">${esc(o.owner_name || o.owner_email || "—")}</span></td>
+        <td><span class="adm-badge gray plain">${Number(o.members_count || 1)}</span></td>
+        <td><span class="adm-badge amber">${Number(o.leads_count || 0)}</span></td>
+        <td>${statusBadge(o.status)}</td>
+        <td><span class="adm-badge violet">${esc(o.plan_id || "—")}</span></td>
+        <td><span class="adm-hint">${fmtTime(o.created_at)}</span></td>
+        <td class="adm-cell-actions" style="text-align:right">
+          <a class="adm-btn small ghost" href="#/organizations/details:${esc(o.id)}">${icon("eye", 12)} View</a>
+          ${o.status === "suspended" ? `
+            <button class="adm-btn small ok" data-activate-org="${esc(o.id)}">Activate</button>
+          ` : `
+            <button class="adm-btn small danger" data-suspend-org="${esc(o.id)}" data-name="${esc(o.name)}">Suspend</button>
+          `}
+          <button class="adm-btn small ghost" data-edit-org="${esc(o.id)}">${icon("edit", 12)} Edit</button>
+        </td>
+      </tr>`).join("");
+  }
+
+  function bindOrgActions() {
+    $$("[data-suspend-org]", root).forEach((btn) => {
+      btn.onclick = () => {
+        const id = btn.dataset.suspendOrg;
+        const name = btn.dataset.name;
+        confirmModal(`Suspend ${name}?`,
+          `This will immediately block all users belonging to this organization from accessing the platform.`,
+          async () => {
+            await api(`/api/admin/organizations/${encodeURIComponent(id)}/suspend`, {
+              method: "POST",
+              body: { reason: "Suspended by Super Admin" }
+            });
+            toast("Organization suspended", "ok");
+            viewOrganizations();
+          },
+          "Suspend Organization"
+        );
+      };
+    });
+
+    $$("[data-activate-org]", root).forEach((btn) => {
+      btn.onclick = async () => {
+        const id = btn.dataset.activateOrg;
+        try {
+          await api(`/api/admin/organizations/${encodeURIComponent(id)}/activate`, {
+            method: "POST"
+          });
+          toast("Organization activated", "ok");
+          viewOrganizations();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      };
+    });
+
+    $$("[data-edit-org]", root).forEach((btn) => {
+      btn.onclick = () => {
+        const id = btn.dataset.editOrg;
+        const o = orgs.find((item) => item.id === id);
+        if (!o) return;
+        openOrgEditModal(o);
+      };
+    });
+  }
+
+  bindOrgActions();
+
+  // Search & Filter
+  const filterRows = () => {
+    const q = ($("#orgSearch").value || "").toLowerCase().trim();
+    const st = $("#orgStatusFilter").value;
+    const filtered = orgs.filter((o) => {
+      const matchQ = !q || (o.name || "").toLowerCase().includes(q) || (o.slug || "").toLowerCase().includes(q);
+      const matchSt = !st || o.status === st;
+      return matchQ && matchSt;
+    });
+    $("#orgsTbody").innerHTML = renderOrgRows(filtered);
+    $("#orgCountHint").textContent = `${filtered.length} of ${orgs.length} organization(s)`;
+    bindOrgActions();
+  };
+
+  $("#orgSearch").oninput = filterRows;
+  $("#orgStatusFilter").onchange = filterRows;
+
+  // Create Org Modal
+  $("#createOrgBtn").onclick = async () => {
+    let planOptions = "";
+    try {
+      const pd = await api("/api/admin/plans");
+      planOptions = (pd.plans || []).filter(p => p.status === "active")
+        .map(p => `<option value="${esc(p.slug)}">${esc(p.name)}</option>`).join("");
+    } catch (_) { /* the select stays empty; the API validates the plan */ }
+    const box = openModal(
+      "Create Organization",
+      `<div class="adm-field"><label>Organization Name *</label><input class="adm-input" id="newOrgName" placeholder="Acme Corporation"></div>
+       <div class="adm-field"><label>Slug <span class="adm-hint">(unique url identifier)</span></label><input class="adm-input" id="newOrgSlug" placeholder="acme-corp"></div>
+       <div class="adm-field"><label>Owner Email *</label><input class="adm-input" id="newOrgOwner" type="email" placeholder="owner@acme.com"></div>
+       <div class="adm-field"><label>Website</label><input class="adm-input" id="newOrgWebsite" placeholder="https://acme.com"></div>
+       <div class="adm-field"><label>Plan</label>
+         <select class="adm-input" id="newOrgPlan">${planOptions}</select>
+       </div>`,
+      `<button class="adm-btn" data-close>Cancel</button>
+       <button class="adm-btn primary" id="saveNewOrgBtn">Create Organization</button>`
+    );
+    $("[data-close]", box).onclick = closeModal;
+    $("#modalBackdrop").onclick = (e) => { if (e.target.id === "modalBackdrop") closeModal(); };
+
+    $("#newOrgName").oninput = () => {
+      const slugInput = $("#newOrgSlug");
+      if (!slugInput.dataset.touched) {
+        slugInput.value = $("#newOrgName").value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      }
+    };
+    $("#newOrgSlug").onchange = () => { $("#newOrgSlug").dataset.touched = "1"; };
+
+    $("#saveNewOrgBtn").onclick = async () => {
+      const saveBtn = $("#saveNewOrgBtn");
+      const name = $("#newOrgName").value.trim();
+      const slug = $("#newOrgSlug").value.trim();
+      const owner_email = $("#newOrgOwner").value.trim();
+      const website = $("#newOrgWebsite").value.trim();
+      const plan_id = $("#newOrgPlan").value;
+
+      if (!name) { toast("Organization name is required", "warn"); return; }
+      if (!owner_email) { toast("Owner email is required", "warn"); return; }
+
+      saveBtn.disabled = true;
+      try {
+        await api("/api/admin/organizations", {
+          method: "POST",
+          body: { name, slug: slug || undefined, owner_email, website: website || undefined, plan_id }
+        });
+        toast("Organization created successfully", "ok");
+        closeModal();
+        viewOrganizations();
+      } catch (err) {
+        toast(err.message, "error");
+        saveBtn.disabled = false;
+      }
+    };
+  };
+
+  function openOrgEditModal(o) {
+    const box = openModal(
+      `Edit ${esc(o.name)}`,
+      `<div class="adm-field"><label>Organization Name</label><input class="adm-input" id="editOrgName" value="${esc(o.name)}"></div>
+       <div class="adm-field"><label>Website</label><input class="adm-input" id="editOrgWebsite" value="${esc(o.website || "")}"></div>
+       <div class="adm-field"><label>Status</label>
+         <select class="adm-input" id="editOrgStatus">
+           <option value="active" ${o.status === "active" ? "selected" : ""}>Active</option>
+           <option value="trial" ${o.status === "trial" ? "selected" : ""}>Trial</option>
+           <option value="suspended" ${o.status === "suspended" ? "selected" : ""}>Suspended</option>
+         </select>
+       </div>`,
+      `<button class="adm-btn" data-close>Cancel</button>
+       <button class="adm-btn primary" id="saveEditOrgBtn">Save Changes</button>`
+    );
+    $("[data-close]", box).onclick = closeModal;
+    $("#modalBackdrop").onclick = (e) => { if (e.target.id === "modalBackdrop") closeModal(); };
+
+    $("#saveEditOrgBtn").onclick = async () => {
+      const saveBtn = $("#saveEditOrgBtn");
+      saveBtn.disabled = true;
+      try {
+        await api(`/api/admin/organizations/${encodeURIComponent(o.id)}`, {
+          method: "PATCH",
+          body: {
+            name: $("#editOrgName").value.trim(),
+            website: $("#editOrgWebsite").value.trim() || undefined,
+            status: $("#editOrgStatus").value,
+          }
+        });
+        toast("Organization updated", "ok");
+        closeModal();
+        viewOrganizations();
+      } catch (err) {
+        toast(err.message, "error");
+        saveBtn.disabled = false;
+      }
+    };
+  }
+}
+
+/* ────────────────────────── ORGANIZATION DETAIL ─────────────────────── */
+async function viewOrgDetail(orgId) {
+  const root = $("#view");
+  const data = await api(`/api/admin/organizations/${encodeURIComponent(orgId)}`);
+  const org = data.organization || {};
+  const members = data.members || [];
+  const metrics = data.metrics || {};
+  const role = state.user.role;
+
+  const statusBadge = (s) => {
+    const map = { active: "green", trial: "violet", suspended: "red", disabled: "gray" };
+    return `<span class="adm-badge ${map[s] || "gray"}">${esc(s || "—")}</span>`;
+  };
+
+  root.innerHTML = `
+    <div class="adm-head">
+      <div class="adm-crumbline"><a href="#/organizations" style="color:var(--text-dim)">← Back to Organizations</a></div>
+      <div class="adm-head-row">
+        <div class="adm-head-main">
+          <div style="display:flex;align-items:center;gap:12px">
+            <h1 class="adm-title" style="margin:0">${esc(org.name)}</h1>
+            ${statusBadge(org.status)}
+            <span class="adm-badge violet">${esc(org.plan_id || "—")}</span>
+          </div>
+          <p class="adm-desc">Slug: <span class="adm-code">${esc(org.slug)}</span> · Created ${fmtTime(org.created_at)}</p>
+        </div>
+        <div class="adm-head-actions">
+          ${org.status === "suspended" ? `
+            <button class="adm-btn ok" id="orgDetailActivateBtn">Activate Organization</button>
+          ` : `
+            <button class="adm-btn danger" id="orgDetailSuspendBtn">Suspend Organization</button>
+          `}
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));gap:12px;margin-bottom:18px">
+      <div class="adm-card" style="padding:14px">
+        <div class="adm-stat-label">Members</div>
+        <div style="font-size:22px;font-weight:700">${members.length}</div>
+        <div class="adm-hint">Accounts</div>
+      </div>
+      <div class="adm-card" style="padding:14px">
+        <div class="adm-stat-label">Searches</div>
+        <div style="font-size:22px;font-weight:700">${Number(metrics.searches_count || 0).toLocaleString()}</div>
+        <div class="adm-hint">Social searches</div>
+      </div>
+      <div class="adm-card" style="padding:14px">
+        <div class="adm-stat-label">Identified Leads</div>
+        <div style="font-size:22px;font-weight:700;color:var(--amber-deep)">${Number(metrics.leads_count || 0).toLocaleString()}</div>
+        <div class="adm-hint">AI qualified</div>
+      </div>
+      <div class="adm-card" style="padding:14px">
+        <div class="adm-stat-label">Posts Processed</div>
+        <div style="font-size:22px;font-weight:700">${Number(metrics.posts_count || 0).toLocaleString()}</div>
+        <div class="adm-hint">Collected</div>
+      </div>
+    </div>
+
+    <div class="adm-grid-2" style="margin-bottom:18px">
+      <div class="adm-card">
+        <div class="adm-card-title">Organization Overview</div>
+        <div class="adm-kv">
+          <div class="adm-kv-row"><dt>Name</dt><dd>${esc(org.name)}</dd></div>
+          <div class="adm-kv-row"><dt>Slug</dt><dd><span class="adm-code">${esc(org.slug)}</span></dd></div>
+          <div class="adm-kv-row"><dt>Status</dt><dd>${statusBadge(org.status)}</dd></div>
+          <div class="adm-kv-row"><dt>Owner ID</dt><dd><span class="adm-code">${esc(org.owner_id || "—")}</span></dd></div>
+          <div class="adm-kv-row"><dt>Website</dt><dd>${org.website ? `<a href="${esc(org.website)}" target="_blank">${esc(org.website)}</a>` : "—"}</dd></div>
+          <div class="adm-kv-row"><dt>Timezone</dt><dd>${esc(org.timezone || "UTC")}</dd></div>
+          <div class="adm-kv-row"><dt>Currency</dt><dd>${esc(org.currency || "USD")}</dd></div>
+          <div class="adm-kv-row"><dt>Last Active</dt><dd>${fmtTime(org.last_activity_at)}</dd></div>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <div class="adm-card-title">Tenant Security &amp; Plan</div>
+        <div class="adm-kv">
+          <div class="adm-kv-row"><dt>Plan</dt><dd><span class="adm-badge violet">${esc(org.plan_id || "—")}</span></dd></div>
+          <div class="adm-kv-row"><dt>Tenant Isolation</dt><dd><span class="adm-badge green">Enforced (Server-Side)</span></dd></div>
+          <div class="adm-kv-row"><dt>IDOR Protection</dt><dd><span class="adm-badge green">Active</span></dd></div>
+          <div class="adm-kv-row"><dt>Billing Status</dt><dd><span class="adm-badge gray plain">Default Trial (Billing module in Master Prompt 2)</span></dd></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="adm-card">
+      <div class="adm-card-head-row" style="margin-bottom:12px">
+        <div class="adm-card-title">Organization Members (${members.length})</div>
+      </div>
+      <div class="adm-table-wrap"><table class="adm-table">
+        <thead>
+          <tr>
+            <th>Member</th>
+            <th>Email</th>
+            <th>Org Role</th>
+            <th>Status</th>
+            <th>Joined</th>
+            <th style="text-align:right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${members.length ? members.map((m) => `
+            <tr>
+              <td><span class="adm-avatar">${esc(initials(m.name || m.email))}</span> <span class="adm-cell-main">${esc(m.name || "—")}</span></td>
+              <td>${esc(m.email)}</td>
+              <td><span class="adm-badge ${m.role === "owner" ? "gold" : m.role === "admin" ? "violet" : "gray plain"}">${esc(m.role)}</span></td>
+              <td><span class="adm-badge ${m.status === "active" ? "green" : "gray plain"}">${esc(m.status)}</span></td>
+              <td><span class="adm-hint">${fmtTime(m.joined_at)}</span></td>
+              <td class="adm-cell-actions" style="text-align:right">
+                ${role === "super_admin" ? `
+                  <button class="adm-btn small ghost" data-impersonate-btn data-user-id="${esc(m.user_id)}" data-user-name="${esc(m.name || m.email)}" style="color:var(--violet)">
+                    ${icon("key", 12)} Impersonate
+                  </button>
+                  <button class="adm-btn small ghost" data-revoke-user="${esc(m.user_id)}">Revoke Sessions</button>
+                ` : ""}
+              </td>
+            </tr>`).join("") : `<tr><td colspan="6"><div class="adm-empty">No members enrolled.</div></td></tr>`}
+        </tbody>
+      </table></div>
+    </div>`;
+
+  // Bind Suspend/Activate
+  const suspendBtn = $("#orgDetailSuspendBtn");
+  if (suspendBtn) {
+    suspendBtn.onclick = () => {
+      confirmModal(`Suspend ${org.name}?`,
+        `Users of this organization will not be able to log in or run searches.`,
+        async () => {
+          await api(`/api/admin/organizations/${encodeURIComponent(org.id)}/suspend`, {
+            method: "POST",
+            body: { reason: "Suspended from org detail page" }
+          });
+          toast("Organization suspended", "ok");
+          viewOrgDetail(orgId);
+        },
+        "Suspend"
+      );
+    };
+  }
+
+  const activateBtn = $("#orgDetailActivateBtn");
+  if (activateBtn) {
+    activateBtn.onclick = async () => {
+      try {
+        await api(`/api/admin/organizations/${encodeURIComponent(org.id)}/activate`, { method: "POST" });
+        toast("Organization activated", "ok");
+        viewOrgDetail(orgId);
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    };
+  }
+
+  // Bind Impersonate
+  $$("[data-impersonate-btn]", root).forEach((btn) => {
+    btn.onclick = () => {
+      const uId = btn.dataset.userId;
+      const uName = btn.dataset.userName;
+      const box = openModal(
+        `Impersonate ${esc(uName)}`,
+        `<div class="adm-hint" style="margin-bottom:12px;color:var(--amber-deep)">
+          ⚠️ Support Impersonation creates an audited, temporary session viewing the platform exactly as this user.
+         </div>
+         <div class="adm-field">
+           <label>Reason for impersonation *</label>
+           <input class="adm-input" id="impReason" placeholder="e.g. Customer support ticket #1042">
+         </div>`,
+        `<button class="adm-btn" data-close>Cancel</button>
+         <button class="adm-btn primary" id="confirmImpBtn">Start Impersonation</button>`
+      );
+      $("[data-close]", box).onclick = closeModal;
+      $("#modalBackdrop").onclick = (e) => { if (e.target.id === "modalBackdrop") closeModal(); };
+
+      $("#confirmImpBtn").onclick = async () => {
+        const reason = $("#impReason").value.trim();
+        if (!reason) { toast("Please provide a reason", "warn"); return; }
+        $("#confirmImpBtn").disabled = true;
+        try {
+          await api("/api/admin/impersonate", {
+            method: "POST",
+            body: { user_id: uId, organization_id: org.id, reason }
+          });
+          toast("Impersonation active", "ok");
+          closeModal();
+          location.href = "/";
+        } catch (err) {
+          toast(err.message, "error");
+          $("#confirmImpBtn").disabled = false;
+        }
+      };
+    };
+  });
+
+  // Bind Revoke Sessions
+  $$("[data-revoke-user]", root).forEach((btn) => {
+    btn.onclick = async () => {
+      const uId = btn.dataset.revokeUser;
+      try {
+        const res = await api(`/api/admin/users/${encodeURIComponent(uId)}/revoke-sessions`, { method: "POST" });
+        toast(`Revoked ${res.revoked_count || 0} session(s)`, "ok");
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    };
+  });
+}
+
+/* ──────────────────────────────── PLANS ───────────────────────────── */
+async function viewPlans() {
+  const root = $("#view");
+  const data = await api("/api/admin/plans");
+  const plans = data.plans || [];
+  const isSuper = state.user.role === "super_admin";
+
+  const statusBadge = (s) => s === "active" ? `<span class="adm-badge green">active</span>` : s === "archived" ? `<span class="adm-badge red">archived</span>` : `<span class="adm-badge gray plain">${esc(s)}</span>`;
+
+  root.innerHTML = `
+    ${pageHead("Plans Catalog", "Configurable subscription tiers, quotas, feature entitlements, and pricing.", `
+      <button class="adm-btn primary" id="createPlanBtn" ${isSuper ? "" : "disabled"}>${icon("plus", 14)} Create plan</button>`)}
+
+    <div class="adm-card">
+      <div class="adm-table-wrap"><table class="adm-table" id="plansTable">
+        <thead>
+          <tr>
+            <th>Plan</th>
+            <th>Slug</th>
+            <th>Pricing</th>
+            <th>Trial</th>
+            <th>Monthly Limits</th>
+            <th>Features</th>
+            <th>Status</th>
+            <th style="text-align:right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${renderPlanRows(plans)}
+        </tbody>
+      </table></div>
+    </div>`;
+
+  function renderPlanRows(list) {
+    if (!list.length) return `<tr><td colspan="8"><div class="adm-empty">No plans found.</div></td></tr>`;
+    return list.map(p => {
+      const limits = p.limits || {};
+      const features = p.features || {};
+      const feats = Object.keys(features).filter(k => features[k]).map(k => `<span class="adm-chip violet" style="font-size:11px;margin:2px">${esc(k.replace(/_/g, " "))}</span>`).join("");
+      return `
+        <tr data-plan-id="${esc(p.id)}">
+          <td>
+            <div class="adm-cell-main" style="font-weight:600">${esc(p.name)}</div>
+            <div class="adm-hint">${esc(p.description || "—")}</div>
+          </td>
+          <td><span class="adm-code">${esc(p.slug)}</span></td>
+          <td>
+            <div class="adm-cell-main" style="font-weight:600">${esc(fmtMoney(p.price_monthly, p.currency))} / mo</div>
+            <div class="adm-hint">${esc(fmtMoney(p.price_yearly, p.currency))} / yr</div>
+          </td>
+          <td><span class="adm-badge plain gray">${p.trial_days || 0} days</span></td>
+          <td>
+            <div style="font-size:12px;display:flex;flex-direction:column;gap:2px">
+              <span>Searches: <b>${fmtNum(limits.monthly_searches || 0)}</b></span>
+              <span>AI Analysis: <b>${fmtNum(limits.monthly_ai_analyses || 0)}</b></span>
+              <span>Team: <b>${limits.team_members || 1}</b></span>
+            </div>
+          </td>
+          <td style="max-width:240px">${feats || "—"}</td>
+          <td>${statusBadge(p.status)}</td>
+          <td class="adm-cell-actions" style="text-align:right">
+            <button class="adm-btn small ghost" data-edit-plan="${esc(p.id)}">${icon("edit", 12)} Edit</button>
+            ${p.status === "active" ? `<button class="adm-btn small danger" data-archive-plan="${esc(p.id)}" data-name="${esc(p.name)}">Archive</button>` : ""}
+          </td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  // Bind Create Plan
+  const createBtn = $("#createPlanBtn", root);
+  if (createBtn) {
+    createBtn.onclick = () => openPlanModal();
+  }
+
+  // Bind Edit Plan
+  $$("[data-edit-plan]", root).forEach(btn => {
+    btn.onclick = () => {
+      const plan = plans.find(p => String(p.id) === btn.dataset.editPlan);
+      if (plan) openPlanModal(plan);
+    };
+  });
+
+  // Bind Archive Plan
+  $$("[data-archive-plan]", root).forEach(btn => {
+    btn.onclick = () => {
+      const pId = btn.dataset.archivePlan;
+      const pName = btn.dataset.name;
+      confirmModal(`Archive plan ${pName}?`,
+        "Archived plans cannot be selected by new organizations. Existing subscribers retain their plan until they switch.",
+        async () => {
+          try {
+            await api(`/api/admin/plans/${encodeURIComponent(pId)}`, { method: "DELETE" });
+            toast("Plan archived", "ok");
+            await viewPlans();
+          } catch (err) { toast(err.message, "error"); }
+        }, "Archive Plan");
+    };
+  });
+
+  function openPlanModal(existing = null) {
+    const isEdit = Boolean(existing);
+    const limits = (existing && existing.limits) || {};
+    const featList = Array.isArray(existing && existing.features)
+      ? existing.features
+      : Object.keys((existing && existing.features) || {}).filter(k => existing.features[k]);
+    const LIMIT_FIELDS = [
+      ["monthly_tokens", "Tokens / month"], ["monthly_searches", "Searches / month"],
+      ["posts_per_search", "Posts per search"], ["comments_per_post", "Comments per post"],
+      ["monthly_posts", "Posts / month"], ["monthly_comments", "Comments / month"],
+      ["monthly_ai_analyses", "AI analyses / month"], ["monthly_exports", "Exports / month"],
+      ["team_members", "Team members"], ["max_leads", "Max leads"], ["storage_mb", "Storage (MB)"],
+    ];
+    const FEATURE_FIELDS = [
+      ["url_search", "URL Search Agent"], ["facebook", "Facebook"], ["instagram", "Instagram"],
+      ["youtube", "YouTube"], ["linkedin", "LinkedIn"], ["ai_analysis", "AI analysis"],
+      ["lead_scoring", "Lead scoring"], ["advanced_filters", "Advanced filters"],
+      ["csv_export", "CSV export"], ["team_management", "Team management"],
+      ["api_access", "API access"], ["webhooks", "Webhooks"],
+      ["custom_branding", "Custom branding"], ["priority_support", "Priority support"],
+    ];
+    const val = (v) => (v === undefined || v === null ? "" : esc(String(v)));
+
+    const bodyHtml = `
+      <form id="planForm" style="display:flex;flex-direction:column;gap:12px" novalidate>
+        <div class="adm-form-grid">
+          <div class="adm-field">
+            <label for="planName">Plan name *</label>
+            <input class="adm-input" id="planName" required value="${val(existing && existing.name)}" placeholder="e.g. Enterprise Plus">
+          </div>
+          <div class="adm-field">
+            <label for="planSlug">Slug *</label>
+            <input class="adm-input" id="planSlug" required ${isEdit ? "readonly" : ""} value="${val(existing && existing.slug)}" placeholder="e.g. enterprise-plus">
+          </div>
+          <div class="adm-field">
+            <label for="planPriceMonthly">Price / month *</label>
+            <input class="adm-input" type="number" step="0.01" id="planPriceMonthly" min="0" required value="${val(existing && existing.price_monthly)}">
+          </div>
+          <div class="adm-field">
+            <label for="planPriceYearly">Price / year *</label>
+            <input class="adm-input" type="number" step="0.01" id="planPriceYearly" min="0" required value="${val(existing && existing.price_yearly)}">
+          </div>
+          <div class="adm-field">
+            <label for="planCurrency">Currency *</label>
+            <input class="adm-input" id="planCurrency" maxlength="3" required value="${val(existing && existing.currency)}" placeholder="USD">
+          </div>
+          <div class="adm-field">
+            <label for="planTrialDays">Trial days</label>
+            <input class="adm-input" type="number" id="planTrialDays" min="0" value="${val(existing && existing.trial_days)}">
+          </div>
+          <div class="adm-field">
+            <label for="planStatus">Status</label>
+            <select class="adm-input" id="planStatus">
+              <option value="active" ${!existing || existing.status === 'active' ? 'selected' : ''}>Active</option>
+              <option value="inactive" ${existing && existing.status === 'inactive' ? 'selected' : ''}>Inactive</option>
+              <option value="archived" ${existing && existing.status === 'archived' ? 'selected' : ''}>Archived</option>
+            </select>
+          </div>
+          <div class="adm-field">
+            <label for="planOrder">Display order</label>
+            <input class="adm-input" type="number" id="planOrder" value="${val(existing && existing.display_order)}">
+          </div>
+        </div>
+
+        <div class="adm-field">
+          <label for="planDesc">Description</label>
+          <input class="adm-input" id="planDesc" value="${val(existing && existing.description)}" placeholder="Target audience and plan summary">
+        </div>
+        <label class="adm-flex" style="gap:6px;font-size:13px"><input type="checkbox" id="planPublic" ${!existing || existing.is_public !== false ? 'checked' : ''}> Show on the public pricing page</label>
+
+        <div style="font-weight:600;font-size:13px;margin-top:6px">Limits <span class="adm-hint">(empty = keep current value; 0 = not included)</span></div>
+        <div class="adm-form-grid">
+          ${LIMIT_FIELDS.map(([k, label]) => `
+            <div class="adm-field">
+              <label for="lim_${k}">${esc(label)}</label>
+              <input class="adm-input" type="number" min="0" id="lim_${k}" data-limit="${k}" value="${val(limits[k])}">
+            </div>`).join("")}
+        </div>
+
+        <div style="font-weight:600;font-size:13px;margin-top:6px">Features</div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap">
+          ${FEATURE_FIELDS.map(([k, label]) => `
+            <label class="adm-flex" style="gap:6px;font-size:13px"><input type="checkbox" data-feature="${k}" ${featList.includes(k) ? 'checked' : ''}> ${esc(label)}</label>`).join("")}
+        </div>
+      </form>
+    `;
+
+    openModal(isEdit ? `Edit Plan — ${esc(existing.name)}` : "Create New Subscription Plan", bodyHtml, `
+      <button class="adm-btn" onclick="closeModal()">Cancel</button>
+      <button class="adm-btn primary" id="savePlanModalBtn">${isEdit ? "Save Changes" : "Create Plan"}</button>
+    `);
+
+    $("#savePlanModalBtn").onclick = async () => {
+      const btn = $("#savePlanModalBtn");
+      const name = $("#planName").value.trim();
+      const slug = $("#planSlug").value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+      const currency = $("#planCurrency").value.trim().toUpperCase();
+      const pm = $("#planPriceMonthly").value, py = $("#planPriceYearly").value;
+      if (!name || !slug) { toast("Name and slug are required", "warn"); return; }
+      if (pm === "" || py === "") { toast("Monthly and yearly prices are required", "warn"); return; }
+      if (!/^[A-Z]{3}$/.test(currency)) { toast("Currency must be a 3-letter code, e.g. USD", "warn"); return; }
+
+      const limitsOut = {};
+      $$("[data-limit]").forEach(inp => {
+        if (inp.value !== "") limitsOut[inp.dataset.limit] = parseInt(inp.value, 10);
+      });
+      const payload = {
+        name, slug, currency,
+        description: $("#planDesc").value.trim(),
+        price_monthly: parseFloat(pm),
+        price_yearly: parseFloat(py),
+        trial_days: parseInt($("#planTrialDays").value || "0", 10),
+        status: $("#planStatus").value,
+        is_public: $("#planPublic").checked,
+        limits: limitsOut,
+        features: $$("[data-feature]").filter(c => c.checked).map(c => c.dataset.feature),
+      };
+      if ($("#planOrder").value !== "") payload.display_order = parseInt($("#planOrder").value, 10);
+
+      btn.disabled = true;
+      try {
+        if (isEdit) {
+          await api(`/api/admin/plans/${encodeURIComponent(existing.id)}`, { method: "PATCH", body: payload });
+          toast("Plan updated", "ok");
+        } else {
+          await api("/api/admin/plans", { method: "POST", body: payload });
+          toast("Plan created", "ok");
+        }
+        closeModal();
+        await viewPlans();
+      } catch (err) { toast(err.message, "error"); }
+      finally { btn.disabled = false; }
+    };
+  }
+}
+
+/* ──────────────────────────────── SUBSCRIPTIONS ───────────────────────────── */
+async function viewSubscriptions() {
+  const root = $("#view");
+  const data = await api("/api/admin/subscriptions");
+  const subs = data.subscriptions || [];
+
+  const statusBadge = (s) => {
+    const map = { active: "green", trialing: "violet", past_due: "red", cancelled: "gray", expired: "gray" };
+    return `<span class="adm-badge ${map[s] || "gray"}">${esc(s || "—")}</span>`;
+  };
+
+  root.innerHTML = `
+    ${pageHead("Subscriptions", "All tenant subscription lifecycles, plans, trials, and manual entitlements.")}
+
+    <div class="adm-filter-bar" style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+      <input class="adm-input" id="subSearch" placeholder="Search by organization..." style="max-width:280px">
+      <select class="adm-input" id="subStatusFilter" style="max-width:160px">
+        <option value="">All statuses</option>
+        <option value="active">Active</option>
+        <option value="trialing">Trialing</option>
+        <option value="past_due">Past Due</option>
+        <option value="cancelled">Cancelled</option>
+      </select>
+      <span class="adm-hint" id="subCountHint" style="margin-left:auto">${subs.length} subscription(s)</span>
+    </div>
+
+    <div class="adm-card">
+      <div class="adm-table-wrap"><table class="adm-table" id="subsTable">
+        <thead>
+          <tr>
+            <th>Organization</th>
+            <th>Plan</th>
+            <th>Status</th>
+            <th>Amount</th>
+            <th>Current Period</th>
+            <th>Created</th>
+            <th style="text-align:right">Admin Actions</th>
+          </tr>
+        </thead>
+        <tbody id="subsTbody">
+          ${renderSubRows(subs)}
+        </tbody>
+      </table></div>
+    </div>`;
+
+  function renderSubRows(list) {
+    if (!list.length) return `<tr><td colspan="7"><div class="adm-empty">No subscriptions found.</div></td></tr>`;
+    return list.map(s => `
+      <tr data-sub-id="${esc(s.id)}">
+        <td>
+          <div class="adm-cell-main" style="font-weight:600">
+            <a href="#/organizations/details:${esc(s.organization_id)}" style="color:var(--text)">${esc(s.organization_name || s.organization_id)}</a>
+          </div>
+          <div class="adm-hint">${esc(s.organization_id)}</div>
+        </td>
+        <td><span class="adm-badge violet">${esc(s.plan ? s.plan.name : s.plan_id)}</span></td>
+        <td>${statusBadge(s.status)}</td>
+        <td><span class="adm-cell-main" style="font-weight:600">${esc(fmtMoney(s.amount || 0, s.currency))} / ${esc(s.billing_cycle || '—')}</span></td>
+        <td>
+          <div style="font-size:12px">
+            <div>End: ${s.current_period_end ? fmtTime(s.current_period_end) : (s.trial_end ? fmtTime(s.trial_end) : "—")}</div>
+            ${s.trial_end ? `<span class="adm-hint">Trial ends ${fmtTime(s.trial_end)}</span>` : ""}
+          </div>
+        </td>
+        <td><span class="adm-hint">${fmtTime(s.created_at)}</span></td>
+        <td class="adm-cell-actions" style="text-align:right">
+          <button class="adm-btn small ghost" data-change-plan="${esc(s.id)}" data-org="${esc(s.organization_id)}">Change Plan</button>
+          <button class="adm-btn small ghost" data-extend-trial="${esc(s.id)}">Extend Trial</button>
+          <button class="adm-btn small ghost" data-grant-credits="${esc(s.organization_id)}">Grant Credits</button>
+        </td>
+      </tr>
+    `).join("");
+  }
+
+  // Bind Filters
+  const searchInput = $("#subSearch", root);
+  const statusFilter = $("#subStatusFilter", root);
+  const filterSubs = () => {
+    const q = searchInput.value.trim().toLowerCase();
+    const st = statusFilter.value;
+    const filtered = subs.filter(s => {
+      const matchQ = !q || (s.organization_name && s.organization_name.toLowerCase().includes(q)) || (s.organization_id && s.organization_id.toLowerCase().includes(q));
+      const matchSt = !st || s.status === st;
+      return matchQ && matchSt;
+    });
+    $("#subsTbody", root).innerHTML = renderSubRows(filtered);
+    bindActions();
+  };
+  searchInput.oninput = filterSubs;
+  statusFilter.onchange = filterSubs;
+
+  function bindActions() {
+    // Change Plan
+    $$("[data-change-plan]", root).forEach(btn => {
+      btn.onclick = () => {
+        const subId = btn.dataset.changePlan;
+        openModal("Admin Change Plan", `
+          <div class="adm-field">
+            <label>Select Target Plan</label>
+            <select class="adm-input" id="targetPlanSlug">
+              <option value="free">Free</option>
+              <option value="starter">Starter</option>
+              <option value="pro">Professional</option>
+              <option value="business">Business</option>
+              <option value="enterprise">Enterprise</option>
+            </select>
+          </div>
+        `, `
+          <button class="adm-btn" onclick="closeModal()">Cancel</button>
+          <button class="adm-btn primary" id="confirmChangePlanBtn">Update Plan</button>
+        `);
+        $("#confirmChangePlanBtn").onclick = async () => {
+          const plan_slug = $("#targetPlanSlug").value;
+          try {
+            await api(`/api/admin/subscriptions/${encodeURIComponent(subId)}/change-plan`, {
+              method: "POST", body: { plan_slug, billing_cycle: "monthly" }
+            });
+            toast("Plan updated for tenant", "ok");
+            closeModal();
+            await viewSubscriptions();
+          } catch (err) { toast(err.message, "error"); }
+        };
+      };
+    });
+
+    // Extend Trial
+    $$("[data-extend-trial]", root).forEach(btn => {
+      btn.onclick = () => {
+        const subId = btn.dataset.extendTrial;
+        openModal("Extend Tenant Trial", `
+          <div class="adm-field">
+            <label>Additional Trial Days</label>
+            <input class="adm-input" type="number" id="extendDays" min="1" max="90" value="14">
+          </div>
+        `, `
+          <button class="adm-btn" onclick="closeModal()">Cancel</button>
+          <button class="adm-btn primary" id="confirmExtendTrialBtn">Extend Trial</button>
+        `);
+        $("#confirmExtendTrialBtn").onclick = async () => {
+          const days = parseInt($("#extendDays").value, 10) || 14;
+          try {
+            await api(`/api/admin/subscriptions/${encodeURIComponent(subId)}/extend-trial`, {
+              method: "POST", body: { days }
+            });
+            toast(`Trial extended by ${days} days`, "ok");
+            closeModal();
+            await viewSubscriptions();
+          } catch (err) { toast(err.message, "error"); }
+        };
+      };
+    });
+
+    // Grant Credits
+    $$("[data-grant-credits]", root).forEach(btn => {
+      btn.onclick = () => {
+        const orgId = btn.dataset.grantCredits;
+        openModal("Grant Bonus Usage Credits", `
+          <div class="adm-field">
+            <label>Metric</label>
+            <select class="adm-input" id="grantMetric">
+              <option value="monthly_searches">Searches (monthly_searches)</option>
+              <option value="monthly_ai_analyses">AI Analyses (monthly_ai_analyses)</option>
+              <option value="monthly_exports">Exports (monthly_exports)</option>
+            </select>
+          </div>
+          <div class="adm-field" style="margin-top:10px">
+            <label>Credit Quantity</label>
+            <input class="adm-input" type="number" id="grantQty" min="1" value="100">
+          </div>
+          <div class="adm-field" style="margin-top:10px">
+            <label>Reason / Note</label>
+            <input class="adm-input" id="grantReason" placeholder="e.g. VIP onboarding bonus">
+          </div>
+        `, `
+          <button class="adm-btn" onclick="closeModal()">Cancel</button>
+          <button class="adm-btn primary" id="confirmGrantCreditsBtn">Grant Credits</button>
+        `);
+        $("#confirmGrantCreditsBtn").onclick = async () => {
+          const metric = $("#grantMetric").value;
+          const quantity = parseInt($("#grantQty").value, 10) || 100;
+          const reason = $("#grantReason").value.trim() || "Admin grant";
+          try {
+            await api(`/api/admin/organizations/${encodeURIComponent(orgId)}/grant-credits`, {
+              method: "POST", body: { metric, quantity, reason }
+            });
+            toast(`Granted ${quantity} credits`, "ok");
+            closeModal();
+          } catch (err) { toast(err.message, "error"); }
+        };
+      };
+    });
+  }
+  bindActions();
+}
+
+/* ──────────────────────────────── INVOICES ───────────────────────────── */
+async function viewInvoices() {
+  const root = $("#view");
+  const data = await api("/api/admin/invoices");
+  const invoices = data.invoices || [];
+
+  const statusBadge = (s) => s === "paid" ? `<span class="adm-badge green">paid</span>` : s === "open" ? `<span class="adm-badge amber">open</span>` : `<span class="adm-badge red">${esc(s)}</span>`;
+
+  root.innerHTML = `
+    ${pageHead("Invoices & Billing History", "Immutable ledger of all generated customer invoices, receipts, and payment statuses.", `
+      <a class="adm-btn" href="/api/admin/billing/export?type=invoices" target="_blank">${icon("export", 14)} Export Invoices CSV</a>`)}
+
+    <div class="adm-card">
+      <div class="adm-table-wrap"><table class="adm-table" id="invoicesTable">
+        <thead>
+          <tr>
+            <th>Invoice #</th>
+            <th>Organization</th>
+            <th>Total Amount</th>
+            <th>Status</th>
+            <th>Invoice Date</th>
+            <th>Receipt / Link</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${renderInvoiceRows(invoices)}
+        </tbody>
+      </table></div>
+    </div>`;
+
+  function renderInvoiceRows(list) {
+    if (!list.length) return `<tr><td colspan="6"><div class="adm-empty">No invoices found.</div></td></tr>`;
+    return list.map(inv => `
+      <tr>
+        <td><span class="adm-code" style="font-weight:600">${esc(inv.number)}</span></td>
+        <td>
+          <div class="adm-cell-main"><a href="#/organizations/details:${esc(inv.organization_id)}">${esc(inv.organization_id)}</a></div>
+        </td>
+        <td><span class="adm-cell-main" style="font-weight:700">${esc(fmtMoney(inv.total, inv.currency))}</span></td>
+        <td>${statusBadge(inv.status)}</td>
+        <td><span class="adm-hint">${fmtTime(inv.created_at)}</span></td>
+        <td>
+          ${inv.receipt_url ? `<a href="${esc(inv.receipt_url)}" target="_blank" rel="noopener" class="adm-btn small ghost">View Receipt ↗</a>` : `<span class="adm-hint">Generated</span>`}
+        </td>
+      </tr>
+    `).join("");
+  }
+}
+
 /* ──────────────────────────────── USERS ───────────────────────────── */
 async function viewUsers() {
   const root = $("#view");
   const data = await api("/api/admin/users");
   const users = data.users || [];
   const role = state.user.role;
-  const roleBadge = (r) => r === "super_admin" ? `<span class="adm-badge gold">super admin</span>` : r === "manager" ? `<span class="adm-badge green">manager</span>` : `<span class="adm-badge gray plain">${esc(r)}</span>`;
+  const roleBadge = (r) => r === "super_admin" ? `<span class="adm-badge gold">super admin</span>` : r === "operations_admin" ? `<span class="adm-badge violet">ops admin</span>` : r === "owner" ? `<span class="adm-badge gold">owner</span>` : r === "manager" ? `<span class="adm-badge green">manager</span>` : `<span class="adm-badge gray plain">${esc(r)}</span>`;
+
   root.innerHTML = `
-    ${pageHead("Users", "Admin panel accounts and their roles.", `
+    ${pageHead("Users", "Platform accounts, roles, organization memberships, and session controls.", `
       <button class="adm-btn primary" id="addUser" ${role === "super_admin" ? "" : "disabled"}>${icon("plus", 14)} Create user</button>`)}
+    
+    <div class="adm-filter-bar" style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+      <input class="adm-input" id="userSearch" placeholder="Search by name, email, or org..." style="max-width:280px">
+      <select class="adm-input" id="userRoleFilter" style="max-width:160px">
+        <option value="">All roles</option>
+        <option value="super_admin">Super Admin</option>
+        <option value="owner">Owner</option>
+        <option value="admin">Admin</option>
+        <option value="manager">Manager</option>
+        <option value="member">Member</option>
+        <option value="viewer">Viewer</option>
+      </select>
+      <select class="adm-input" id="userStatusFilter" style="max-width:140px">
+        <option value="">All statuses</option>
+        <option value="active">Active</option>
+        <option value="suspended">Suspended / Disabled</option>
+      </select>
+      <span class="adm-hint" id="userCountHint" style="margin-left:auto">${users.length} user(s)</span>
+    </div>
+
     <div class="adm-card">
       <div class="adm-table-wrap"><table class="adm-table">
-        <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
-        <tbody>
-          ${users.map((u) => `
-            <tr>
-              <td><span class="adm-avatar">${esc(initials(u.name))}</span> <span class="adm-cell-main">${esc(u.name)}</span> ${u.env_account ? `<span class="adm-badge gray plain">env</span>` : ""}</td>
-              <td>${esc(u.email)}</td>
-              <td>${roleBadge(u.role)}</td>
-              <td><span class="adm-badge ${u.enabled ? "green" : "gray plain"}">${u.enabled ? "active" : "disabled"}</span></td>
-              <td class="adm-cell-actions">
-                ${u.email !== state.user.email ? (role === "super_admin" ? `
-                  <button class="adm-btn small ghost" data-edit data-id="${esc(u._id)}" data-name="${esc(u.name)}" data-email="${esc(u.email)}" data-role="${esc(u.role)}" data-enabled="${u.enabled}">${icon("edit", 12)} Edit</button>
-                  <button class="adm-btn small danger" data-delete data-id="${esc(u._id)}" data-email="${esc(u.email)}">Delete</button>` : "") : `<span class="adm-badge gray plain">you</span>`}
-              </td>
-            </tr>`).join("")}
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Email</th>
+            <th>Organization</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Last Login</th>
+            <th style="text-align:right">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="usersTbody">
+          ${renderUserRows(users)}
         </tbody>
       </table></div>
     </div>`;
+
+  function renderUserRows(list) {
+    if (!list.length) {
+      return `<tr><td colspan="7"><div class="adm-empty">No users found matching filters.</div></td></tr>`;
+    }
+    return list.map((u) => `
+      <tr>
+        <td>
+          <span class="adm-avatar">${esc(initials(u.name))}</span>
+          <span class="adm-cell-main">${esc(u.name)}</span>
+          ${u.env_account ? `<span class="adm-badge gray plain">env</span>` : u.user_type === "customer" ? `<span class="adm-badge violet plain">customer</span>` : ""}
+        </td>
+        <td>${esc(u.email)}</td>
+        <td><span class="adm-cell-sub">${esc(u.organization_name || u.organization_id || "—")}</span></td>
+        <td>${roleBadge(u.role)}</td>
+        <td><span class="adm-badge ${u.enabled ? "green" : "gray plain"}">${u.enabled ? "active" : "suspended"}</span></td>
+        <td><span class="adm-hint">${u.last_login ? fmtTime(u.last_login) : "never"}</span></td>
+        <td class="adm-cell-actions" style="text-align:right">
+          ${u.email !== state.user.email ? (role === "super_admin" ? `
+            <button class="adm-btn small ghost" data-revoke-sessions data-id="${esc(u._id)}">Revoke Sessions</button>
+            ${u.enabled ? `
+              <button class="adm-btn small danger" data-suspend-user data-id="${esc(u._id)}">Suspend</button>
+            ` : `
+              <button class="adm-btn small ok" data-activate-user data-id="${esc(u._id)}">Activate</button>
+            `}
+            <button class="adm-btn small ghost" data-edit data-id="${esc(u._id)}" data-name="${esc(u.name)}" data-email="${esc(u.email)}" data-role="${esc(u.role)}" data-enabled="${u.enabled}">${icon("edit", 12)} Edit</button>
+            <button class="adm-btn small danger" data-delete data-id="${esc(u._id)}" data-email="${esc(u.email)}">Delete</button>
+          ` : "") : `<span class="adm-badge gray plain">you</span>`}
+        </td>
+      </tr>`).join("");
+  }
+
+  function bindUserRowActions() {
+    $$("[data-revoke-sessions]", root).forEach((btn) => {
+      btn.onclick = async () => {
+        const id = btn.dataset.id;
+        try {
+          const res = await api(`/api/admin/users/${encodeURIComponent(id)}/revoke-sessions`, { method: "POST" });
+          toast(`Revoked ${res.revoked_count || 0} session(s)`, "ok");
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      };
+    });
+
+    $$("[data-suspend-user]", root).forEach((btn) => {
+      btn.onclick = async () => {
+        const id = btn.dataset.id;
+        try {
+          await api(`/api/admin/users/${encodeURIComponent(id)}/suspend`, { method: "POST" });
+          toast("User suspended", "ok");
+          viewUsers();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      };
+    });
+
+    $$("[data-activate-user]", root).forEach((btn) => {
+      btn.onclick = async () => {
+        const id = btn.dataset.id;
+        try {
+          await api(`/api/admin/users/${encodeURIComponent(id)}/activate`, { method: "POST" });
+          toast("User activated", "ok");
+          viewUsers();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      };
+    });
+
+    $$("[data-edit]", root).forEach((el) => {
+      el.onclick = () => openUserModal({
+        _id: el.dataset.id,
+        name: el.dataset.name,
+        email: el.dataset.email,
+        role: el.dataset.role,
+        enabled: el.dataset.enabled === "true"
+      });
+    });
+
+    $$("[data-delete]", root).forEach((el) => {
+      el.onclick = () => confirmModal(
+        "Delete user", `${el.dataset.email} will lose access immediately.`,
+        async () => {
+          await api(`/api/admin/users/${encodeURIComponent(el.dataset.id)}`, { method: "DELETE" });
+          toast("User deleted", "ok");
+          viewUsers();
+        },
+        "Delete"
+      );
+    });
+  }
+
+  bindUserRowActions();
+
+  // Filters
+  const filterUsers = () => {
+    const q = ($("#userSearch").value || "").toLowerCase().trim();
+    const rf = $("#userRoleFilter").value;
+    const sf = $("#userStatusFilter").value;
+
+    const filtered = users.filter((u) => {
+      const matchQ = !q || (u.name || "").toLowerCase().includes(q) ||
+        (u.email || "").toLowerCase().includes(q) ||
+        (u.organization_name || "").toLowerCase().includes(q);
+      const matchR = !rf || u.role === rf;
+      const matchS = !sf || (sf === "active" ? u.enabled : !u.enabled);
+      return matchQ && matchR && matchS;
+    });
+
+    $("#usersTbody").innerHTML = renderUserRows(filtered);
+    $("#userCountHint").textContent = `${filtered.length} of ${users.length} user(s)`;
+    bindUserRowActions();
+  };
+
+  $("#userSearch").oninput = filterUsers;
+  $("#userRoleFilter").onchange = filterUsers;
+  $("#userStatusFilter").onchange = filterUsers;
+
   const openUserModal = (u) => {
     const box = openModal(
       u ? "Edit user" : "Create user",
@@ -3591,11 +5045,6 @@ async function viewUsers() {
     };
   };
   $("#addUser").onclick = () => openUserModal(null);
-  $$("[data-edit]", root).forEach((el) => el.onclick = () => openUserModal({ _id: el.dataset.id, name: el.dataset.name, email: el.dataset.email, role: el.dataset.role, enabled: el.dataset.enabled === "true" }));
-  $$("[data-delete]", root).forEach((el) => el.onclick = () => confirmModal(
-    "Delete user", `${el.dataset.email} will lose access immediately.`,
-    async () => { await api(`/api/admin/users/${encodeURIComponent(el.dataset.id)}`, { method: "DELETE" }); toast("User deleted", "ok"); viewUsers(); },
-    "Delete"));
 }
 
 /* ─────────────────────────────── SECURITY ────────────────────────── */

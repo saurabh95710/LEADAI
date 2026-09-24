@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Page not found · LeadAI</title>
+  <meta name="robots" content="noindex,nofollow"/>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>"/>
+  <link rel="stylesheet" href="/static/design/tokens.css"/>
+  <link rel="stylesheet" href="/static/design/components.css"/>
+  <script src="/static/design/theme.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="auth-shell">
+  <header class="brand-bar">
+    <a class="brand" href="/website">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.1 6.4 6.4 2.1-6.4 2.1L12 19.5l-2.1-6.4L3.5 11l6.4-2.1z"/></svg></span>
+      <span data-brand-name>LeadAI</span>
+    </a>
+    <div class="brand-actions">
+      <button type="button" class="btn theme-toggle" data-theme-toggle aria-label="Switch theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="auth-main" id="main">
+    <section class="auth-card text-center" aria-labelledby="title">
+      <div class="error-code" aria-hidden="true">404</div>
+      <div class="auth-header text-center" style="margin-bottom:0">
+        <h1 class="auth-title" id="title">We couldn't find that page</h1>
+        <p class="auth-subtitle">The link may be old, mistyped, or the page may have moved. Let's get you back on track.</p>
+        <p class="auth-subtitle" id="pathLine" hidden style="font-size:var(--text-sm)">
+          Requested: <code id="pathText" style="font-family:var(--font-mono);color:var(--text-primary);overflow-wrap:anywhere"></code>
+        </p>
+      </div>
+      <div class="auth-actions">
+        <a class="btn btn-primary btn-lg btn-block" href="/website">Back to home</a>
+        <a class="btn btn-secondary btn-lg btn-block" href="/dashboard">Go to dashboard</a>
+      </div>
+      <p class="auth-alt">Think something's broken? <a class="link" href="/contact">Let us know</a></p>
+    </section>
+  </main>
+
+  <footer class="auth-footer">
+    <nav aria-label="Footer"><a href="/website">Home</a><a href="/contact">Contact</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+    <p style="margin-top:6px">© 2026 LeadAI</p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  // Show the requested path (not for the /404 route itself). textContent only.
+  var p = location.pathname;
+  if (p && p !== "/404" && p.length < 200) {
+    document.getElementById("pathText").textContent = p;
+    document.getElementById("pathLine").hidden = false;
+  }
+})();
+</script>
+</body>
+</html>

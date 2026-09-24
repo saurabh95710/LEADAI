@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Request received · LeadAI</title>
+  <meta name="robots" content="noindex,nofollow"/>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>"/>
+  <link rel="stylesheet" href="/static/design/tokens.css"/>
+  <link rel="stylesheet" href="/static/design/components.css"/>
+  <script src="/static/design/theme.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="auth-shell">
+  <header class="brand-bar">
+    <a class="brand" href="/website">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.1 6.4 6.4 2.1-6.4 2.1L12 19.5l-2.1-6.4L3.5 11l6.4-2.1z"/></svg></span>
+      <span data-brand-name>LeadAI</span>
+    </a>
+    <div class="brand-actions">
+      <a class="btn btn-ghost btn-sm" href="/login">Sign in</a>
+      <button type="button" class="btn theme-toggle" data-theme-toggle aria-label="Switch theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="auth-main" id="main">
+    <section class="auth-card auth-card-wide" aria-labelledby="title">
+      <div class="auth-header">
+        <div class="auth-icon tone-warning" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <p class="auth-eyebrow">Request received</p>
+        <h1 class="auth-title" id="title">Your demo request is awaiting approval</h1>
+        <p class="auth-subtitle" id="lead">Thanks for your interest in LeadAI. Our team reviews every request before opening an account, so you can't sign in just yet.</p>
+      </div>
+
+      <h2 class="label-sm" style="margin-bottom:14px;color:var(--text-secondary)">What happens next</h2>
+      <ol class="timeline" aria-label="Next steps">
+        <li class="timeline-item is-done">
+          <span class="timeline-dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+          <div><div class="timeline-title">Request submitted<span class="sr-only"> (complete)</span></div><div class="timeline-desc">We've got your details and the password you chose.</div></div>
+        </li>
+        <li class="timeline-item is-current" aria-current="step">
+          <span class="timeline-dot" aria-hidden="true">2</span>
+          <div><div class="timeline-title">We review your request<span class="sr-only"> (in progress)</span></div><div class="timeline-desc">A member of the LeadAI team checks the request and sets up your workspace.</div></div>
+        </li>
+        <li class="timeline-item is-upcoming">
+          <span class="timeline-dot" aria-hidden="true">3</span>
+          <div><div class="timeline-title">You get an email</div><div class="timeline-desc" id="emailStep">We'll email you as soon as your account is approved.</div></div>
+        </li>
+        <li class="timeline-item is-upcoming">
+          <span class="timeline-dot" aria-hidden="true">4</span>
+          <div><div class="timeline-title">Sign in and start finding leads</div><div class="timeline-desc">Use your work email and the password you created.</div></div>
+        </li>
+      </ol>
+
+      <div class="alert alert-info" style="margin-top:24px">
+        <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <div class="alert-body">
+          <p>Don't see our email? Check spam or promotions, or <a href="/contact">contact us</a> and mention the email you signed up with.</p>
+        </div>
+      </div>
+
+      <div class="auth-actions-row">
+        <a class="btn btn-primary" href="/website">Back to website</a>
+        <a class="btn btn-secondary" href="/login">Go to sign in</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="auth-footer">
+    <nav aria-label="Footer"><a href="/website">Home</a><a href="/contact">Contact</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+    <p style="margin-top:6px">© 2026 LeadAI</p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  // The sign-up page leaves the submitted email in sessionStorage so we can
+  // confirm where the approval email goes. Rendered with textContent only.
+  var email = "";
+  try { email = sessionStorage.getItem("leadai_demo_email") || ""; } catch (_) {}
+  if (email && window.LeadAIUI && LeadAIUI.isEmail(email)) {
+    var step = document.getElementById("emailStep");
+    step.textContent = "We'll email ";
+    var strong = document.createElement("strong");
+    strong.style.color = "var(--text-primary)";
+    strong.style.overflowWrap = "anywhere";
+    strong.textContent = email;
+    step.appendChild(strong);
+    step.appendChild(document.createTextNode(" as soon as your account is approved."));
+  }
+})();
+</script>
+</body>
+</html>

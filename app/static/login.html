@@ -3,49 +3,64 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sign in — LeadAI</title>
+  <title>Sign in · LeadAI</title>
   <meta name="description" content="Sign in to LeadAI — AI lead intelligence platform.">
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="stylesheet" href="/static/design/tokens.css">
+  <script src="/static/design/theme.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500;1,9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
   <style>
-    /* ═══ LeadAI Login — matches the main site's light UI design system ═══ */
+    /* ═══ LeadAI Login — built on the shared design tokens ═══
+       Surfaces, text, borders and shadows come from design/tokens.css, so the
+       page follows light/dark (theme.js) and stays AA in both themes. Brand
+       hues are plain aliases that config.js (Global Settings → branding) may
+       override at runtime. */
     :root {
-      --bg: #f5f4fb;
-      --bg-grad: radial-gradient(120% 140% at 10% -10%, #fdeee0 0%, #f5f4fb 38%),
-                 radial-gradient(100% 120% at 100% 0%, #eaf1ff 0%, transparent 45%);
-      --surface: #ffffff;
-      --surface-2: #faf9fd;
-      --border: #e7e4f1;
-      --border-soft: #efedf7;
-      --shadow-sm: 0 1px 3px rgba(30, 20, 60, 0.05), 0 1px 2px rgba(30, 20, 60, 0.03);
-      --shadow-md: 0 10px 30px rgba(60, 40, 120, 0.08);
-      --shadow-lg: 0 20px 45px rgba(60, 40, 120, 0.12);
-      --text: #1c1a2b;
-      --text-dim: #66607f;
-      --text-faint: #9c96b3;
-      --amber: #f0a531;
+      /* brand hues (runtime-overridable by config.js) */
+      --amber: var(--secondary);
       --amber-deep: #d0821a;
-      --amber-soft: #fdf1de;
-      --violet: #7c5cff;
-      --violet-deep: #6141e0;
-      --violet-soft: #efeaff;
-      --blue: #3b82f6;
-      --green: #1fae6a;
-      --green-soft: #e6f8ee;
-      --red: #e5484d;
-      --red-soft: #fdeaea;
+      --amber-soft: var(--secondary-soft);
+      --violet: var(--primary);
+      --violet-deep: var(--primary-fill-hover);
+      --violet-soft: var(--primary-soft);
+      --blue: var(--info);
+      --green: var(--success);
+      --green-soft: var(--success-soft);
+      --red: var(--danger);
+      --red-soft: var(--danger-soft);
+    }
+    /* theme-aware aliases of the tokens — `:root:root` (0,2,0) so they win over the
+       tokens.css light blocks for the names both define (--surface, --shadow-sm, …) */
+    :root:root {
+      --bg: var(--bg-primary);
+      --bg-grad: radial-gradient(120% 140% at 10% -10%, var(--ambient-2) 0%, var(--bg-primary) 40%),
+                 radial-gradient(100% 120% at 100% 0%, var(--ambient) 0%, transparent 45%);
+      --surface: var(--bg-elevated);
+      --surface-2: var(--bg-secondary);
+      --border-soft: var(--border-subtle);
+      --shadow-sm: var(--shadow-xs);
+      --text: var(--text-primary);
+      --text-dim: var(--text-secondary);
+      --text-faint: var(--text-muted);
+      --link: var(--secondary-text);
+      --on-amber: var(--on-secondary);
+      --grid-line: rgba(128, 128, 160, 0.05);
+      --autofill-bg: var(--bg-secondary);
+
       --radius: 16px;
       --radius-sm: 10px;
       --radius-lg: 20px;
       --font-display: "Fraunces", Georgia, serif;
       --font-ui: "Inter", system-ui, -apple-system, sans-serif;
       --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+      --ease: var(--ease-out);
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    [hidden] { display: none !important; }
 
     html, body { height: 100%; }
 
@@ -66,8 +81,8 @@
     .bg-grid {
       position: absolute; inset: 0;
       background-image:
-        linear-gradient(rgba(30, 20, 60, 0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(30, 20, 60, 0.03) 1px, transparent 1px);
+        linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
       background-size: 54px 54px;
       mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, #000 20%, transparent 70%);
       -webkit-mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, #000 20%, transparent 70%);
@@ -200,9 +215,10 @@
       color: var(--text);
     }
     .form-input::placeholder { color: var(--text-faint); font-weight: 400; }
+    .form-input:focus-visible { outline: none; } /* the .input-shell shows the focus ring */
     .form-input:-webkit-autofill {
       -webkit-text-fill-color: var(--text);
-      -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+      -webkit-box-shadow: 0 0 0 1000px var(--autofill-bg) inset;
       transition: background-color 600000s 0s;
     }
 
@@ -212,7 +228,7 @@
       display: none; align-items: center; justify-content: center;
       border-radius: 50%;
       background: var(--green-soft);
-      color: var(--green);
+      color: var(--success-text);
     }
     .input-check svg { width: 12px; height: 12px; }
     .input-shell.valid .input-check { display: flex; animation: popIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
@@ -258,7 +274,7 @@
       transition: all 0.25s ease;
       flex: 0 0 auto;
     }
-    .checkmark svg { width: 11px; height: 11px; color: #fff; opacity: 0; transform: scale(0.4); transition: all 0.25s ease; }
+    .checkmark svg { width: 11px; height: 11px; color: var(--on-amber); opacity: 0; transform: scale(0.4); transition: all 0.25s ease; }
     .remember input:checked + .checkmark {
       background: linear-gradient(135deg, #f5b342 0%, var(--amber) 100%);
       border-color: transparent;
@@ -269,7 +285,7 @@
 
     .forgot {
       font-size: 13.5px; font-weight: 600;
-      color: var(--amber-deep);
+      color: var(--link);
       text-decoration: none;
       position: relative;
       padding: 6px 0;
@@ -283,22 +299,64 @@
       transform: scaleX(0); transform-origin: right;
       transition: transform 0.3s var(--ease);
     }
-    .forgot:hover { color: var(--amber); }
+    .forgot:hover { color: var(--link); }
     .forgot:hover::after { transform: scaleX(1); transform-origin: left; }
 
-    /* error banner */
-    .login-error {
+    /* error / notice banner */
+    .login-error, .login-notice {
       display: none;
-      align-items: center; gap: 10px;
-      font-size: 13.5px; color: var(--red);
+      align-items: flex-start; gap: 10px;
+      font-size: 13.5px; line-height: 1.5; color: var(--text);
       background: var(--red-soft);
-      border: 1px solid rgba(229, 72, 77, 0.28);
+      border: 1px solid var(--danger-border);
       border-radius: 12px;
       padding: 12px 15px;
       animation: shake 0.4s ease;
     }
-    .login-error.show { display: flex; }
-    .login-error svg { width: 18px; height: 18px; flex: 0 0 auto; color: var(--red); }
+    .login-error.show, .login-notice.show { display: flex; }
+    .login-error svg, .login-notice svg { width: 18px; height: 18px; flex: 0 0 auto; margin-top: 1px; color: var(--danger-text); }
+    .login-error .msg-body, .login-notice .msg-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .login-error .msg-link, .login-notice .msg-link {
+      display: inline-block; margin-top: 4px; font-weight: 600; color: inherit;
+      text-decoration: underline; text-underline-offset: 2px;
+    }
+    .login-error.tone-warn { background: var(--amber-soft); border-color: var(--secondary-border); animation: none; }
+    .login-error.tone-warn svg { color: var(--link); }
+    .login-notice { animation: none; margin-bottom: 18px; background: var(--green-soft); border-color: var(--success-border); }
+    .login-notice svg { color: var(--success-text); }
+    .login-notice.tone-info { background: var(--violet-soft); border-color: var(--primary-border); }
+    .login-notice.tone-info svg { color: var(--primary-text); }
+
+    /* theme switch (top-right) */
+    .theme-btn {
+      position: fixed; top: 16px; right: 16px; z-index: 2;
+      width: 40px; height: 40px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 12px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--text-dim);
+      box-shadow: var(--shadow-sm); cursor: pointer;
+      transition: color 0.2s ease, border-color 0.2s ease;
+    }
+    .theme-btn:hover { color: var(--text); border-color: var(--violet); }
+    .theme-btn svg { width: 18px; height: 18px; }
+    .theme-btn .icon-sun { display: none; }
+    :root[data-theme="dark"] .theme-btn .icon-sun { display: block; }
+    :root[data-theme="dark"] .theme-btn .icon-moon { display: none; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) .theme-btn .icon-sun { display: block; }
+      :root:not([data-theme="light"]) .theme-btn .icon-moon { display: none; }
+    }
+
+    .logo-link { display: inline-flex; text-decoration: none; color: inherit; border-radius: 12px; }
+
+    .alt-row {
+      position: relative; z-index: 1;
+      margin-top: 22px; padding-top: 20px;
+      border-top: 1px solid var(--border-soft);
+      text-align: center; font-size: 14px; color: var(--text-dim);
+    }
+    .alt-row a { color: var(--link); font-weight: 600; text-decoration: none; }
+    .alt-row a:hover { text-decoration: underline; text-underline-offset: 3px; }
     @keyframes shake {
       0%, 100% { transform: translateX(0); }
       25% { transform: translateX(-6px); }
@@ -315,7 +373,7 @@
       border-radius: 12px;
       font-family: var(--font-ui);
       font-size: 15.5px; font-weight: 600; letter-spacing: 0.01em;
-      color: #fff;
+      color: var(--on-amber);
       background: linear-gradient(135deg, #f5b342 0%, var(--amber) 100%);
       box-shadow: 0 2px 10px rgba(240, 165, 49, 0.35);
       cursor: pointer;
@@ -334,8 +392,8 @@
 
     .btn-spinner {
       width: 19px; height: 19px;
-      border: 2.5px solid rgba(255, 255, 255, 0.4);
-      border-top-color: #fff;
+      border: 2.5px solid rgba(36, 21, 0, 0.25);
+      border-top-color: var(--on-amber);
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
       display: none;
@@ -353,7 +411,7 @@
     }
     .foot-note.foot-meta { margin-top: 7px; }
     .foot-meta a { color: var(--text-dim); text-decoration: none; }
-    .foot-meta a:hover { color: var(--amber-deep); }
+    .foot-meta a:hover { color: var(--link); }
 
     /* focus visibility for keyboard users */
     :focus-visible {
@@ -393,19 +451,33 @@
     <div class="bg-orb orb-3"></div>
   </div>
 
+  <button type="button" class="theme-btn" data-theme-toggle aria-label="Switch theme">
+    <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+
   <!-- ── Login card (existing-account sign-in only) ── -->
   <main class="login-wrap">
-    <div class="login-card" role="main">
+    <div class="login-card">
       <div class="logo">
-        <div class="logo-badge" data-brand-logo="login" aria-hidden="true">✦</div>
-        <div class="logo-text">
-          <div class="logo-name" data-brand-name>LeadAI</div>
-          <div class="logo-tag" data-brand-sub>AI Lead Intelligence</div>
-        </div>
+        <a class="logo-link" href="/website">
+          <span class="logo" style="margin:0">
+            <span class="logo-badge" data-brand-logo="login" aria-hidden="true">✦</span>
+            <span class="logo-text">
+              <span class="logo-name" data-brand-name style="display:block">LeadAI</span>
+              <span class="logo-tag" data-brand-sub style="display:block">AI Lead Intelligence</span>
+            </span>
+          </span>
+        </a>
       </div>
 
-      <h1 class="title" data-brand-login-heading>Welcome Back</h1>
+      <h1 class="title" data-brand-login-heading>Welcome back</h1>
       <p class="desc" data-brand-login-subtext>Sign in to continue to your AI-powered lead intelligence dashboard.</p>
+
+      <div class="login-notice" id="loginNotice" role="status">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <span class="msg-body" id="loginNoticeText"></span>
+      </div>
 
       <form id="loginForm" class="login-form" novalidate>
         <div class="field">
@@ -415,9 +487,9 @@
               <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
               <polyline points="22,6 12,13 2,6"/>
             </svg>
-            <input type="email" id="loginEmail" class="form-input" placeholder="admin@gmail.com"
-                   autocomplete="username" spellcheck="false" autocapitalize="off" required autofocus
-                   aria-describedby="emailHint">
+            <input type="email" id="loginEmail" class="form-input" placeholder="you@company.com"
+                   autocomplete="username" inputmode="email" spellcheck="false" autocapitalize="off" required autofocus
+                   aria-describedby="loginError">
             <span class="input-check" id="emailCheck" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             </span>
@@ -432,7 +504,7 @@
               <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
             </svg>
             <input type="password" id="loginPassword" class="form-input" placeholder="Enter your password"
-                   autocomplete="current-password" required>
+                   autocomplete="current-password" required aria-describedby="loginError">
             <button type="button" class="eye-btn" id="eyeBtn"
                     aria-label="Show password" aria-pressed="false" title="Show password">
               <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -453,26 +525,31 @@
             <span class="checkmark" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             </span>
-            Remember Me
+            Remember me
           </label>
-          <a href="#" class="forgot" id="forgotLink">Forgot Password?</a>
+          <a href="/forgot-password" class="forgot" id="forgotLink">Forgot password?</a>
         </div>
 
         <div class="login-error" id="loginError" role="alert" aria-live="assertive">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
           </svg>
-          <span id="loginErrorText"></span>
+          <span class="msg-body">
+            <span id="loginErrorText"></span>
+            <a class="msg-link" id="loginErrorLink" href="/contact" hidden></a>
+          </span>
         </div>
 
         <button type="submit" class="signin-btn" id="signinBtn">
           <span class="btn-spinner" aria-hidden="true"></span>
-          <span class="btn-label">Sign In</span>
+          <span class="btn-label">Sign in</span>
           <svg class="btn-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
           </svg>
         </button>
       </form>
+
+      <p class="alt-row" id="demoRow">New to LeadAI? <a href="/request-demo">Request a demo</a></p>
 
       <p class="foot-note" data-brand-footer>Protected by secure authentication · LeadAI © 2026</p>
       <p class="foot-note foot-meta" data-brand-company></p>
@@ -484,18 +561,58 @@
   <script>
     "use strict";
 
-    if (window.AppConfig) AppConfig.load();
+    // ── Login scope: /login (site) vs /login?admin=1 (admin) vs /login?superadmin=1 (super admin) ──
+    const urlParams = new URLSearchParams(location.search);
+    const isAdminLogin = urlParams.get("admin") === "1";
+    const isSuperAdminLogin = urlParams.get("superadmin") === "1";
+    const loginScope = isSuperAdminLogin ? "admin" : (isAdminLogin ? "admin" : "site");
+
+    const appCfg = window.AppConfig ? AppConfig.load() : Promise.resolve(null);
+
+    if (window.AppConfig) appCfg.then((cfg) => {
+      if (isSuperAdminLogin) {
+        document.title = "Super admin sign in · " + ((cfg && cfg.app.name) || "LeadAI");
+        const h = document.querySelector("[data-brand-login-heading]");
+        if (h) h.textContent = "Super Admin Portal";
+        const s = document.querySelector("[data-brand-login-subtext]");
+        if (s) s.textContent = "Sign in to the platform control center.";
+      } else if (isAdminLogin) {
+        document.title = "Admin sign in · " + ((cfg && cfg.app.name) || "LeadAI");
+        const h = document.querySelector("[data-brand-login-heading]");
+        if (h) h.textContent = "Admin Portal";
+        const s = document.querySelector("[data-brand-login-subtext]");
+        if (s) s.textContent = "Sign in to the admin control center.";
+      }
+    });
 
     const $ = (id) => document.getElementById(id);
     const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+    $("loginEmail").placeholder = (isSuperAdminLogin || isAdminLogin) ? "admin@company.com" : "you@company.com";
+    // "Request a demo" is for new customers — not shown on the admin portals.
+    if (isAdminLogin || isSuperAdminLogin) $("demoRow").hidden = true;
+
+    // ── Safe post-login redirect: only same-site relative paths ──
+    function safeNext(path) {
+      if (typeof path !== "string" || !path) return "";
+      if (!path.startsWith("/") || path.startsWith("//") || path.startsWith("/\\")) return "";
+      if (/[\u0000-\u001f]/.test(path)) return "";
+      return path;
+    }
+    const nextPath = safeNext(urlParams.get("next"));
+
+    // ── Storage helpers (private mode / blocked storage must not break sign-in) ──
+    function lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
+    function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (_) {} }
+    function lsDel(k) { try { localStorage.removeItem(k); } catch (_) {} }
+
     // ── Remember me: persist the email locally (login-only convenience) ──
     const remember = $("rememberMe");
-    if (localStorage.getItem("leadai_email")) {
-      $("loginEmail").value = localStorage.getItem("leadai_email");
+    if (lsGet("leadai_email")) {
+      $("loginEmail").value = lsGet("leadai_email");
     }
     remember.addEventListener("change", () => {
-      if (!remember.checked) localStorage.removeItem("leadai_email");
+      if (!remember.checked) lsDel("leadai_email");
     });
 
     // ── Email live validation (green success indicator) ──
@@ -518,27 +635,107 @@
       pwInput.focus({ preventScroll: true });
     });
 
-    // ── Forgot password: no reset flow exists — inform gracefully ──
+    // ── Forgot password: real reset flow; carry the typed email along ──
     $("forgotLink").addEventListener("click", (e) => {
-      e.preventDefault();
+      const email = $("loginEmail").value.trim();
+      e.currentTarget.href = "/forgot-password" + (EMAIL_RE.test(email) ? "?email=" + encodeURIComponent(email) : "");
+    });
+
+    // ── Notices from other flows (approved demo, password reset, invitation) ──
+    function showNotice(msg, tone) {
+      const n = $("loginNotice");
+      $("loginNoticeText").textContent = msg;
+      n.classList.toggle("tone-info", tone === "info");
+      n.classList.add("show");
+    }
+    if (urlParams.get("approved") === "1") {
+      showNotice("Your account is approved. Sign in with the email and password you chose when you requested the demo.");
+    } else if (urlParams.get("reset") === "1") {
+      showNotice("Password updated. Sign in with your new password.");
+    } else if (nextPath.startsWith("/invite/")) {
+      showNotice("Sign in with the invited email address to accept your invitation.", "info");
+    } else if (nextPath.startsWith("/billing/")) {
+      showNotice("Your session ended. Sign in to see your payment status.", "info");
+    }
+
+    // ── Error banner (optionally with a follow-up link) ──
+    function showError(msg, opts) {
+      opts = opts || {};
+      $("loginErrorText").textContent = msg;
+      const link = $("loginErrorLink");
+      if (opts.linkHref) {
+        link.href = opts.linkHref;
+        link.textContent = opts.linkText || "Learn more";
+        link.hidden = false;
+      } else {
+        link.hidden = true;
+      }
       const err = $("loginError");
-      $("loginErrorText").textContent =
-        "Password resets are managed by your administrator — contact them to reset it.";
+      err.classList.toggle("tone-warn", opts.tone === "warn");
       err.classList.remove("show");
       void err.offsetWidth; /* restart animation */
       err.classList.add("show");
-      setTimeout(() => err.classList.remove("show"), 5000);
-    });
+      $("loginNotice").classList.remove("show");
+    }
+    function hideError() { $("loginError").classList.remove("show"); }
 
-    function showError(msg) {
-      $("loginErrorText").textContent = msg;
-      const err = $("loginError");
-      err.classList.remove("show");
-      void err.offsetWidth;
-      err.classList.add("show");
+    // FastAPI errors: detail may be a string, {code, message} or a validation list.
+    function detailMessage(data, fallback) {
+      const d = data && data.detail;
+      if (typeof d === "string" && d.trim()) return d;
+      if (d && typeof d === "object" && !Array.isArray(d) && typeof d.message === "string") return d.message;
+      if (Array.isArray(d) && d.length && d[0] && d[0].msg) return String(d[0].msg);
+      return fallback;
+    }
+    function detailCode(data) {
+      const d = data && data.detail;
+      return d && typeof d === "object" && !Array.isArray(d) && d.code ? String(d.code) : "";
     }
 
-    // ── Sign in (unchanged backend: POST /api/auth/login) ──
+    function explainFailure(status, data) {
+      const code = detailCode(data);
+      const msg = detailMessage(data, "");
+      if (status === 423 || code === "account_locked") {
+        return showError(msg || "Too many failed sign-in attempts. Your account is temporarily locked — try again in a few minutes.",
+          { tone: "warn", linkHref: "/forgot-password", linkText: "Reset your password" });
+      }
+      if (status === 429) {
+        return showError(msg || "Too many sign-in attempts. Please wait a moment and try again.", { tone: "warn" });
+      }
+      switch (code) {
+        case "demo_pending":
+          return showError("Your demo request is still awaiting approval. We'll email you as soon as your account is ready.",
+            { tone: "warn", linkHref: "/demo-pending", linkText: "What happens next" });
+        case "demo_rejected":
+          return showError("Your demo request wasn't approved, so this account can't sign in. If you think this is a mistake, get in touch.",
+            { linkHref: "/contact", linkText: "Contact us" });
+        case "account_suspended":
+          return showError("Your account is suspended. Contact your workspace admin or our support team to restore access.",
+            { linkHref: "/contact", linkText: "Contact support" });
+        case "organization_suspended":
+          return showError("Your organization's workspace is suspended. An admin of your workspace can contact us to restore access.",
+            { linkHref: "/contact", linkText: "Contact support" });
+        case "no_active_organization":
+          return showError("Your account isn't part of an active workspace. Ask your team admin to invite you again, or contact support.",
+            { linkHref: "/contact", linkText: "Contact support" });
+      }
+      if (status === 401) return showError(msg || "Invalid email or password.");
+      if (status === 403) return showError(msg || "You don't have access to this sign-in portal.");
+      if (status >= 500) return showError("LeadAI is having trouble right now. Please try again in a moment.");
+      return showError(msg || "Sign-in failed — " + status);
+    }
+
+    // Where to go after sign-in: ?next= wins, then by account type.
+    function destinationFor(user) {
+      if (nextPath) return nextPath;
+      const isPlatformAdmin = !!(user.is_platform_admin || user.platform_role);
+      if (user.platform_role === "super_admin") return "/superadmin";
+      if (isPlatformAdmin) return "/admin";
+      if (loginScope === "admin") return "/admin"; // legacy admin accounts on ?admin=1
+      return "/dashboard";
+    }
+
+    // ── Sign in (POST /api/auth/login) ──
     async function handleLogin(event) {
       event.preventDefault();
       const email = $("loginEmail").value.trim();
@@ -546,34 +743,53 @@
       const btn = $("signinBtn");
       const label = btn.querySelector(".btn-label");
 
+      hideError();
+      // Admin portal accounts are matched verbatim server-side, so only require a value there.
+      if (!email || (loginScope === "site" && !EMAIL_RE.test(email))) {
+        showError(email ? "Enter a valid email address, like name@company.com." : "Enter your email address.");
+        $("loginEmail").focus();
+        return;
+      }
+      if (!password) {
+        showError("Enter your password.");
+        pwInput.focus();
+        return;
+      }
+
       if (remember.checked && email) {
-        localStorage.setItem("leadai_email", email);
+        lsSet("leadai_email", email);
       }
 
       btn.disabled = true;
       btn.classList.add("loading");
+      btn.setAttribute("aria-busy", "true");
       label.textContent = "Signing in…";
+
+      const reset = () => {
+        btn.disabled = false;
+        btn.classList.remove("loading");
+        btn.removeAttribute("aria-busy");
+        label.textContent = "Sign in";
+      };
 
       try {
         const res = await fetch("/api/auth/login", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password }),
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ email, password, scope: loginScope }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          showError(data.detail || "Sign-in failed — " + res.status);
-          btn.disabled = false;
-          btn.classList.remove("loading");
-          label.textContent = "Sign In";
+          explainFailure(res.status, data);
+          reset();
           return;
         }
-        location.href = "/";
+        label.textContent = "Redirecting…";
+        location.href = destinationFor(data.user || {});
       } catch (e) {
-        showError("Network error during sign-in — please try again.");
-        btn.disabled = false;
-        btn.classList.remove("loading");
-        label.textContent = "Sign In";
+        showError("Network error during sign-in — check your connection and try again.");
+        reset();
       }
     }
 

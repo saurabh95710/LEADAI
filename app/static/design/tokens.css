@@ -1,0 +1,502 @@
+/* ============================================================
+   LeadAI Design System — CSS Tokens
+   All colors, spacing, radii, typography, shadows, and effects
+   are defined here. Override via Super-Admin branding API which
+   injects values into :root at runtime via theme.js.
+
+   Themes
+   - Dark is the default (the values directly on :root).
+   - Light applies with :root[data-theme="light"], or automatically
+     when the OS prefers light and the page/user has not pinned
+     data-theme="dark". theme.js persists the user's choice.
+   ============================================================ */
+
+:root {
+  color-scheme: dark;
+
+  /* --- Backgrounds --- */
+  --bg-primary:   #0a0a0f;
+  --bg-secondary: #0f0f1a;
+  --bg-tertiary:  #13131f;
+
+  /* --- Surfaces (glass cards, panels) --- */
+  --surface:        rgba(255,255,255,0.04);
+  --surface-hover:  rgba(255,255,255,0.07);
+  --surface-active: rgba(255,255,255,0.10);
+
+  /* --- Borders --- */
+  --border:       rgba(255,255,255,0.08);
+  --border-hover: rgba(139,92,246,0.40);
+
+  /* --- Text --- */
+  --text-primary:   #f1f1f5;
+  --text-secondary: #a8a8b8;
+  --text-muted:     #8e8ea4; /* was #6b6b80 (3.8:1) - raised to pass AA */
+
+  /* --- Brand / Primary (violet-purple) --- */
+  --primary:       #8b5cf6;
+  --primary-hover: #7c3aed;
+  --primary-light: rgba(139,92,246,0.15);
+  --primary-dark:  #5b21b6;
+
+  /* --- Accent (electric purple) --- */
+  --accent: #a78bfa;
+
+  /* --- Semantic colors --- */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger:  #ef4444;
+  --info:    #3b82f6;
+
+  /* Semantic text (AA on --bg-*) + soft fills/borders for alerts & pills */
+  --success-text: #34d399;
+  --warning-text: #fbbf24;
+  --danger-text:  #f87171;
+  --info-text:    #60a5fa;
+  --success-soft: rgba(16,185,129,0.12);
+  --warning-soft: rgba(245,158,11,0.12);
+  --danger-soft:  rgba(239,68,68,0.12);
+  --info-soft:    rgba(59,130,246,0.12);
+  --success-border: rgba(16,185,129,0.32);
+  --warning-border: rgba(245,158,11,0.32);
+  --danger-border:  rgba(239,68,68,0.32);
+  --info-border:    rgba(59,130,246,0.32);
+
+  /* Misc semantic helpers */
+  --on-primary:    #ffffff;
+  --text-link:     #b9a2ff;
+  --bg-elevated:   #13131f;
+  --border-subtle: rgba(255,255,255,0.05);
+  --overlay:       rgba(0,0,0,0.70);
+  --ambient:       rgba(139,92,246,0.14);
+  --ambient-2:     rgba(240,165,49,0.07);
+  --focus-ring:    0 0 0 3px rgba(139,92,246,0.35);
+
+  /* --- Shadow & Glow --- */
+  --shadow:      0 4px 24px rgba(0,0,0,0.40);
+  --shadow-lg:   0 8px 48px rgba(0,0,0,0.60);
+  --glow:        0 0 20px rgba(139,92,246,0.25);
+  --glow-strong: 0 0 40px rgba(139,92,246,0.45);
+
+  /* --- Border radii --- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+
+  /* --- Spacing --- */
+  --spacing-xs:  4px;
+  --spacing-sm:  8px;
+  --spacing-md:  16px;
+  --spacing-lg:  24px;
+  --spacing-xl:  40px;
+  --spacing-2xl: 64px;
+
+  /* --- Typography --- */
+  --font-sans: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Fira Code', 'Cascadia Code', monospace;
+
+  --text-xs:   0.75rem;
+  --text-sm:   0.875rem;
+  --text-base: 1rem;
+  --text-lg:   1.125rem;
+  --text-xl:   1.25rem;
+  --text-2xl:  1.5rem;
+  --text-3xl:  1.875rem;
+  --text-4xl:  2.25rem;
+  --text-5xl:  3rem;
+  --text-6xl:  3.75rem;
+
+  /* --- Transitions --- */
+  --transition-fast:   0.15s ease;
+  --transition-normal: 0.25s ease;
+  --transition-slow:   0.40s ease;
+
+  /* --- Glassmorphism --- */
+  --glass-bg:     rgba(255,255,255,0.05);
+  --glass-border: rgba(255,255,255,0.10);
+  --glass-blur:   blur(16px);
+
+  /* --- Z-index layers --- */
+  --z-base:    1;
+  --z-dropdown: 100;
+  --z-modal:   200;
+  --z-toast:   300;
+  --z-tooltip: 400;
+
+  /* ════════════════════════════════════════════════════════════
+     Extended named token set (Step 3). Additive only: every token
+     above keeps its name and meaning. Colour tokens that differ per
+     theme are redefined in the light blocks below.
+     ════════════════════════════════════════════════════════════ */
+
+  /* Primary (violet) - fill / text / soft / border roles */
+  --primary-fill:       #7c3aed;               /* solid fills behind white text (5.7:1) */
+  --primary-fill-hover: #6d28d9;
+  --primary-text:       #b9a2ff;               /* primary-coloured text on dark bgs */
+  --primary-soft:       rgba(139,92,246,0.14);
+  --primary-border:     rgba(139,92,246,0.36);
+
+  /* Secondary (amber / gold) */
+  --secondary:        #f0a531;
+  --secondary-hover:  #f5b342;
+  --secondary-text:   #f5b342;
+  --secondary-soft:   rgba(240,165,49,0.13);
+  --secondary-border: rgba(240,165,49,0.34);
+  --on-secondary:     #241500;
+
+  /* Neutral scale (theme independent raw values) + semantic neutral roles */
+  --neutral-50:  #f7f7fa;
+  --neutral-100: #eeeef3;
+  --neutral-200: #dcdce5;
+  --neutral-300: #c1c1ce;
+  --neutral-400: #9d9db0;
+  --neutral-500: #7b7b90;
+  --neutral-600: #5f5f73;
+  --neutral-700: #47475a;
+  --neutral-800: #2e2e3d;
+  --neutral-900: #1b1b27;
+  --neutral-950: #0f0f18;
+  --neutral:        #7b7b90;
+  --neutral-text:   #b4b4c6;
+  --neutral-soft:   rgba(148,148,170,0.14);
+  --neutral-border: rgba(148,148,170,0.30);
+
+  /* Solid semantic fills (for white text) */
+  --success-fill: #047857;
+  --warning-fill: #f59e0b;
+  --danger-fill:  #dc2626;
+  --info-fill:    #2563eb;
+  --on-success:   #ffffff;
+  --on-warning:   #241500;
+  --on-danger:    #ffffff;
+  --on-info:      #ffffff;
+
+  /* Stronger border for controls that must be identifiable (WCAG 1.4.11, >=3:1) */
+  --border-strong: rgba(255,255,255,0.36);
+
+  /* Chart palette - categorical series, same order everywhere */
+  --chart-1: #a78bfa; /* violet  */
+  --chart-2: #f5b342; /* amber   */
+  --chart-3: #2dd4bf; /* teal    */
+  --chart-4: #60a5fa; /* blue    */
+  --chart-5: #f472b6; /* pink    */
+  --chart-6: #34d399; /* green   */
+  --chart-7: #fb923c; /* orange  */
+  --chart-8: #94a3b8; /* slate   */
+  --chart-grid: rgba(255,255,255,0.07);
+  --chart-axis: #8e8ea4;
+
+  /* Spacing scale (4px grid) - numeric aliases next to --spacing-* */
+  --spacing-2xs: 2px;
+  --spacing-3xl: 96px;
+  --space-0:  0;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+
+  /* Type scale extras */
+  --font-display: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --text-2xs: 0.6875rem;
+  --leading-none:   1;
+  --leading-tight:  1.2;
+  --leading-snug:   1.35;
+  --leading-normal: 1.6;
+  --leading-relaxed: 1.75;
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+  --weight-extrabold: 800;
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide:  0.06em;
+  --tracking-caps:  0.08em;
+
+  /* Radius extras */
+  --radius-xs:  4px;
+  --radius-2xl: 32px;
+
+  /* Elevation scale */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.30);
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.35);
+  --shadow-md: 0 4px 24px rgba(0,0,0,0.40);
+  --shadow-xl: 0 24px 64px rgba(0,0,0,0.65);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.04);
+  --focus-outline: 2px solid var(--primary);
+  --focus-ring-danger: 0 0 0 3px rgba(239,68,68,0.30);
+
+  /* Z-index extras (existing layers above keep their values) */
+  --z-sticky:  20;
+  --z-header:  50;
+  --z-popover: 110;
+  --z-drawer:  150;
+
+  /* Motion */
+  --duration-instant: 80ms;
+  --duration-fast:    150ms;
+  --duration-normal:  250ms;
+  --duration-slow:    400ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out:      cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in:       cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Icons (inline SVG, 24x24 viewBox, stroke icons) */
+  --icon-xs: 12px;
+  --icon-sm: 16px;
+  --icon-md: 20px;
+  --icon-lg: 24px;
+  --icon-xl: 32px;
+  --icon-stroke: 1.8;
+
+  /* Layout */
+  --sidebar-width: 240px;
+  --topbar-height: 60px;
+  --content-max: 1280px;
+}
+
+/* Reduced motion: collapse the motion tokens (the global rule below also
+   shortens any hard-coded animation/transition). */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-instant: 0ms;
+    --duration-fast:    0ms;
+    --duration-normal:  0ms;
+    --duration-slow:    0ms;
+    --transition-fast:   0s;
+    --transition-normal: 0s;
+    --transition-slow:   0s;
+  }
+}
+
+/* ─── Light theme (explicit) ─────────────────────────────────── */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-primary:   #f6f5fb;
+  --bg-secondary: #ffffff;
+  --bg-tertiary:  #eeecf6;
+  --surface:        rgba(24,20,48,0.035);
+  --surface-hover:  rgba(24,20,48,0.06);
+  --surface-active: rgba(24,20,48,0.09);
+  --border:       rgba(24,20,48,0.12);
+  --border-hover: rgba(124,58,237,0.45);
+  --text-primary:   #16141f;
+  --text-secondary: #464257;
+  --text-muted:     #5f5a73;
+  --primary:       #7c3aed;
+  --primary-hover: #6d28d9;
+  --primary-light: rgba(124,58,237,0.10);
+  --primary-dark:  #5b21b6;
+  --accent:        #6d28d9;
+  --success: #059669;
+  --warning: #d97706;
+  --danger:  #dc2626;
+  --info:    #2563eb;
+  --success-text: #047857;
+  --warning-text: #a14e07; /* AA on warning-soft */
+  --danger-text:  #b91c1c;
+  --info-text:    #1d4ed8;
+  --success-soft: rgba(5,150,105,0.08);
+  --warning-soft: rgba(217,119,6,0.09);
+  --danger-soft:  rgba(220,38,38,0.07);
+  --info-soft:    rgba(37,99,235,0.07);
+  --success-border: rgba(5,150,105,0.28);
+  --warning-border: rgba(217,119,6,0.30);
+  --danger-border:  rgba(220,38,38,0.28);
+  --info-border:    rgba(37,99,235,0.28);
+  --on-primary:    #ffffff;
+  --text-link:     #6d28d9;
+  --bg-elevated:   #ffffff;
+  --border-subtle: rgba(24,20,48,0.06);
+  --overlay:       rgba(22,20,31,0.45);
+  --ambient:       rgba(124,58,237,0.10);
+  --ambient-2:     rgba(240,165,49,0.12);
+  --focus-ring:    0 0 0 3px rgba(124,58,237,0.25);
+  --shadow:      0 1px 2px rgba(24,20,48,0.05), 0 8px 24px rgba(24,20,48,0.06);
+  --shadow-lg:   0 1px 3px rgba(24,20,48,0.06), 0 20px 48px rgba(24,20,48,0.12);
+  --glow:        0 0 0 1px rgba(124,58,237,0.10), 0 8px 24px rgba(124,58,237,0.12);
+  --glow-strong: 0 10px 30px rgba(124,58,237,0.25);
+  --glass-bg:     rgba(255,255,255,0.86);
+  --glass-border: rgba(24,20,48,0.10);
+  /* extended set (light) */
+  --primary-fill:       #7c3aed;
+  --primary-fill-hover: #6d28d9;
+  --primary-text:       #6d28d9;
+  --primary-soft:       rgba(124,58,237,0.09);
+  --primary-border:     rgba(124,58,237,0.30);
+  --secondary:        #f0a531;
+  --secondary-hover:  #e59a22;
+  --secondary-text:   #9a4a08;
+  --secondary-soft:   rgba(240,165,49,0.14);
+  --secondary-border: rgba(208,130,26,0.38);
+  --on-secondary:     #241500;
+  --neutral:        #6b6880;
+  --neutral-text:   #4b4760;
+  --neutral-soft:   rgba(24,20,48,0.06);
+  --neutral-border: rgba(24,20,48,0.16);
+  --success-fill: #047857;
+  --warning-fill: #f59e0b;
+  --danger-fill:  #dc2626;
+  --info-fill:    #2563eb;
+  --border-strong: rgba(24,20,48,0.50);
+  --chart-1: #7c3aed;
+  --chart-2: #d97706;
+  --chart-3: #0d9488;
+  --chart-4: #2563eb;
+  --chart-5: #db2777;
+  --chart-6: #059669;
+  --chart-7: #ea580c;
+  --chart-8: #64748b;
+  --chart-grid: rgba(24,20,48,0.08);
+  --chart-axis: #5f5a73;
+  --shadow-xs: 0 1px 2px rgba(24,20,48,0.06);
+  --shadow-sm: 0 1px 2px rgba(24,20,48,0.05), 0 2px 8px rgba(24,20,48,0.06);
+  --shadow-md: 0 1px 2px rgba(24,20,48,0.05), 0 8px 24px rgba(24,20,48,0.06);
+  --shadow-xl: 0 2px 4px rgba(24,20,48,0.06), 0 32px 64px rgba(24,20,48,0.16);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.6);
+  --focus-ring-danger: 0 0 0 3px rgba(220,38,38,0.22);
+}
+
+/* ─── Light theme (OS preference, unless pinned dark) ────────── */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg-primary:   #f6f5fb;
+    --bg-secondary: #ffffff;
+    --bg-tertiary:  #eeecf6;
+    --surface:        rgba(24,20,48,0.035);
+    --surface-hover:  rgba(24,20,48,0.06);
+    --surface-active: rgba(24,20,48,0.09);
+    --border:       rgba(24,20,48,0.12);
+    --border-hover: rgba(124,58,237,0.45);
+    --text-primary:   #16141f;
+    --text-secondary: #464257;
+    --text-muted:     #5f5a73;
+    --primary:       #7c3aed;
+    --primary-hover: #6d28d9;
+    --primary-light: rgba(124,58,237,0.10);
+    --primary-dark:  #5b21b6;
+    --accent:        #6d28d9;
+    --success: #059669;
+    --warning: #d97706;
+    --danger:  #dc2626;
+    --info:    #2563eb;
+    --success-text: #047857;
+    --warning-text: #a14e07; /* AA on warning-soft */
+    --danger-text:  #b91c1c;
+    --info-text:    #1d4ed8;
+    --success-soft: rgba(5,150,105,0.08);
+    --warning-soft: rgba(217,119,6,0.09);
+    --danger-soft:  rgba(220,38,38,0.07);
+    --info-soft:    rgba(37,99,235,0.07);
+    --success-border: rgba(5,150,105,0.28);
+    --warning-border: rgba(217,119,6,0.30);
+    --danger-border:  rgba(220,38,38,0.28);
+    --info-border:    rgba(37,99,235,0.28);
+    --on-primary:    #ffffff;
+    --text-link:     #6d28d9;
+    --bg-elevated:   #ffffff;
+    --border-subtle: rgba(24,20,48,0.06);
+    --overlay:       rgba(22,20,31,0.45);
+    --ambient:       rgba(124,58,237,0.10);
+    --ambient-2:     rgba(240,165,49,0.12);
+    --focus-ring:    0 0 0 3px rgba(124,58,237,0.25);
+    --shadow:      0 1px 2px rgba(24,20,48,0.05), 0 8px 24px rgba(24,20,48,0.06);
+    --shadow-lg:   0 1px 3px rgba(24,20,48,0.06), 0 20px 48px rgba(24,20,48,0.12);
+    --glow:        0 0 0 1px rgba(124,58,237,0.10), 0 8px 24px rgba(124,58,237,0.12);
+    --glow-strong: 0 10px 30px rgba(124,58,237,0.25);
+    --glass-bg:     rgba(255,255,255,0.86);
+    --glass-border: rgba(24,20,48,0.10);
+    /* extended set (light) */
+    --primary-fill:       #7c3aed;
+    --primary-fill-hover: #6d28d9;
+    --primary-text:       #6d28d9;
+    --primary-soft:       rgba(124,58,237,0.09);
+    --primary-border:     rgba(124,58,237,0.30);
+    --secondary:        #f0a531;
+    --secondary-hover:  #e59a22;
+    --secondary-text:   #9a4a08;
+    --secondary-soft:   rgba(240,165,49,0.14);
+    --secondary-border: rgba(208,130,26,0.38);
+    --on-secondary:     #241500;
+    --neutral:        #6b6880;
+    --neutral-text:   #4b4760;
+    --neutral-soft:   rgba(24,20,48,0.06);
+    --neutral-border: rgba(24,20,48,0.16);
+    --success-fill: #047857;
+    --warning-fill: #f59e0b;
+    --danger-fill:  #dc2626;
+    --info-fill:    #2563eb;
+    --border-strong: rgba(24,20,48,0.50);
+    --chart-1: #7c3aed;
+    --chart-2: #d97706;
+    --chart-3: #0d9488;
+    --chart-4: #2563eb;
+    --chart-5: #db2777;
+    --chart-6: #059669;
+    --chart-7: #ea580c;
+    --chart-8: #64748b;
+    --chart-grid: rgba(24,20,48,0.08);
+    --chart-axis: #5f5a73;
+    --shadow-xs: 0 1px 2px rgba(24,20,48,0.06);
+    --shadow-sm: 0 1px 2px rgba(24,20,48,0.05), 0 2px 8px rgba(24,20,48,0.06);
+    --shadow-md: 0 1px 2px rgba(24,20,48,0.05), 0 8px 24px rgba(24,20,48,0.06);
+    --shadow-xl: 0 2px 4px rgba(24,20,48,0.06), 0 32px 64px rgba(24,20,48,0.16);
+    --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.6);
+    --focus-ring-danger: 0 0 0 3px rgba(220,38,38,0.22);
+  }
+}
+
+/* Base reset */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; font-size: 16px; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-secondary); }
+::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.30); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
+/* Selection */
+::selection { background: rgba(139,92,246,0.30); color: var(--text-primary); }
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Animations */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+@keyframes fadeIn    { from { opacity:0; } to { opacity:1; } }
+@keyframes slideUp   { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+@keyframes scaleIn   { from { opacity:0; transform:scale(0.96); } to { opacity:1; transform:scale(1); } }
+@keyframes shimmer   { 0%,100%{opacity:.4;} 50%{opacity:.8;} }
+@keyframes pulse     { 0%,100%{transform:scale(1);} 50%{transform:scale(1.04);} }
+@keyframes gradMove  { 0%{background-position:0% 50%;} 50%{background-position:100% 50%;} 100%{background-position:0% 50%;} }
+@keyframes spin      { to { transform:rotate(360deg); } }
+@keyframes glowPulse { 0%,100%{box-shadow:var(--glow);} 50%{box-shadow:var(--glow-strong);} }

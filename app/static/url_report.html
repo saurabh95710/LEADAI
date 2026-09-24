@@ -3,52 +3,88 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LeadAI — URL Search Report</title>
+  <title>URL search report · LeadAI</title>
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="referrer" content="no-referrer">
+  <script>
+    /* apply the saved colour mode before first paint (theme.js keeps it in sync) */
+    try { var m = localStorage.getItem('leadai_color_mode'); if (m === 'light' || m === 'dark') document.documentElement.setAttribute('data-theme', m); } catch (_) {}
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500;1,9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=light1">
+  <link rel="stylesheet" href="/static/design/tokens.css?v=step3">
+  <link rel="stylesheet" href="/static/styles.css?v=step3">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
   <style>
-    .report-wrap { max-width: 1280px; margin: 0 auto; background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
+    /* Report page — colours come from tokens.css via the styles.css aliases (light + dark, AA). */
+    .report-wrap { max-width: 1280px; margin: 0 auto; padding: 28px; background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
     .report-hero { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
-    .report-hero img.avatar { width: 96px; height: 96px; border-radius: 16px; object-fit: cover; background: var(--surface-2); border: 1px solid var(--border); }
-    .report-hero .meta { flex: 1; min-width: 260px; }
-    .report-hero h1 { margin: 0 0 6px; font-size: 1.6rem; font-family: var(--font-display); font-weight: 500; font-style: italic; color: var(--text); }
-    .report-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 10px 18px; margin-top: 18px; }
-    .report-kv .kv { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px 14px; }
-    .kv .l { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); font-family: var(--font-mono); font-weight: 600; }
-    .kv .v { font-weight: 600; font-family: var(--font-mono); color: var(--text); font-size: 0.95rem; margin-top: 2px; }
+    .report-hero img.avatar { width: 96px; height: 96px; border-radius: 16px; object-fit: cover; background: var(--surface-2); border: 1px solid var(--border); flex: none; }
+    .report-hero .meta { flex: 1; min-width: min(260px, 100%); }
+    .report-hero h1 { margin: 0 0 6px; font-size: 1.6rem; font-family: var(--font-display); font-weight: 500; font-style: italic; color: var(--text); overflow-wrap: anywhere; }
+    .report-url { font-size: .86rem; color: var(--text-dim); overflow-wrap: anywhere; }
+    .report-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px 18px; margin-top: 18px; }
+    .report-kv .kv { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px 14px; min-width: 0; }
+    .kv .l { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); font-family: var(--font-mono); font-weight: 600; }
+    .kv .v { font-weight: 600; font-family: var(--font-mono); color: var(--text); font-size: 0.95rem; margin-top: 2px; overflow-wrap: anywhere; }
     .report-section { margin-top: 28px; }
     .report-section h2 { font-size: 1.15rem; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-weight: 500; font-style: italic; color: var(--text); }
-    .report-error { border-left: 3.5px solid var(--red); background: var(--red-soft); color: var(--red); padding: 10px 14px; border-radius: 8px; margin-top: 14px; font-size: 0.85rem; }
-    .report-loading { text-align: center; padding: 80px 0; color: var(--text-dim); font-size: 0.95rem; }
-    .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); text-decoration: none; font-size: .88rem; font-weight: 500; margin-bottom: 18px; transition: color 0.15s; }
+    .report-section h2 svg { width: 18px; height: 18px; color: var(--violet-text); flex: none; }
+    .report-section h2 .count { font-family: var(--font-ui); font-style: normal; font-size: .8rem; font-weight: 600; color: var(--text-dim); }
+    .report-error { border: 1px solid var(--danger-border); border-left-width: 3.5px; background: var(--red-soft); color: var(--red-text); padding: 10px 14px; border-radius: 8px; margin-top: 14px; font-size: 0.85rem; overflow-wrap: anywhere; }
+    .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); text-decoration: none; font-size: .88rem; font-weight: 500; margin-bottom: 18px; border-radius: 6px; transition: color 0.15s; }
     .back-link:hover { color: var(--amber-deep); }
-    .report-stats { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
-    .stat-pill { background: var(--amber-soft); border: 1px solid rgba(240,165,49,0.35); padding: 6px 14px; border-radius: 999px; font-size: .82rem; color: var(--text); font-family: var(--font-mono); font-weight: 500; }
+    .back-link svg { width: 16px; height: 16px; }
+    .report-stats { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+    .stat-pill { background: var(--amber-soft); border: 1px solid var(--secondary-border); padding: 5px 12px; border-radius: 999px; font-size: .8rem; color: var(--text); font-family: var(--font-mono); font-weight: 500; white-space: nowrap; }
     .stat-pill b { color: var(--amber-deep); }
-    .post-card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 12px; padding: 16px 18px; margin-bottom: 12px; box-shadow: var(--shadow-sm); transition: transform 0.15s ease, box-shadow 0.15s ease; }
+    .post-card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 12px; padding: 16px 18px; margin-bottom: 12px; box-shadow: var(--shadow-sm); transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; }
     .post-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); border-color: var(--border); }
-    .post-card .p-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-    .post-card .p-cap { margin: 0; font-size: .92rem; line-height: 1.5; max-height: 84px; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
-    .post-card .p-stats { display: flex; gap: 16px; color: var(--text-faint); font-size: .78rem; margin-top: 8px; font-family: var(--font-mono); }
-    .p-thumb { max-width: 120px; border-radius: 8px; display: block; border: 1px solid var(--border); }
+    .post-card .p-cap { margin: 0; font-size: .92rem; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 4; line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; color: var(--text); overflow-wrap: anywhere; }
+    .post-card .p-stats { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--text-dim); font-size: .78rem; margin-top: 8px; font-family: var(--font-mono); }
+    .p-thumb { width: 120px; max-width: 30vw; height: auto; border-radius: 8px; display: block; border: 1px solid var(--border); flex: none; object-fit: cover; }
     .post-card .p-body { display: flex; gap: 14px; }
     .comment-row { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border-soft); }
     .comment-row:last-child { border-bottom: none; }
-    .comment-row .c-avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--amber-soft); border: 1px solid rgba(240,165,49,0.3); flex: none; display: grid; place-items: center; font-weight: 700; color: var(--amber-deep); font-family: var(--font-mono); }
-    .comment-row .c-name { font-weight: 600; font-size: .86rem; color: var(--text); }
-    .comment-row .c-text { font-size: .85rem; color: var(--text-dim); margin-top: 2px; line-height: 1.45; }
-    .comment-row .c-meta { font-size: .72rem; color: var(--text-faint); margin-top: 4px; font-family: var(--font-mono); }
-    .comment-row .c-lead { display: inline-block; font-size: .66rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px; background: var(--amber-soft); color: var(--amber-deep); border: 1px solid rgba(240,165,49,0.35); vertical-align: middle; font-family: var(--font-mono); }
+    .comment-row .c-avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--amber-soft); border: 1px solid var(--secondary-border); flex: none; display: grid; place-items: center; font-weight: 700; color: var(--amber-deep); font-family: var(--font-mono); }
+    .comment-row .c-name { font-weight: 600; font-size: .86rem; color: var(--text); overflow-wrap: anywhere; }
+    .comment-row .c-text { font-size: .85rem; color: var(--text-dim); margin-top: 2px; line-height: 1.45; overflow-wrap: anywhere; }
+    .comment-row .c-meta { font-size: .72rem; color: var(--text-dim); margin-top: 4px; font-family: var(--font-mono); }
+    .comment-row .c-lead { display: inline-block; font-size: .66rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px; background: var(--green-soft); color: var(--green-text); border: 1px solid var(--success-border); vertical-align: middle; font-family: var(--font-mono); }
     .comment-row .c-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-    .comment-row .c-chip { font-size: .7rem; padding: 3px 9px; border-radius: 999px; background: var(--violet-soft); border: 1px solid rgba(124,92,255,0.3); color: #5535cf; font-family: var(--font-mono); font-weight: 500; }
-    .plain-link { color: var(--violet); word-break: break-all; text-decoration: none; }
-    .plain-link:hover { text-decoration: underline; color: var(--violet-deep); }
+    .comment-row .c-chip { font-size: .7rem; padding: 3px 9px; border-radius: 999px; background: var(--violet-soft); border: 1px solid var(--primary-border); color: var(--violet-text); font-family: var(--font-mono); font-weight: 500; overflow-wrap: anywhere; }
+    .plain-link { color: var(--violet-text); word-break: break-all; text-decoration: none; border-radius: 4px; }
+    .plain-link:hover { text-decoration: underline; }
+    .report-empty { padding: 18px; border: 1px dashed var(--border); border-radius: 12px; color: var(--text-dim); font-size: .86rem; text-align: center; }
+    /* Loading skeleton: same footprint as the loaded hero, so nothing jumps. */
+    .sk { background: linear-gradient(90deg, var(--surface-2) 0%, var(--border-soft) 50%, var(--surface-2) 100%); background-size: 200% 100%; border-radius: 8px; animation: skShimmer 1.4s ease-in-out infinite; }
+    @keyframes skShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+    .sk-hero { display: flex; gap: 20px; }
+    .sk-hero .sk-av { width: 96px; height: 96px; border-radius: 16px; flex: none; }
+    .sk-lines { flex: 1; display: grid; gap: 10px; align-content: start; }
+    .report-state { text-align: center; padding: 56px 16px; }
+    .report-state .state-icon { width: 52px; height: 52px; margin: 0 auto 14px; border-radius: 16px; display: grid; place-items: center; background: var(--amber-soft); color: var(--amber-deep); border: 1px solid var(--secondary-border); }
+    .report-state .state-icon svg { width: 24px; height: 24px; }
+    .report-state h1 { font-family: var(--font-display); font-style: italic; font-weight: 500; font-size: 1.4rem; margin: 0 0 6px; color: var(--text); }
+    .report-state p { color: var(--text-dim); max-width: 440px; margin: 0 auto; line-height: 1.6; }
+    .report-state .actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 18px; }
+    .theme-switch .t-sun { display: none; }
+    .theme-switch[data-mode="dark"] .t-sun { display: block; }
+    .theme-switch[data-mode="dark"] .t-moon { display: none; }
+    .theme-switch svg { width: 17px; height: 17px; }
+    .sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+    @media (max-width: 600px) {
+      .report-wrap { padding: 18px 14px; border-radius: 14px; }
+      .report-hero img.avatar, .sk-hero .sk-av { width: 64px; height: 64px; border-radius: 12px; }
+      .post-card .p-body { flex-direction: column; }
+      .p-thumb { width: 100%; max-width: 100%; max-height: 220px; }
+    }
+    @media (prefers-reduced-motion: reduce) { .sk { animation: none; } .post-card:hover { transform: none; } }
   </style>
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
   <div class="app-shell">
     <div class="bg-orbs" aria-hidden="true">
       <div class="orb orb-1"></div>
@@ -59,7 +95,7 @@
 
     <header class="topbar">
       <div class="topbar-left">
-        <a class="brand-logo" href="/" aria-label="LeadAI home">
+        <a class="brand-logo" href="/dashboard" aria-label="LeadAI dashboard">
           <span class="logo-icon" data-brand-logo="primary" aria-hidden="true">✦</span>
           <div class="brand-text">
             <span class="brand-name" data-brand-name>LeadAI</span>
@@ -68,46 +104,74 @@
         </a>
       </div>
       <div class="topbar-right">
-        <a href="/" class="docs-link">← Dashboard</a>
+        <button type="button" class="icon-btn theme-switch" data-theme-toggle aria-label="Switch colour theme">
+          <svg class="t-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="t-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        </button>
+        <a href="/dashboard" class="docs-link">Dashboard</a>
       </div>
     </header>
 
-    <main class="main-content">
-      <div class="report-wrap" style="padding:28px">
-        <div id="reportLoading" class="report-loading">Loading the URL search report…</div>
+    <main class="main-content" id="main">
+      <div class="report-wrap" id="reportWrap" aria-busy="true">
+        <div id="reportLoading" role="status">
+          <div class="sk-hero" aria-hidden="true">
+            <div class="sk sk-av"></div>
+            <div class="sk-lines">
+              <div class="sk" style="height:26px;width:55%"></div>
+              <div class="sk" style="height:14px;width:80%"></div>
+              <div class="sk" style="height:28px;width:70%;margin-top:6px"></div>
+            </div>
+          </div>
+          <div class="sk" style="height:64px;margin-top:22px" aria-hidden="true"></div>
+          <div class="sk" style="height:120px;margin-top:28px" aria-hidden="true"></div>
+          <span class="sr-only">Loading the URL search report…</span>
+        </div>
+
+        <div id="reportState" class="report-state hidden" role="alert">
+          <div class="state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+          <h1 id="reportStateTitle">We couldn't load this report</h1>
+          <p id="reportStateText"></p>
+          <div class="actions">
+            <button type="button" class="btn-primary" id="reportRetry">Try again</button>
+            <a class="btn-secondary" href="/dashboard">Back to dashboard</a>
+          </div>
+        </div>
+
         <div id="reportContent" class="hidden">
-          <a href="/" class="back-link">← Back to dashboard</a>
+          <a href="/dashboard" class="back-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>Back to dashboard</a>
 
           <div class="report-hero">
-            <img id="rAvatar" class="avatar hidden" alt="profile" onerror="this.style.display='none'">
+            <img id="rAvatar" class="avatar hidden" alt="" onerror="this.style.display='none'">
             <div class="meta">
               <h1 id="rTitle">—</h1>
-              <div style="font-size:.86rem;color:var(--text-dim)" id="rUrl"></div>
-              <div id="rError" class="report-error hidden"></div>
+              <div class="report-url" id="rUrl"></div>
+              <div id="rError" class="report-error hidden" role="alert"></div>
               <div class="report-stats" id="rStats"></div>
             </div>
           </div>
 
           <div class="report-kv" id="rKv"></div>
 
-          <div class="report-section">
-            <h2>📝 Recent Posts <span class="muted" id="rPostCount"></span></h2>
+          <section class="report-section" aria-labelledby="postsHeading">
+            <h2 id="postsHeading"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Recent posts <span class="count" id="rPostCount"></span></h2>
             <div id="rPosts"></div>
-          </div>
+          </section>
 
-          <div class="report-section">
-            <h2>💬 Comments Collected <span class="muted" id="rCommentCount"></span></h2>
+          <section class="report-section" aria-labelledby="commentsHeading">
+            <h2 id="commentsHeading"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Comments collected <span class="count" id="rCommentCount"></span></h2>
             <div id="rComments"></div>
-          </div>
+          </section>
         </div>
       </div>
     </main>
   </div>
 
-<script src="/static/config.js"></script>
+  <script src="/static/config.js"></script>
   <script>
     if (window.AppConfig) AppConfig.load();
   </script>
+  <script src="/static/design/theme.js"></script>
   <script>
     "use strict";
   const RUN_ID = new URLSearchParams(location.search).get("run_id") || "";
@@ -117,6 +181,11 @@
     if (t === null || t === undefined) return "";
     return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
       .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  }
+  // Only http(s) links are rendered as hrefs (scraped data is untrusted).
+  function safeHref(u) {
+    const s = String(u || "").trim();
+    return /^https?:\/\//i.test(s) ? s : "";
   }
   function fmt(n) {
     if (n === null || n === undefined) return "—";
@@ -145,123 +214,155 @@
       hour: "2-digit", minute: "2-digit"
     }) : (ts ? String(ts) : "");
   }
-  const PLATFORM_ICON = { facebook:"🏠", instagram:"📸", youtube:"▶️", linkedin:"💼" };
   const PLATFORM_NAME = { facebook:"Facebook", instagram:"Instagram", youtube:"YouTube", linkedin:"LinkedIn" };
+  function link(href, text) {
+    const h = safeHref(href);
+    return h ? `<a class="plain-link" href="${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(text || h)}</a>` : esc(text || "");
+  }
+
+  function showState(title, text, canRetry) {
+    $("reportLoading").classList.add("hidden");
+    $("reportContent").classList.add("hidden");
+    $("reportStateTitle").textContent = title;
+    $("reportStateText").textContent = text;
+    $("reportRetry").classList.toggle("hidden", !canRetry);
+    $("reportState").classList.remove("hidden");
+    $("reportWrap").setAttribute("aria-busy", "false");
+  }
 
   async function load() {
     if (!RUN_ID) {
-      $("reportLoading").textContent = "Missing run_id — open the report from a URL search.";
+      showState("No report selected", "Open a report from a URL search on your dashboard.", false);
       return;
     }
+    $("reportState").classList.add("hidden");
+    $("reportLoading").classList.remove("hidden");
+    $("reportWrap").setAttribute("aria-busy", "true");
+    let res;
     try {
-      const res = await fetch(`/api/url/search/${encodeURIComponent(RUN_ID)}/report`);
-      if (res.status === 401) { location.href = "/login"; return; }
-      if (!res.ok) throw new Error("Report not found");
-      const d = await res.json();
-      $("reportLoading").classList.add("hidden");
-      const box = $("reportContent");
-      box.classList.remove("hidden");
+      res = await fetch(`/api/url/search/${encodeURIComponent(RUN_ID)}/report`, { credentials: "same-origin" });
+    } catch (_) {
+      showState("We couldn't reach LeadAI", "Check your connection and try again.", true);
+      return;
+    }
+    if (res.status === 401) { location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search); return; }
+    if (res.status === 403) { showState("You don't have access to this report", "It belongs to a different workspace or your role can't view it.", false); return; }
+    if (res.status === 404) { showState("Report not found", "This search may have been deleted, or the link is incomplete.", false); return; }
+    if (!res.ok) { showState("We couldn't load this report", "LeadAI had a problem loading it (error " + res.status + "). Please try again.", true); return; }
+    let d;
+    try { d = await res.json(); } catch (_) { showState("We couldn't load this report", "The server sent an unexpected response. Please try again.", true); return; }
+    render(d || {});
+  }
 
-      const page = d.page;
-      if (!page) {
-        $("rTitle").textContent = "Search Run: " + (d.search ? d.search.query : RUN_ID);
-        $("rUrl").innerHTML = d.search && d.search.canonical_url
-          ? `<a class="plain-link" href="${esc(d.search.canonical_url)}" target="_blank" rel="noopener">${esc(d.search.canonical_url)}</a>`
-          : "";
-        if (d.search && d.search.status === "error") {
-          $("rError").textContent = "Search error: " + (d.search.error || "failed");
-          $("rError").classList.remove("hidden");
-        }
-        $("rStats").innerHTML = `<span class="stat-pill">Status: <b>${esc((d.search && d.search.status) || "unknown")}</b></span>`;
-        return;
+  function render(d) {
+    const posts = Array.isArray(d.posts) ? d.posts : [];
+    const comments = Array.isArray(d.comments) ? d.comments : [];
+    const leads = Array.isArray(d.leads) ? d.leads : [];
+    $("reportLoading").classList.add("hidden");
+    $("reportContent").classList.remove("hidden");
+    $("reportWrap").setAttribute("aria-busy", "false");
+
+    const page = d.page;
+    const search = d.search || {};              // older payloads nested run info under "search"
+    const runStatus = d.status || search.status || "unknown";
+    const runError = d.error || search.error || "";
+    const searchUrl = d.search_url || search.canonical_url || "";
+    if (!page) {
+      $("rTitle").textContent = "Search run: " + (searchUrl || search.query || RUN_ID);
+      $("rUrl").innerHTML = searchUrl ? link(searchUrl) : "";
+      if (runStatus === "error" || runStatus === "failed") {
+        $("rError").textContent = "This search failed: " + (runError || d.message || "unknown error");
+        $("rError").classList.remove("hidden");
       }
+      $("rStats").innerHTML = `<span class="stat-pill">Status: <b>${esc(runStatus)}</b></span>`;
+      $("rPostCount").textContent = "(0)";
+      $("rCommentCount").textContent = "(0)";
+      $("rPosts").innerHTML = '<div class="report-empty">No page data was collected for this search.</div>';
+      $("rComments").innerHTML = '<div class="report-empty">No comments were analysed for this search.</div>';
+      return;
+    }
 
-      $("rTitle").textContent = page.page_name || "Unnamed entity";
-      if (page.profile_picture) {
-        const av = $("rAvatar");
-        av.src = page.profile_picture;
-        av.classList.remove("hidden");
-      }
-      $("rUrl").innerHTML = page.facebook_url
-        ? `<a class="plain-link" href="${esc(page.facebook_url)}" target="_blank" rel="noopener">${esc(page.facebook_url)}</a>`
-        : "";
+    $("rTitle").textContent = page.page_name || "Unnamed page";
+    document.title = (page.page_name ? page.page_name + " · " : "") + "URL search report · LeadAI";
+    if (safeHref(page.profile_picture)) {
+      const av = $("rAvatar");
+      av.src = page.profile_picture;
+      av.classList.remove("hidden");
+    }
+    $("rUrl").innerHTML = (page.facebook_url || page.page_url || searchUrl) ? link(page.facebook_url || page.page_url || searchUrl) : "";
 
-      const pIcon = PLATFORM_ICON[page.platform] || "🔗";
-      const pName = PLATFORM_NAME[page.platform] || page.platform || "Platform";
-      $("rStats").innerHTML = `
-        <span class="stat-pill">${pIcon} <b>${esc(pName)}</b></span>
-        <span class="stat-pill">Followers: <b>${fmt(page.followers)}</b></span>
-        <span class="stat-pill">Likes: <b>${fmt(page.likes)}</b></span>
-        <span class="stat-pill">Posts: <b>${d.posts.length}</b></span>
-        <span class="stat-pill">Comments: <b>${d.comments.length}</b></span>
-        <span class="stat-pill">Qualified Leads: <b>${d.leads.length}</b></span>
-      `;
+    const pName = PLATFORM_NAME[page.platform] || page.platform || "Platform";
+    $("rStats").innerHTML = `
+      <span class="stat-pill"><b>${esc(pName)}</b></span>
+      <span class="stat-pill">Followers: <b>${fmt(page.followers)}</b></span>
+      <span class="stat-pill">Likes: <b>${fmt(page.likes)}</b></span>
+      <span class="stat-pill">Posts: <b>${posts.length}</b></span>
+      <span class="stat-pill">Comments: <b>${comments.length}</b></span>
+      <span class="stat-pill">Qualified leads: <b>${leads.length}</b></span>
+    `;
 
-      const kv = [];
-      if (page.phone) kv.push(["Phone", `<a class="plain-link" href="tel:${esc(page.phone)}">${esc(page.phone)}</a>`]);
-      if (page.email) kv.push(["Email", `<a class="plain-link" href="mailto:${esc(page.email)}">${esc(page.email)}</a>`]);
-      if (page.website) kv.push(["Website", `<a class="plain-link" href="${esc(page.website)}" target="_blank" rel="noopener">${esc(page.website)}</a>`]);
-      if (page.address) kv.push(["Address", esc(page.address)]);
-      if (page.category) kv.push(["Category", esc(page.category)]);
-      if (page.verified) kv.push(["Verification", "✓ Verified"]);
-      if (d.search && d.search.cost_usd) kv.push(["Apify Cost", "$" + Number(d.search.cost_usd).toFixed(4)]);
-      $("rKv").innerHTML = kv.map(([k,v]) => `<div class="kv"><div class="l">${k}</div><div class="v">${v}</div></div>`).join("");
+    const kv = [];
+    if (page.phone) kv.push(["Phone", `<a class="plain-link" href="tel:${esc(String(page.phone).replace(/[^\d+]/g, ""))}">${esc(page.phone)}</a>`]);
+    if (page.email) kv.push(["Email", `<a class="plain-link" href="mailto:${esc(page.email)}">${esc(page.email)}</a>`]);
+    if (page.website) kv.push(["Website", link(page.website)]);
+    if (page.address) kv.push(["Address", esc(page.address)]);
+    if (page.category) kv.push(["Category", esc(page.category)]);
+    if (page.verified) kv.push(["Verification", "✓ Verified"]);
+    if (search.cost_usd) kv.push(["Apify cost", "$" + Number(search.cost_usd).toFixed(4)]);
+    $("rKv").innerHTML = kv.map(([k,v]) => `<div class="kv"><div class="l">${k}</div><div class="v">${v}</div></div>`).join("");
 
-      $("rPostCount").textContent = `(${d.posts.length})`;
-      if (!d.posts.length) {
-        $("rPosts").innerHTML = '<div class="muted">No posts collected for this page yet.</div>';
-      } else {
-        $("rPosts").innerHTML = d.posts.map(p => `
-          <div class="post-card">
-            <div class="p-body">
-              ${p.media_url ? `<img class="p-thumb" src="${esc(p.media_url)}" loading="lazy" onerror="this.style.display='none'">` : ""}
-              <div style="flex:1;min-width:0">
-                <p class="p-cap">${esc(p.post_caption || p.post_text || "—")}</p>
-                <div class="p-stats">
-                  <span>💬 ${fmt(p.comments_count)} comments</span>
-                  <span>👍 ${fmt(p.likes_count)} likes</span>
-                  <span>🔄 ${fmt(p.shares_count)} shares</span>
-                  ${p.post_url ? `<a class="plain-link" href="${esc(p.post_url)}" target="_blank" rel="noopener">open post ↗</a>` : ""}
-                </div>
+    $("rPostCount").textContent = `(${posts.length})`;
+    if (!posts.length) {
+      $("rPosts").innerHTML = '<div class="report-empty">No posts collected for this page yet.</div>';
+    } else {
+      $("rPosts").innerHTML = posts.map(p => `
+        <article class="post-card">
+          <div class="p-body">
+            ${safeHref(p.media_url) ? `<img class="p-thumb" src="${esc(p.media_url)}" alt="" loading="lazy" onerror="this.style.display='none'">` : ""}
+            <div style="flex:1;min-width:0">
+              <p class="p-cap">${esc(p.post_caption || p.post_text || "—")}</p>
+              <div class="p-stats">
+                <span>${fmt(p.comments_count)} comments</span>
+                <span>${fmt(p.likes_count)} likes</span>
+                <span>${fmt(p.shares_count)} shares</span>
+                ${safeHref(p.post_url) ? `<a class="plain-link" href="${esc(p.post_url)}" target="_blank" rel="noopener noreferrer">Open post ↗</a>` : ""}
               </div>
             </div>
           </div>
-        `).join("");
-      }
+        </article>
+      `).join("");
+    }
 
-      $("rCommentCount").textContent = `(${d.comments.length})`;
-      if (!d.comments.length) {
-        $("rComments").innerHTML = '<div class="muted">No comments analyzed yet.</div>';
-      } else {
-        $("rComments").innerHTML = d.comments.map(c => {
-          const isLead = c.is_lead;
-          const leadBadge = isLead ? `<span class="c-lead">LEAD (score: ${c.lead_score || 0})</span>` : "";
-          const chips = [];
-          if (c.phone) chips.push("📞 " + esc(c.phone));
-          if (c.email) chips.push("✉️ " + esc(c.email));
-          if (c.whatsapp) chips.push("💬 " + esc(c.whatsapp));
-          if (c.budget) chips.push("💰 " + esc(c.budget));
-          if (c.intent) chips.push("🎯 " + esc(c.intent));
-          const chipsHtml = chips.length ? `<div class="c-chips">${chips.map(ch => `<span class="c-chip">${ch}</span>`).join("")}</div>` : "";
-          const initial = (c.commenter_name || "?").trim().charAt(0).toUpperCase();
-          return `
-            <div class="comment-row">
-              <div class="c-avatar">${esc(initial)}</div>
-              <div style="flex:1;min-width:0">
-                <div class="c-name">${esc(c.commenter_name || "Unknown")}${leadBadge}</div>
-                <div class="c-text">${esc(c.comment_text || "—")}</div>
-                ${chipsHtml}
-                <div class="c-meta">${c.published_date ? formatDate(c.published_date) : ""}</div>
-              </div>
+    $("rCommentCount").textContent = `(${comments.length})`;
+    if (!comments.length) {
+      $("rComments").innerHTML = '<div class="report-empty">No comments analysed yet.</div>';
+    } else {
+      $("rComments").innerHTML = comments.map(c => {
+        const leadBadge = c.is_lead ? `<span class="c-lead">Lead · score ${esc(c.lead_score || 0)}</span>` : "";
+        const chips = [];
+        if (c.phone) chips.push("Phone: " + esc(c.phone));
+        if (c.email) chips.push("Email: " + esc(c.email));
+        if (c.whatsapp) chips.push("WhatsApp: " + esc(c.whatsapp));
+        if (c.budget) chips.push("Budget: " + esc(c.budget));
+        if (c.intent) chips.push("Intent: " + esc(c.intent));
+        const chipsHtml = chips.length ? `<div class="c-chips">${chips.map(ch => `<span class="c-chip">${ch}</span>`).join("")}</div>` : "";
+        const initial = (c.commenter_name || "?").trim().charAt(0).toUpperCase();
+        return `
+          <div class="comment-row">
+            <div class="c-avatar" aria-hidden="true">${esc(initial)}</div>
+            <div style="flex:1;min-width:0">
+              <div class="c-name">${esc(c.commenter_name || "Unknown")}${leadBadge}</div>
+              <div class="c-text">${esc(c.comment_text || "—")}</div>
+              ${chipsHtml}
+              <div class="c-meta">${c.published_date ? esc(formatDate(c.published_date)) : ""}</div>
             </div>
-          `;
-        }).join("");
-      }
-    } catch (err) {
-      $("reportLoading").textContent = "Could not load report: " + err.message;
+          </div>
+        `;
+      }).join("");
     }
   }
 
+  $("reportRetry").addEventListener("click", load);
   load();
   </script>
 </body>

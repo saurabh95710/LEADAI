@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <!--seo:start-->
+  <title>Contact · LeadAI</title>
+  <!--seo:end-->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap"/>
+  <link rel="stylesheet" href="/static/design/tokens.css"/>
+  <link rel="stylesheet" href="/static/design/components.css"/>
+  <link rel="stylesheet" href="/static/website.css"/>
+  <script src="/static/design/theme.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="site">
+  <div id="site-announcement" hidden></div>
+  <header class="site-header" id="site-header">
+    <div class="wrap site-header-inner">
+      <a class="site-brand" href="/website"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name" data-brand-name>LeadAI</span></a>
+    </div>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <div id="contact-header" aria-busy="true">
+      <div class="page-hero" aria-hidden="true"><div class="wrap">
+        <div class="sk" style="width:120px;height:16px;margin:0 auto 16px"></div>
+        <div class="sk" style="max-width:320px;height:52px;margin:0 auto"></div>
+        <div class="sk" style="max-width:620px;height:22px;margin:18px auto 0"></div>
+        <div class="sk" style="max-width:460px;height:22px;margin:8px auto 0"></div>
+      </div></div>
+    </div>
+
+    <section class="section section-tight" aria-label="Contact">
+      <div class="wrap contact-grid">
+        <div>
+          <ul class="contact-list" id="contact-details" aria-label="Contact details"></ul>
+        </div>
+
+        <div class="form-card">
+          <div id="form-view">
+            <h2 id="form-title">Send us a message</h2>
+            <div class="alert alert-danger" id="form-alert" role="alert" hidden>
+              <div class="alert-body"><p id="form-alert-text"></p></div>
+            </div>
+            <form id="contact-form" class="auth-form" novalidate>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label" for="cf-name">Full name</label>
+                  <input class="form-input" type="text" id="cf-name" name="name" autocomplete="name" required maxlength="100" data-error="cf-name-err" aria-describedby="cf-name-err"/>
+                  <p class="field-error" id="cf-name-err"></p>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="cf-email">Work email</label>
+                  <input class="form-input" type="email" id="cf-email" name="email" autocomplete="email" required maxlength="200" data-error="cf-email-err" aria-describedby="cf-email-err"/>
+                  <p class="field-error" id="cf-email-err"></p>
+                </div>
+              </div>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label" for="cf-company">Company <span class="optional">(optional)</span></label>
+                  <input class="form-input" type="text" id="cf-company" name="company" autocomplete="organization" maxlength="200" data-error="cf-company-err" aria-describedby="cf-company-err"/>
+                  <p class="field-error" id="cf-company-err"></p>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="cf-topic">Topic</label>
+                  <select class="form-select form-input" id="cf-topic" name="topic" data-error="cf-topic-err">
+                    <option value="general">General question</option>
+                    <option value="sales">Sales &amp; pricing</option>
+                    <option value="demo">Demo</option>
+                    <option value="support">Support</option>
+                    <option value="partnership">Partnership</option>
+                    <option value="billing">Billing</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <p class="field-error" id="cf-topic-err"></p>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="cf-message">Message</label>
+                <textarea class="form-input form-textarea" id="cf-message" name="message" rows="6" required minlength="10" maxlength="2000" data-error="cf-message-err" aria-describedby="cf-message-err cf-count"></textarea>
+                <p class="field-error" id="cf-message-err"></p>
+                <p class="char-count" id="cf-count" aria-live="polite">0 / 2000</p>
+              </div>
+              <div class="hp-field" aria-hidden="true">
+                <label for="cf-website">Leave this field empty</label>
+                <input type="text" id="cf-website" name="website" tabindex="-1" autocomplete="off"/>
+              </div>
+              <button type="submit" class="btn btn-primary btn-block" id="cf-submit">
+                <span class="spinner" aria-hidden="true"></span><span class="btn-label">Send message</span>
+              </button>
+              <p class="form-hint" id="form-note"></p>
+            </form>
+          </div>
+
+          <div id="success-view" hidden tabindex="-1">
+            <div class="auth-icon tone-success" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            </div>
+            <h2 id="success-title">Message sent</h2>
+            <p class="text-secondary" id="success-text"></p>
+            <div class="cta-row" id="success-actions" style="margin-top:20px"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer" id="site-footer"></footer>
+</div>
+
+<script src="/static/website.js"></script>
+<script>
+(function () {
+  'use strict';
+  const S = window.LeadAISite;
+  const UI = window.LeadAIUI;
+  const $ = id => document.getElementById(id);
+  let formSec = null;
+
+  function setText(id, value) { const el = $(id); if (el && value) el.textContent = value; }
+
+  function renderDetails(settings, sec) {
+    const list = S.clear($('contact-details'));
+    const row = (icon, node) => list.appendChild(S.h('li', null, S.iconTile(icon), node));
+    const email = S.txt(settings.contact_email).trim();
+    const phone = S.txt(settings.contact_phone).trim();
+    if (email) row('mail', S.h('a', { href: 'mailto:' + email, text: email }));
+    if (phone) row('phone', S.h('a', { href: 'tel:' + phone.replace(/[^\d+]/g, ''), text: phone }));
+    if (settings.contact_address) row('map', S.h('span', { text: settings.contact_address }));
+    ((sec && sec.items) || []).forEach(it => row(it.icon, it.url ? S.link(it.title || it.label, it.url, 'link') : S.h('span', { text: it.title })));
+    if (!list.children.length) list.hidden = true;
+  }
+
+  async function boot() {
+    const pageP = S.soft(S.api('/api/public/page/contact'));
+    const settings = await S.initChrome(null);
+    const page = await pageP;
+    const head = $('contact-header');
+    S.clear(head); head.removeAttribute('aria-busy');
+    const sections = (page && page.sections) || [];
+    formSec = sections.find(s => s.type === 'contact_form') || null;
+    const header = sections.find(s => s.type === 'page_header');
+    if (header) S.renderSections(head, [header], {});
+    else head.appendChild(S.h('header', { class: 'page-hero' }, S.h('div', { class: 'wrap' }, S.h('h1', { text: 'Contact' }))));
+    if (formSec) {
+      setText('form-title', formSec.title);
+      setText('form-note', formSec.note);
+      setText('success-title', formSec.card_title);
+    }
+    renderDetails(settings, formSec);
+    if (page) S.applySeo(page, settings);
+  }
+
+  const form = $('contact-form');
+  const fields = { name: $('cf-name'), email: $('cf-email'), company: $('cf-company'), topic: $('cf-topic'), message: $('cf-message') };
+  fields.message.addEventListener('input', () => { $('cf-count').textContent = fields.message.value.length + ' / 2000'; });
+  function showAlert(msg) { $('form-alert-text').textContent = msg; $('form-alert').hidden = !msg; }
+
+  function validate(v) {
+    const errs = {};
+    if (!v.name) errs.name = 'Please enter your name.';
+    if (!v.email || !UI.isEmail(v.email)) errs.email = 'Please enter a valid email address.';
+    if (v.message.length < 10) errs.message = 'Please write at least 10 characters.';
+    return errs;
+  }
+  const current = () => ({ name: fields.name.value.trim(), email: fields.email.value.trim(), message: fields.message.value.trim() });
+
+  // Inline validation: check a field when the visitor leaves it (once they typed
+  // something), then re-check live while an error is showing.
+  const touched = {};
+  Object.keys(fields).forEach(k => {
+    const f = fields[k];
+    f.addEventListener('blur', () => {
+      if (!f.value.trim() && !touched[k]) return;
+      touched[k] = true;
+      UI.fieldError(f, validate(current())[k] || '');
+    });
+    f.addEventListener('input', () => {
+      if (f.getAttribute('aria-invalid') === 'true') UI.fieldError(f, validate(current())[k] || '');
+    });
+  });
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    showAlert('');
+    const v = { name: fields.name.value.trim(), email: fields.email.value.trim(), company: fields.company.value.trim(),
+      topic: fields.topic.value, message: fields.message.value.trim(), website: $('cf-website').value };
+    Object.values(fields).forEach(f => UI.fieldError(f, ''));
+    const errs = validate(v);
+    if (Object.keys(errs).length) {
+      Object.keys(errs).forEach(k => UI.fieldError(fields[k], errs[k]));
+      fields[Object.keys(errs)[0]].focus();
+      return;
+    }
+    const btn = $('cf-submit');
+    UI.setBusy(btn, true, 'Sending…');
+    const res = await UI.api('/api/public/contact', { method: 'POST', body: v });
+    UI.setBusy(btn, false);
+    if (res.ok && res.data.success) {
+      $('form-view').hidden = true;
+      const sv = $('success-view');
+      $('success-text').textContent = (formSec && formSec.body) || res.data.message || '';
+      const acts = S.clear($('success-actions'));
+      if (formSec) { const c = S.ctas(formSec); if (c) Array.from(c.children).forEach(a => acts.appendChild(a)); }
+      if (!acts.children.length) acts.appendChild(S.h('a', { class: 'btn btn-secondary', href: '/website', text: 'Back to the website' }));
+      sv.hidden = false; sv.focus();
+      return;
+    }
+    if (res.networkError) { showAlert('Network error — please check your connection and try again.'); return; }
+    const d = res.data && res.data.detail;
+    if (d && typeof d === 'object' && d.errors) {
+      Object.keys(d.errors).forEach(k => fields[k] && UI.fieldError(fields[k], d.errors[k]));
+      const first = Object.keys(d.errors).find(k => fields[k]);
+      if (first) fields[first].focus();
+    }
+    showAlert(UI.errorMessage(res.data, res.status === 429 ? 'Too many messages — please wait a few minutes.' : 'Could not send your message. Please try again.'));
+  });
+
+  boot();
+})();
+</script>
+</body>
+</html>

@@ -12,4 +12,10 @@ logs/
 scratch/
 .DS_Store
 Thumbs.db
-.env.example
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+.mongodump/
+*.dump

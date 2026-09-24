@@ -27,7 +27,6 @@ configuration (see app/pipeline/comment_filter.resolve_effective_rule).
 """
 import logging
 import re
-import time
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
@@ -300,7 +299,7 @@ async def reapply_rule(rule_id: str, request: Request,
 
     summary = {"rule_id": rule_id, "name": rule.get("name", ""),
                "processed": 0, "matched": 0, "not_matched": 0,
-               "no_filter": 0, "started_at": time.time(),
+               "no_filter": 0, "started_at": utcnow(),
                "processed_at": None}
 
     async def write_result(comment: Dict[str, Any], result: Dict[str, Any]):
@@ -314,7 +313,7 @@ async def reapply_rule(rule_id: str, request: Request,
                 "matched_categories": result.get("matched_categories") or [],
                 "excluded_keywords": result.get("excluded_keywords") or [],
                 "filter_score": result.get("filter_score", 0),
-                "processed_at": time.time(),
+                "processed_at": utcnow(),
                 "post_ref": comment.get("post_ref"),
                 "search_run_id": comment.get("search_run_id"),
                 "platform": comment.get("platform"),
@@ -343,7 +342,7 @@ async def reapply_rule(rule_id: str, request: Request,
             summary["no_filter"] += 1
         await write_result(comment, result)
 
-    summary["processed_at"] = time.time()
+    summary["processed_at"] = utcnow()
     await a.aaudit("comment_filter.rule.reapply", "comment_filters", user=admin,
                    ip=request.client.host if request.client else None,
                    details={"rule_id": rule_id,

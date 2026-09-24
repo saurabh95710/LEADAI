@@ -897,6 +897,15 @@ body.sidebar-collapsed .adm-nav-item:focus-visible::after {
   border-color: var(--border);
   background: var(--gray-soft);
 }
+/* Status aliases (Super Admin portal) */
+.adm-badge.active { color: #127a48; border-color: rgba(31,174,106,0.35); background: var(--green-soft); }
+.adm-badge.trial { color: #1d5ec4; border-color: rgba(59,130,246,0.35); background: var(--blue-soft); }
+.adm-badge.suspended { color: #c2292f; border-color: rgba(229,72,77,0.35); background: var(--red-soft); }
+.adm-badge.cancelled { color: var(--text-dim); border-color: var(--border); background: var(--gray-soft); }
+.adm-badge.owner { color: #5535cf; border-color: rgba(124,92,255,0.35); background: var(--violet-soft); }
+.adm-badge.admin { color: #1d5ec4; border-color: rgba(59,130,246,0.35); background: var(--blue-soft); }
+.adm-badge.member { color: #127a48; border-color: rgba(31,174,106,0.35); background: var(--green-soft); }
+.adm-badge.viewer { color: var(--text-dim); border-color: var(--border); background: var(--gray-soft); }
 
 @keyframes adm-pulse {
   0%, 100% { box-shadow: 0 0 0 2.5px currentColor, 0 0 0 0 rgba(31, 174, 106, 0.45); }
@@ -1028,6 +1037,56 @@ body.sidebar-collapsed .adm-nav-item:focus-visible::after {
 .adm-pill.active.red { background: var(--red-soft); color: var(--red); }
 .adm-pill.active.violet { background: var(--violet-soft); color: var(--violet); }
 .adm-pill .adm-status-dot { width: 6px; height: 6px; box-shadow: none; }
+
+/* ── Pagination (Super Admin) ──────────────────────────────────────── */
+.adm-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.adm-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.adm-pill-btn:hover:not(:disabled) { border-color: var(--violet); color: var(--violet); }
+.adm-pill-btn.active { background: var(--violet); color: #fff; border-color: var(--violet); }
+.adm-pill-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Nav count badge ───────────────────────────────────────────────── */
+.adm-nav-count {
+  margin-left: auto;
+  background: var(--surface-2);
+  padding: 1px 7px;
+  border-radius: 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+/* ── Empty state ───────────────────────────────────────────────────── */
+.adm-empty {
+  text-align: center;
+  padding: 28px 20px;
+  color: var(--text-faint);
+  font-size: 13px;
+}
 
 .adm-filters {
   display: flex;
@@ -1988,4 +2047,225 @@ body.sidebar-collapsed .adm-nav-item:focus-visible::after {
   .adm-settings-layout { flex-direction: column; }
   .adm-settings-tabs { width: 100%; flex-direction: row; overflow-x: auto; position: static; }
   .adm-sett-tab { white-space: nowrap; }
+}
+
+/* ── Structured Log Viewer ─────────────────────────────────────────── */
+.adm-log-summary {
+  display: flex; gap: 12px; flex-wrap: wrap; padding: 0;
+}
+.adm-log-stat {
+  flex: 1; min-width: 100px; text-align: center; padding: 14px 10px;
+  border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border-soft);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.adm-log-stat .num { font-size: 22px; font-weight: 700; font-family: var(--font-mono); }
+.adm-log-stat .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); font-weight: 600; }
+.adm-log-stat.critical .num { color: var(--red); }
+.adm-log-stat.error .num { color: var(--red); }
+.adm-log-stat.warn .num { color: var(--amber); }
+.adm-log-stat.info .num { color: var(--blue); }
+.adm-log-stat.debug .num { color: var(--text-dim); }
+
+.adm-log-filter {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+}
+.adm-input-sm { max-width: 130px; }
+
+.adm-log-table {
+  max-height: 520px; overflow-y: auto; border: 1px solid var(--border-soft);
+  border-radius: 10px; background: var(--surface-2);
+}
+.adm-log-row {
+  display: grid; grid-template-columns: 70px 80px 110px 1fr 100px;
+  gap: 6px; padding: 7px 12px; border-bottom: 1px solid var(--border-soft);
+  cursor: pointer; transition: background 0.15s; align-items: center; font-size: 12.5px;
+}
+.adm-log-row:last-child { border-bottom: none; }
+.adm-log-row:hover { background: var(--amber-soft); }
+.adm-log-row:focus { outline: 2px solid var(--violet); outline-offset: -2px; }
+.adm-log-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adm-log-cell.time { font-family: var(--font-mono); color: var(--text-dim); font-size: 11.5px; }
+.adm-log-cell.module { font-family: var(--font-mono); color: var(--violet); font-size: 11.5px; }
+.adm-log-cell.msg { color: var(--text); }
+.adm-log-cell.source { text-align: right; }
+
+.adm-log-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 6px;
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.3px; line-height: 1.4;
+}
+.adm-log-badge.critical { background: var(--red-soft); color: var(--red); border: 1px solid rgba(229,72,77,0.25); }
+.adm-log-badge.error { background: var(--red-soft); color: var(--red); border: 1px solid rgba(229,72,77,0.18); }
+.adm-log-badge.warn { background: var(--amber-soft); color: var(--amber-deep); border: 1px solid rgba(240,165,49,0.25); }
+.adm-log-badge.info { background: var(--blue-soft); color: var(--blue); border: 1px solid rgba(59,130,246,0.25); }
+.adm-log-badge.debug { background: var(--surface); color: var(--text-dim); border: 1px solid var(--border-soft); }
+.adm-log-badge.gray { background: var(--surface); color: var(--text-dim); border: 1px solid var(--border-soft); }
+
+.adm-log-jump {
+  position: sticky; top: 0; z-index: 5; display: flex; align-items: center;
+  justify-content: center; gap: 10px; padding: 8px 16px;
+  background: var(--amber-soft); border: 1px solid var(--amber);
+  border-radius: 8px; margin-bottom: 8px; font-size: 13px; font-weight: 600;
+}
+
+.adm-log-pagination {
+  display: flex; align-items: center; gap: 12px; padding: 10px 0 0;
+  font-size: 12.5px; color: var(--text-dim);
+}
+.adm-log-pag-info { font-weight: 600; }
+
+.adm-log-pre {
+  background: var(--surface-2); border: 1px solid var(--border-soft);
+  border-radius: 8px; padding: 12px; font-family: var(--font-mono);
+  font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap;
+  word-break: break-word; max-height: 300px; overflow-y: auto;
+}
+
+.adm-detail-section { margin-bottom: 14px; }
+.adm-detail-section h4 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-dim); margin: 0 0 6px; font-weight: 700;
+}
+.adm-detail-row {
+  display: flex; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--border-soft);
+  font-size: 13px;
+}
+.adm-detail-row:last-child { border-bottom: none; }
+.adm-detail-label { font-weight: 600; color: var(--text-dim); min-width: 110px; flex-shrink: 0; }
+.adm-detail-value { font-family: var(--font-mono); color: var(--text); word-break: break-all; }
+
+.adm-btn-sm { padding: 4px 10px; font-size: 12px; }
+
+.adm-loading {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 40px; color: var(--text-dim); font-size: 13px;
+}
+.adm-spinner {
+  width: 20px; height: 20px; border: 2px solid var(--border);
+  border-top-color: var(--violet); border-radius: 50%;
+  animation: adm-spin 0.7s linear infinite;
+}
+@keyframes adm-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 900px) {
+  .adm-log-row { grid-template-columns: 1fr; gap: 4px; padding: 10px 12px; }
+  .adm-log-cell.time, .adm-log-cell.module, .adm-log-cell.source { font-size: 11px; }
+  .adm-log-cell.source { text-align: left; }
+  .adm-log-summary { flex-direction: column; }
+  .adm-log-stat { min-width: auto; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Step 3 — WCAG AA contrast + canonical status colours (override layer).
+   Colour-only: no sizes, spacing or layout change. Text uses the darker
+   *-text shades (>= 4.5:1 on white, --bg and the matching *-soft fill);
+   brand hues (--amber/--violet/…) stay for fills, borders and gradients.
+   Canonical mapping: success=green · running/processing=info(blue, pulsing)
+   · pending/draft/invited=amber · failed/error/rejected=red ·
+   cancelled/expired/archived/revoked=gray · suspended=red-soft · demo/trial=violet.
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  --text-faint: #6a6482;          /* was #9c96b3 (2.8:1) → 5.1:1 on --bg */
+  --amber-text:  #9a5606;
+  --green-text:  #127a48;
+  --red-text:    #c2292f;
+  --blue-text:   #1d5ec4;
+  --violet-text: #5535cf;
+  --teal-text:   #0b7a6d;
+  --pink-text:   #b8256f;
+  --on-amber:    #241500;
+}
+
+a { color: var(--amber-text); }
+a:hover { color: var(--amber-text); text-decoration: underline; text-underline-offset: 2px; }
+.adm-btn, .adm-nav-item, .adm-quick, a.adm-card, .adm-search-item { text-decoration: none; }
+
+/* Buttons: white on light amber was 1.8:1 → dark ink; violet fill deepened */
+.adm-btn.primary, .adm-btn.primary:hover { color: var(--on-amber); }
+.adm-btn.primary.violet, .adm-btn.ai { background: linear-gradient(135deg, #6f52f0 0%, var(--violet-deep) 100%); color: #ffffff; }
+.adm-btn.primary.violet:hover, .adm-btn.ai:hover { color: #ffffff; }
+.adm-btn.danger, .adm-btn.danger:hover { color: var(--red-text); }
+.adm-pill-btn.active { background: var(--violet-deep); border-color: var(--violet-deep); }
+.adm-dot-count { background: var(--red-text); }
+.adm-avatar { color: var(--on-amber); }
+
+/* Status text */
+.adm-status-word.ok  { color: var(--green-text); }
+.adm-status-word.warn { color: var(--amber-text); }
+.adm-status-word.err { color: var(--red-text); }
+.adm-hero.green .adm-hero-num { color: var(--green-text); }
+.adm-hero.red .adm-hero-num { color: var(--red-text); }
+.adm-stat-value.ok { color: var(--green-text); }
+.adm-stat-value.err { color: var(--red-text); }
+.adm-stat-value.gold, .adm-stat-value.amber { color: var(--amber-text); }
+.adm-stat-value.violet { color: var(--violet-text); }
+.adm-stat-value.blue { color: var(--blue-text); }
+.adm-stat-value.pink { color: var(--pink-text); }
+.adm-stat-value.teal { color: var(--teal-text); }
+.adm-kpi-delta.up { color: var(--green-text); }
+.adm-kpi-delta.down { color: var(--red-text); }
+.adm-kpi-ico.gold, .adm-kpi-ico.amber { color: var(--amber-text); }
+.adm-kpi-ico.green { color: var(--green-text); }
+.adm-kpi-ico.red { color: var(--red-text); }
+.adm-kpi-ico.violet { color: var(--violet-text); }
+.adm-kpi-ico.blue { color: var(--blue-text); }
+.adm-kpi-ico.pink { color: var(--pink-text); }
+.adm-kpi-ico.teal { color: var(--teal-text); }
+.adm-pill.active { color: var(--amber-text); }
+.adm-pill.active.green { color: var(--green-text); }
+.adm-pill.active.red { color: var(--red-text); }
+.adm-pill.active.violet { color: var(--violet-text); }
+.adm-range-btn.active { color: var(--amber-text); }
+.adm-chip.amber { color: var(--amber-text); }
+.adm-chip.red { color: var(--red-text); }
+.adm-banner { color: var(--amber-text); }
+.adm-banner svg { color: var(--amber-text); }
+.adm-feed-tag { color: var(--violet-text); }
+.adm-log-cell.module { color: var(--violet-text); }
+.adm-sett-diff-old, .adm-sett-json-err { color: var(--red-text); }
+.adm-sett-diff-new { color: var(--green-text); }
+.adm-log-stat.critical .num, .adm-log-stat.error .num { color: var(--red-text); }
+.adm-log-stat.warn .num { color: var(--amber-text); }
+.adm-log-stat.info .num { color: var(--blue-text); }
+.adm-log-badge.critical, .adm-log-badge.error { color: var(--red-text); }
+.adm-log-badge.warn { color: var(--amber-text); }
+.adm-log-badge.info { color: var(--blue-text); }
+.adm-badge.gold, .adm-badge.amber { color: var(--amber-text); }
+.adm-badge.teal { color: var(--teal-text); }
+
+/* Canonical status aliases — usable directly as `adm-badge <status>` */
+.adm-badge.active, .adm-badge.completed, .adm-badge.success, .adm-badge.paid, .adm-badge.confirmed {
+  color: var(--green-text); border-color: rgba(31,174,106,0.35); background: var(--green-soft);
+}
+.adm-badge.running, .adm-badge.processing, .adm-badge.in_progress,
+.adm-badge.green.pulse {            /* statusBadge() marks running/started with .pulse → info */
+  color: var(--blue-text); border-color: rgba(59,130,246,0.35); background: var(--blue-soft);
+}
+.adm-badge.running::before, .adm-badge.processing::before, .adm-badge.in_progress::before { animation: adm-pulse 1.6s ease-in-out infinite; }
+.adm-badge.pending, .adm-badge.pending_payment, .adm-badge.payment_received,
+.adm-badge.pending_admin_confirmation, .adm-badge.draft, .adm-badge.invited, .adm-badge.queued {
+  color: var(--amber-text); border-color: rgba(240,165,49,0.40); background: var(--amber-soft);
+}
+.adm-badge.failed, .adm-badge.error, .adm-badge.rejected, .adm-badge.refund_due {
+  color: var(--red-text); border-color: rgba(229,72,77,0.35); background: var(--red-soft);
+}
+.adm-badge.deactivated, .adm-badge.archived, .adm-badge.cancelled, .adm-badge.expired, .adm-badge.revoked {
+  color: var(--text-dim); border-color: var(--border); background: var(--gray-soft);
+}
+.adm-badge.suspended { color: var(--red-text); border-color: rgba(229,72,77,0.35); background: var(--red-soft); }
+.adm-badge.suspended::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
+.adm-badge.demo, .adm-badge.trial, .adm-badge.trialing {
+  color: var(--violet-text); border-color: rgba(124,92,255,0.35); background: var(--violet-soft);
+}
+.adm-status-dot.info { background: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
+
+/* Large display numbers only need 3:1; small text/icons use the *-text shades */
+.adm-hero-num { color: var(--amber-deep); }            /* 52px display figure: 3.05:1 (large-text AA) */
+.adm-big-toggle-state.on { color: var(--amber-text); }
+.adm-brand-collapse:hover { color: var(--amber-text); }
+.adm-rule-value, .adm-pill-btn:hover:not(:disabled) { color: var(--violet-text); }
+.adm-term-ts { color: #8e88aa; }                       /* on the dark terminal: 5.3:1 */
+
+@media (prefers-reduced-motion: reduce) {
+  .adm-badge::before, .adm-status-dot { animation: none !important; }
 }

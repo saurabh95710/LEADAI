@@ -19,10 +19,12 @@ Raw actor items are returned untouched; mapping happens in app/agent/search.py.
 """
 import json
 import logging
-import os
 import re
 import time
 from datetime import timedelta
+
+# Active Apify run IDs (for graceful shutdown abort)
+_active_apify_runs: set = set()
 from typing import Any, Dict, List, Optional
 
 from apify_client.errors import ApifyApiError, ApifyClientError
@@ -335,6 +337,7 @@ class ApifyConnector:
         if not run_id:
             raise ScrapeError("API_ERROR", "Apify run started without an id",
                               actor_id=actor_id, details=str(started)[:500])
+        _active_apify_runs.add(run_id)
         logger.info(f"[Apify] polling run {run_id} ({label}) for cancellation")
         run_client = client.run(run_id)
         deadline = time.monotonic() + _RUN_TIMEOUT_MIN * 60 + 120  # server timeout + margin
@@ -345,6 +348,7 @@ class ApifyConnector:
                     logger.info(f"[Apify] aborted run {run_id} — user cancelled")
                 except Exception as e:
                     logger.warning(f"[Apify] abort of run {run_id} failed: {e}")
+                _active_apify_runs.discard(run_id)
                 raise ScrapeError(
                     "CANCELLED", "Search cancelled by user",
                     actor_id=actor_id, run_id=run_id)
@@ -355,6 +359,7 @@ class ApifyConnector:
                     run_client.abort()
                 except Exception:
                     pass
+                _active_apify_runs.discard(run_id)
                 raise ScrapeError(
                     "ACTOR_TIMED_OUT",
                     f"Apify actor run timed out after {_RUN_TIMEOUT_MIN} minutes — retry",
@@ -367,6 +372,7 @@ class ApifyConnector:
                     actor_id=actor_id, run_id=run_id, details=str(e)[:2000])
             status = str(_rget(run, "status") or "").upper()
             if status in ("SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"):
+                _active_apify_runs.discard(run_id)
                 return run
             time.sleep(5)
 

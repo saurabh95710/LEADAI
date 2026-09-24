@@ -18,7 +18,7 @@ import logging
 import time
 from typing import Any, Dict, Optional
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import HTTPException, Request
 
 from app.auth.service import COOKIE_NAME, session_user, session_issued_at
 from app.config import get_settings
@@ -44,7 +44,7 @@ def role_rank(role: str) -> int:
 
 def is_env_admin_email(email: str) -> bool:
     from app.admin.envvars import get_envvar_str
-    expected = get_envvar_str("ADMIN_EMAIL", settings.admin_email)
+    expected = get_envvar_str("PANEL_ADMIN_EMAIL", settings.panel_admin_email)
     return email.strip().lower() == expected.strip().lower()
 
 
@@ -64,22 +64,64 @@ def get_admin_record(email: str) -> Optional[Dict[str, Any]]:
 
 
 def effective_role(email: str) -> str:
-    """The role that governs an account: super_admin for the env account
-    (and any admin_users record that claims super_admin), otherwise the
-    record's role."""
+    """The platform role that governs an account, or "" when the account is
+    not platform staff.
+
+    super_admin for the env recovery account, otherwise an enabled
+    ``admin_users`` record's role, otherwise ``users.platform_role`` when the
+    user is flagged ``is_platform_admin``. There is deliberately NO fallback:
+    an admin-scope session for an unknown account gets no access at all.
+    """
+    if not email:
+        return ""
     if is_env_admin_email(email):
         return "super_admin"
     record = get_admin_record(email)
-    if record and record.get("role") in ROLE_RANK:
+    if record and record.get("enabled", True) and record.get("role") in ROLE_RANK:
         return record["role"]
-    return "viewer"
+    try:
+        db = get_sync_db()
+        if db is not None:
+            user_doc = db["users"].find_one({"email": email.strip().lower()})
+            if (user_doc and user_doc.get("is_platform_admin")
+                    and user_doc.get("status", "active") == "active"
+                    and user_doc.get("platform_role")):
+                role = user_doc["platform_role"]
+                if role in ROLE_RANK:
+                    return role
+                # SaaS platform roles map onto the admin panel's rank scale
+                from app.auth.permissions import PLATFORM_ROLE_RANK
+                if role in PLATFORM_ROLE_RANK:
+                    return PLATFORM_TO_PANEL_ROLE.get(role, "viewer")
+    except Exception:
+        pass
+    return ""
+
+
+# SaaS platform role -> legacy admin panel role (ROLE_RANK scale)
+PLATFORM_TO_PANEL_ROLE = {
+    "super_admin": "super_admin",
+    "operations_admin": "manager",
+    "technical_admin": "manager",
+    "billing_admin": "viewer",
+    "support_admin": "viewer",
+    "viewer": "viewer",
+}
+# legacy admin panel role -> SaaS platform role (TenantContext)
+PANEL_TO_PLATFORM_ROLE = {
+    "super_admin": "super_admin",
+    "manager": "operations_admin",
+    "viewer": "viewer",
+}
 
 
 def current_admin(request: Request) -> Optional[Dict[str, Any]]:
     """The signed-in admin with up-to-date role, or None.
 
-    Beyond cookie validity (signature + expiry), the admin session is
-    additionally governed by two Security-page settings:
+    Only ``scope="admin"`` sessions count (site sessions from the main
+    website login cannot reach the panel). Beyond cookie validity
+    (signature + expiry), the admin session is additionally governed by
+    two Security-page settings:
       * ``security.session_timeout_hours`` — hard idle timeout on top of the
         cookie lifetime (env default equals the cookie lifetime, so nothing
         changes out of the box);
@@ -87,7 +129,7 @@ def current_admin(request: Request) -> Optional[Dict[str, Any]]:
         issued before it ("revoke all sessions").
     """
     user = session_user(request)
-    if user is None:
+    if user is None or user.get("scope") != "admin":
         return None
     issued_at = session_issued_at(request.cookies.get(COOKIE_NAME))
     try:

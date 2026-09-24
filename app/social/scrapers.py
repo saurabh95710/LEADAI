@@ -106,28 +106,39 @@ class FacebookScraper(SocialMediaScraper):
             [post_url], comments_per_post=max_comments, should_abort=should_abort)
 
     def normalize_page(self, item: Dict[str, Any], run_id: str, url: str) -> Optional[Dict[str, Any]]:
-        # the existing keyword-search normalizer builds the same page document
-        from app.agent.search import map_page_item
-        doc = map_page_item(item, run_id, url)
-        if doc:
-            doc["platform"] = "facebook"
-            doc["source_type"] = "page_url"
-            doc["source_page_url"] = url
-        return doc
+        try:
+            from app.agent.search import map_page_item
+            doc = map_page_item(item, run_id, url)
+            if doc:
+                doc["platform"] = "facebook"
+                doc["source_type"] = "page_url"
+                doc["source_page_url"] = url
+            return doc
+        except Exception as e:
+            logger.warning("[Facebook] page normalization failed: %s", e)
+            return None
 
     def normalize_post(self, item: Dict[str, Any], page_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        from app.agent.search import map_post_item
-        doc = map_post_item(item, page_doc)
-        if doc:
-            doc["platform"] = "facebook"
-        return doc
+        try:
+            from app.agent.search import map_post_item
+            doc = map_post_item(item, page_doc)
+            if doc:
+                doc["platform"] = "facebook"
+            return doc
+        except Exception as e:
+            logger.warning("[Facebook] post normalization failed: %s", e)
+            return None
 
     def normalize_comment(self, item: Dict[str, Any], post_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        from app.agent.search import map_comment_item
-        doc = map_comment_item(item, post_doc)
-        if doc:
-            doc["platform"] = "facebook"
-        return doc
+        try:
+            from app.agent.search import map_comment_item
+            doc = map_comment_item(item, post_doc)
+            if doc:
+                doc["platform"] = "facebook"
+            return doc
+        except Exception as e:
+            logger.warning("[Facebook] comment normalization failed: %s", e)
+            return None
 
 
 class InstagramScraper(SocialMediaScraper):
@@ -175,105 +186,117 @@ class InstagramScraper(SocialMediaScraper):
         )
 
     def normalize_page(self, item: Dict[str, Any], run_id: str, url: str) -> Optional[Dict[str, Any]]:
-        if not isinstance(item, dict):
+        try:
+            if not isinstance(item, dict):
+                return None
+            username = _pick(item, "username", "ownerUsername", "name")
+            if not username:
+                return None
+            return {
+                "page_id": str(_pick(item, "pk", "id") or "").strip() or None,
+                "page_name": str(_pick(item, "fullName", "full_name") or username).strip(),
+                "facebook_url": url,
+                "platform": "instagram",
+                "category": None,
+                "about": _pick(item, "biography", "bio", "description"),
+                "followers": _as_int(_pick(item, "followerCount", "followersCount", "followers")),
+                "likes": _as_int(_pick(item, "followingCount", "likesCount")),
+                "verified": item.get("verified") if isinstance(item.get("verified"), bool) else None,
+                "phone": None,
+                "email": _pick(item, "contactEmail", "email"),
+                "whatsapp": None,
+                "website": _pick(item, "website", "externalUrl"),
+                "address": None,
+                "city": None,
+                "state": None,
+                "country": _pick(item, "geolocationCountry"),
+                "profile_picture": _pick(item, "profilePicUrl", "profilePicUrlHD", "picUrl"),
+                "cover_image": None,
+                "source_type": "profile_url",
+                "source_page_url": url,
+                "search_run_id": run_id,
+                "search_keyword": url,
+                "source": "apify_url_search",
+                "posts_status": "not_started",
+                "comments_status": "not_started",
+            }
+        except Exception as e:
+            logger.warning("[Instagram] page normalization failed: %s", e)
             return None
-        username = _pick(item, "username", "ownerUsername", "name")
-        if not username:
-            return None
-        return {
-            "page_id": str(_pick(item, "pk", "id") or "").strip() or None,
-            "page_name": str(_pick(item, "fullName", "full_name") or username).strip(),
-            "facebook_url": url,
-            "platform": "instagram",
-            "category": None,
-            "about": _pick(item, "biography", "bio", "description"),
-            "followers": _as_int(_pick(item, "followerCount", "followersCount", "followers")),
-            "likes": _as_int(_pick(item, "followingCount", "likesCount")),
-            "verified": item.get("verified") if isinstance(item.get("verified"), bool) else None,
-            "phone": None,
-            "email": _pick(item, "contactEmail", "email"),
-            "whatsapp": None,
-            "website": _pick(item, "website", "externalUrl"),
-            "address": None,
-            "city": None,
-            "state": None,
-            "country": _pick(item, "geolocationCountry"),
-            "profile_picture": _pick(item, "profilePicUrl", "profilePicUrlHD", "picUrl"),
-            "cover_image": None,
-            "source_type": "profile_url",
-            "source_page_url": url,
-            "search_run_id": run_id,
-            "search_keyword": url,
-            "source": "apify_url_search",
-            "posts_status": "not_started",
-            "comments_status": "not_started",
-        }
 
     def normalize_post(self, item: Dict[str, Any], page_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        if not isinstance(item, dict):
+        try:
+            if not isinstance(item, dict):
+                return None
+            code = _pick(item, "shortCode", "shortcode", "code")
+            post_url = str(_pick(item, "url", "webLink", "postUrl") or "").strip()
+            if not post_url and code:
+                post_url = f"{(page_doc.get('facebook_url') or '').rstrip('/')}/p/{code}/"
+            if not post_url:
+                return None
+            caption = str(_pick(item, "caption", "text", "description") or "").strip() or None
+            image = _pick(item, "displayUrl", "display_url", "imageUrl")
+            video = _pick(item, "videoUrl", "video_url")
+            caption_split = re.split(r"\n|#", caption) if caption else []
+            return {
+                "post_id": str(_pick(item, "id", "pk") or "").strip() or None,
+                "post_url": post_url,
+                "page_id": page_doc.get("page_id"),
+                "page_name": page_doc.get("page_name"),
+                "platform": "instagram",
+                "caption": caption,
+                "images": [str(image)] if image else [],
+                "videos": [str(video)] if video else [],
+                "external_links": [w for w in (caption_split or []) if "http" in w][:5],
+                "published_date": str(_pick(item, "timestamp", "date", "publishedAt") or "").strip() or None,
+                "likes_count": _as_int(_pick(item, "likesCount", "likeCount", "likes")),
+                "total_comment_count": _as_int(_pick(item, "commentsCount", "commentCount")),
+                "scraped_comment_count": None,
+                "comments_count": _as_int(_pick(item, "commentsCount", "commentCount")),
+                "shares_count": None,
+                "is_relevant": True,
+                "is_qualifying": False,
+                "page_ref": str(page_doc["_id"]),
+                "search_run_id": page_doc.get("search_run_id"),
+                "provider": "apify",
+            }
+        except Exception as e:
+            logger.warning("[Instagram] post normalization failed: %s", e)
             return None
-        code = _pick(item, "shortCode", "shortcode", "code")
-        post_url = str(_pick(item, "url", "webLink", "postUrl") or "").strip()
-        if not post_url and code:
-            post_url = f"{(page_doc.get('facebook_url') or '').rstrip('/')}/p/{code}/"
-        if not post_url:
-            return None
-        caption = str(_pick(item, "caption", "text", "description") or "").strip() or None
-        image = _pick(item, "displayUrl", "display_url", "imageUrl")
-        video = _pick(item, "videoUrl", "video_url")
-        caption_split = re.split(r"\n|#", caption) if caption else []
-        return {
-            "post_id": str(_pick(item, "id", "pk") or "").strip() or None,
-            "post_url": post_url,
-            "page_id": page_doc.get("page_id"),
-            "page_name": page_doc.get("page_name"),
-            "platform": "instagram",
-            "caption": caption,
-            "images": [str(image)] if image else [],
-            "videos": [str(video)] if video else [],
-            "external_links": [w for w in (caption_split or []) if "http" in w][:5],
-            "published_date": str(_pick(item, "timestamp", "date", "publishedAt") or "").strip() or None,
-            "likes_count": _as_int(_pick(item, "likesCount", "likeCount", "likes")),
-            "total_comment_count": _as_int(_pick(item, "commentsCount", "commentCount")),
-            "scraped_comment_count": None,
-            "comments_count": _as_int(_pick(item, "commentsCount", "commentCount")),
-            "shares_count": None,
-            "is_relevant": True,
-            "is_qualifying": False,
-            "page_ref": str(page_doc["_id"]),
-            "search_run_id": page_doc.get("search_run_id"),
-            "provider": "apify",
-        }
 
     def normalize_comment(self, item: Dict[str, Any], post_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        if not isinstance(item, dict):
+        try:
+            if not isinstance(item, dict):
+                return None
+            comment_id = str(_pick(item, "id", "pk", "commentId") or "").strip() or None
+            text = str(_pick(item, "text", "commentText", "comment") or "").strip() or None
+            if not text and not comment_id:
+                return None
+            post_url = post_doc.get("post_url") or ""
+            comment_url = str(_pick(item, "url", "commentUrl") or "").strip()
+            if not comment_url and comment_id:
+                comment_url = post_url.split("?")[0] + f"?comment_id={comment_id}"
+            username = str(_pick(item, "username", "ownerUsername") or "").strip()
+            author_name = str(_pick(item, "authorName", "authorUsername") or "").strip() or (username or None)
+            return {
+                "comment_id": comment_id,
+                "comment_url": comment_url,
+                "author_name": author_name,
+                "author_profile_url": _pick(item, "authorProfileUrl", "profileUrl") or (
+                    f"https://www.instagram.com/{username}" if username else None),
+                "text": text,
+                "published_date": str(_pick(item, "timestamp", "date", "publishedAt") or "").strip() or None,
+                "reactions_count": _as_int(_pick(item, "likesCount", "likes")),
+                "post_id": post_doc.get("post_id") or str(post_doc.get("_id") or ""),
+                "post_url": post_url,
+                "page_id": post_doc.get("page_id"),
+                "post_ref": str(post_doc["_id"]),
+                "search_run_id": post_doc.get("search_run_id"),
+                "platform": "instagram",
+            }
+        except Exception as e:
+            logger.warning("[Instagram] comment normalization failed: %s", e)
             return None
-        comment_id = str(_pick(item, "id", "pk", "commentId") or "").strip() or None
-        text = str(_pick(item, "text", "commentText", "comment") or "").strip() or None
-        if not text and not comment_id:
-            return None
-        post_url = post_doc.get("post_url") or ""
-        comment_url = str(_pick(item, "url", "commentUrl") or "").strip()
-        if not comment_url and comment_id:
-            comment_url = post_url.split("?")[0] + f"?comment_id={comment_id}"
-        username = str(_pick(item, "username", "ownerUsername") or "").strip()
-        author_name = str(_pick(item, "authorName", "authorUsername") or "").strip() or (username or None)
-        return {
-            "comment_id": comment_id,
-            "comment_url": comment_url,
-            "author_name": author_name,
-            "author_profile_url": _pick(item, "authorProfileUrl", "profileUrl") or (
-                f"https://www.instagram.com/{username}" if username else None),
-            "text": text,
-            "published_date": str(_pick(item, "timestamp", "date", "publishedAt") or "").strip() or None,
-            "reactions_count": _as_int(_pick(item, "likesCount", "likes")),
-            "post_id": post_doc.get("post_id") or str(post_doc.get("_id") or ""),
-            "post_url": post_url,
-            "page_id": post_doc.get("page_id"),
-            "post_ref": str(post_doc["_id"]),
-            "search_run_id": post_doc.get("search_run_id"),
-            "platform": "instagram",
-        }
 
 
 class YouTubeScraper(SocialMediaScraper):
@@ -337,117 +360,129 @@ class YouTubeScraper(SocialMediaScraper):
         return comments or items
 
     def normalize_page(self, item: Dict[str, Any], run_id: str, url: str) -> Optional[Dict[str, Any]]:
-        if not isinstance(item, dict):
+        try:
+            if not isinstance(item, dict):
+                return None
+            channel = item.get("channel") if isinstance(item.get("channel"), dict) else item
+            name = (_pick(channel, "channelTitle", "channelName", "title", "name", "author")
+                    or _pick(item, "channelTitle", "channelName", "author", "title"))
+            if not name:
+                name = _pick(item, "name", "channel")
+            if not name:
+                return None
+            page_id = str(_pick(item, "channelId", "channel_id") or _pick(channel, "id", "channelId") or "").strip() or None
+            subs = _pick(channel, "subscriberCount", "subscribers", "numberOfSubscribers", "subscribersCount", "channelSubscribers") or _pick(item, "subscriberCount", "subscribers", "numberOfSubscribers", "channelSubscribers")
+            avatar = _pick(channel, "avatar", "avatarUrl", "channelAvatar", "thumbnailUrl") or _pick(item, "avatar", "avatarUrl", "thumbnailUrl", "channelAvatar")
+            banner = _pick(channel, "bannerUrl", "banner", "channelBanner") or _pick(item, "bannerUrl", "banner")
+            about = _pick(item, "description", "about") or _pick(channel, "description", "about")
+            country = _pick(channel, "country") or _pick(item, "country")
+            return {
+                "page_id": page_id,
+                "page_name": str(name).strip(),
+                "facebook_url": url,
+                "platform": "youtube",
+                "category": None,
+                "about": about,
+                "followers": _as_int(subs),
+                "likes": None,
+                "verified": bool(_pick(channel, "verified", "isVerified") or _pick(item, "verified", "isVerified")),
+                "phone": None,
+                "email": None,
+                "whatsapp": None,
+                "website": _pick(channel, "website", "url", "channelUrl") or _pick(item, "website", "channelUrl"),
+                "address": country,
+                "city": None,
+                "state": None,
+                "country": country,
+                "profile_picture": str(avatar).strip() if avatar else None,
+                "cover_image": str(banner).strip() if banner else None,
+                "source_type": "channel_url" if "@" in url or "channel" in url else "video_url",
+                "source_page_url": url,
+                "search_run_id": run_id,
+                "search_keyword": url,
+                "source": "apify_url_search",
+                "posts_status": "not_started",
+                "comments_status": "not_started",
+            }
+        except Exception as e:
+            logger.warning("[YouTube] page normalization failed: %s", e)
             return None
-        channel = item.get("channel") if isinstance(item.get("channel"), dict) else item
-        name = (_pick(channel, "channelTitle", "channelName", "title", "name", "author")
-                or _pick(item, "channelTitle", "channelName", "author", "title"))
-        if not name:
-            name = _pick(item, "name", "channel")
-        if not name:
-            return None
-        page_id = str(_pick(item, "channelId", "channel_id") or _pick(channel, "id", "channelId") or "").strip() or None
-        subs = _pick(channel, "subscriberCount", "subscribers", "numberOfSubscribers", "subscribersCount", "channelSubscribers") or _pick(item, "subscriberCount", "subscribers", "numberOfSubscribers", "channelSubscribers")
-        avatar = _pick(channel, "avatar", "avatarUrl", "channelAvatar", "thumbnailUrl") or _pick(item, "avatar", "avatarUrl", "thumbnailUrl", "channelAvatar")
-        banner = _pick(channel, "bannerUrl", "banner", "channelBanner") or _pick(item, "bannerUrl", "banner")
-        about = _pick(item, "description", "about") or _pick(channel, "description", "about")
-        country = _pick(channel, "country") or _pick(item, "country")
-        return {
-            "page_id": page_id,
-            "page_name": str(name).strip(),
-            "facebook_url": url,
-            "platform": "youtube",
-            "category": None,
-            "about": about,
-            "followers": _as_int(subs),
-            "likes": None,
-            "verified": bool(_pick(channel, "verified", "isVerified") or _pick(item, "verified", "isVerified")),
-            "phone": None,
-            "email": None,
-            "whatsapp": None,
-            "website": _pick(channel, "website", "url", "channelUrl") or _pick(item, "website", "channelUrl"),
-            "address": country,
-            "city": None,
-            "state": None,
-            "country": country,
-            "profile_picture": str(avatar).strip() if avatar else None,
-            "cover_image": str(banner).strip() if banner else None,
-            "source_type": "channel_url" if "@" in url or "channel" in url else "video_url",
-            "source_page_url": url,
-            "search_run_id": run_id,
-            "search_keyword": url,
-            "source": "apify_url_search",
-            "posts_status": "not_started",
-            "comments_status": "not_started",
-        }
 
     def normalize_post(self, item: Dict[str, Any], page_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        if not isinstance(item, dict):
+        try:
+            if not isinstance(item, dict):
+                return None
+            post_url = str(_pick(item, "url", "link", "videoUrl") or "").strip()
+            if not post_url:
+                vid = _pick(item, "id", "videoId")
+                if vid:
+                    post_url = f"https://www.youtube.com/watch?v={vid}"
+            if not post_url:
+                return None
+            caption = str(_pick(item, "title", "caption", "name") or "").strip() or None
+            thumb = _pick(item, "thumbnailUrl", "thumbnail", "thumbnails")
+            return {
+                "post_id": str(_pick(item, "id", "videoId") or "").strip() or None,
+                "post_url": post_url,
+                "page_id": page_doc.get("page_id"),
+                "page_name": page_doc.get("page_name"),
+                "platform": "youtube",
+                "caption": caption,
+                "images": [str(thumb)] if thumb else [],
+                "videos": [post_url],
+                "external_links": [],
+                "published_date": str(_pick(item, "publishedAt", "date", "publishDate", "uploadDate") or "").strip() or None,
+                "likes_count": _as_int(_pick(item, "likeCount", "likes")),
+                "total_comment_count": _as_int(_pick(item, "commentCount", "videoCommentsCount", "commentsCount")),
+                "scraped_comment_count": None,
+                "comments_count": _as_int(_pick(item, "commentCount", "videoCommentsCount", "commentsCount")),
+                "shares_count": None,
+                "is_relevant": True,
+                "is_qualifying": False,
+                "page_ref": str(page_doc["_id"]),
+                "search_run_id": page_doc.get("search_run_id"),
+                "provider": "apify",
+                "description": str(_pick(item, "description", "text") or "").strip() or None,
+            }
+        except Exception as e:
+            logger.warning("[YouTube] post normalization failed: %s", e)
             return None
-        post_url = str(_pick(item, "url", "link", "videoUrl") or "").strip()
-        if not post_url:
-            vid = _pick(item, "id", "videoId")
-            if vid:
-                post_url = f"https://www.youtube.com/watch?v={vid}"
-        if not post_url:
-            return None
-        caption = str(_pick(item, "title", "caption", "name") or "").strip() or None
-        thumb = _pick(item, "thumbnailUrl", "thumbnail", "thumbnails")
-        return {
-            "post_id": str(_pick(item, "id", "videoId") or "").strip() or None,
-            "post_url": post_url,
-            "page_id": page_doc.get("page_id"),
-            "page_name": page_doc.get("page_name"),
-            "platform": "youtube",
-            "caption": caption,
-            "images": [str(thumb)] if thumb else [],
-            "videos": [post_url],
-            "external_links": [],
-            "published_date": str(_pick(item, "publishedAt", "date", "publishDate", "uploadDate") or "").strip() or None,
-            "likes_count": _as_int(_pick(item, "likeCount", "likes")),
-            "total_comment_count": _as_int(_pick(item, "commentCount", "videoCommentsCount", "commentsCount")),
-            "scraped_comment_count": None,
-            "comments_count": _as_int(_pick(item, "commentCount", "videoCommentsCount", "commentsCount")),
-            "shares_count": None,
-            "is_relevant": True,
-            "is_qualifying": False,
-            "page_ref": str(page_doc["_id"]),
-            "search_run_id": page_doc.get("search_run_id"),
-            "provider": "apify",
-            "description": str(_pick(item, "description", "text") or "").strip() or None,
-        }
 
     def normalize_comment(self, item: Dict[str, Any], post_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        if not isinstance(item, dict):
-            return None
-        comment_id = str(_pick(item, "id", "commentId", "cid", "comment_id") or "").strip() or None
-        text = str(_pick(item, "text", "commentText", "content", "comment", "comment_text", "textDisplay", "snippet") or "").strip() or None
-        if not text and not comment_id:
-            return None
-        post_url = post_doc.get("post_url") or item.get("_parent_url") or ""
-        comment_url = str(_pick(item, "url", "commentUrl") or "").strip()
-        if not comment_url and post_url:
-            comment_url = f"{post_url}&lc={comment_id}" if comment_id else post_url
-        if not comment_url:
-            comment_url = post_url or "https://www.youtube.com"
+        try:
+            if not isinstance(item, dict):
+                return None
+            comment_id = str(_pick(item, "id", "commentId", "cid", "comment_id") or "").strip() or None
+            text = str(_pick(item, "text", "commentText", "content", "comment", "comment_text", "textDisplay", "snippet") or "").strip() or None
+            if not text and not comment_id:
+                return None
+            post_url = post_doc.get("post_url") or item.get("_parent_url") or ""
+            comment_url = str(_pick(item, "url", "commentUrl") or "").strip()
+            if not comment_url and post_url:
+                comment_url = f"{post_url}&lc={comment_id}" if comment_id else post_url
+            if not comment_url:
+                comment_url = post_url or "https://www.youtube.com"
 
-        author_name = str(_pick(item, "author", "authorName", "authorTitle", "commenterName", "user", "channelTitle", "authorText", "author_name", "authorChannelName", "commenter") or "YouTube User").strip()
-        author_url = _pick(item, "authorUrl", "authorProfileUrl", "authorChannelUrl", "channelUrl", "author_profile_url")
-        return {
-            "comment_id": comment_id,
-            "comment_url": comment_url,
-            "author_name": author_name,
-            "author_profile_url": author_url,
-            "text": text,
-            "published_date": str(_pick(item, "publishedAt", "date", "publishDate", "time", "publishedTimeText") or "").strip() or None,
-            "reactions_count": _as_int(_pick(item, "likeCount", "likes", "votes", "voteCount", "likesCount")),
-            "post_id": post_doc.get("post_id") or str(post_doc.get("_id") or ""),
-            "post_url": post_url,
-            "page_id": post_doc.get("page_id"),
-            "post_ref": str(post_doc["_id"]),
-            "search_run_id": post_doc.get("search_run_id"),
-            "platform": "youtube",
-        }
+            author_name = str(_pick(item, "author", "authorName", "authorTitle", "commenterName", "user", "channelTitle", "authorText", "author_name", "authorChannelName", "commenter") or "YouTube User").strip()
+            author_url = _pick(item, "authorUrl", "authorProfileUrl", "authorChannelUrl", "channelUrl", "author_profile_url")
+            return {
+                "comment_id": comment_id,
+                "comment_url": comment_url,
+                "author_name": author_name,
+                "author_profile_url": author_url,
+                "text": text,
+                "published_date": str(_pick(item, "publishedAt", "date", "publishDate", "time", "publishedTimeText") or "").strip() or None,
+                "reactions_count": _as_int(_pick(item, "likeCount", "likes", "votes", "voteCount", "likesCount")),
+                "post_id": post_doc.get("post_id") or str(post_doc.get("_id") or ""),
+                "post_url": post_url,
+                "page_id": post_doc.get("page_id"),
+                "post_ref": str(post_doc["_id"]),
+                "search_run_id": post_doc.get("search_run_id"),
+                "platform": "youtube",
+            }
+        except Exception as e:
+            logger.warning("[YouTube] comment normalization failed: %s", e)
+            return None
 
 
 class LinkedInScraper(SocialMediaScraper):
@@ -503,107 +538,119 @@ class LinkedInScraper(SocialMediaScraper):
         return [i for i in items if isinstance(i, dict) and i.get("commentary")]
 
     def normalize_page(self, item: Dict[str, Any], run_id: str, url: str) -> Optional[Dict[str, Any]]:
-        if not isinstance(item, dict):
+        try:
+            if not isinstance(item, dict):
+                return None
+            name = _pick(item, "name") or _pick(item, "universalName")
+            if not name:
+                return None
+            loc = next((location for location in item.get("locations") or []
+                        if isinstance(location, dict) and location.get("headquarter")), None)
+            loc = loc or (item.get("locations") or [{}])[0]
+            industries = item.get("industries") or []
+            category = None
+            for ind in industries:
+                cat = str(ind.get("name") if isinstance(ind, dict) else ind).strip()
+                if cat:
+                    category = cat
+                    break
+            category = category or _pick(item, "companyType")
+            return {
+                "page_id": str(_pick(item, "id", "universalName") or "").strip() or None,
+                "page_name": str(name).strip(),
+                "facebook_url": _pick(item, "linkedinUrl") or url,
+                "platform": "linkedin",
+                "category": category,
+                "about": _pick(item, "description", "tagline"),
+                "followers": _as_int(_pick(item, "followerCount")),
+                "likes": None,
+                "verified": None,
+                "phone": _pick(item, "phone"),
+                "email": None,
+                "whatsapp": None,
+                "website": _pick(item, "website"),
+                "address": (loc or {}).get("line1"),
+                "city": (loc or {}).get("city"),
+                "state": (loc or {}).get("geographicArea"),
+                "country": (loc or {}).get("country"),
+                "profile_picture": _pick(item, "logo") or _pick(item, "logoUrl", "pictureUrl"),
+                "cover_image": _pick(item, "coverImageUrl", "backgroundUrl"),
+                "source_type": "company_url",
+                "source_page_url": url,
+                "search_run_id": run_id,
+                "search_keyword": url,
+                "source": "apify_url_search",
+                "posts_status": "not_started",
+                "comments_status": "not_started",
+            }
+        except Exception as e:
+            logger.warning("[LinkedIn] page normalization failed: %s", e)
             return None
-        name = _pick(item, "name") or _pick(item, "universalName")
-        if not name:
-            return None
-        loc = next((location for location in item.get("locations") or []
-                    if isinstance(location, dict) and location.get("headquarter")), None)
-        loc = loc or (item.get("locations") or [{}])[0]
-        industries = item.get("industries") or []
-        category = None
-        for ind in industries:
-            cat = str(ind.get("name") if isinstance(ind, dict) else ind).strip()
-            if cat:
-                category = cat
-                break
-        category = category or _pick(item, "companyType")
-        return {
-            "page_id": str(_pick(item, "id", "universalName") or "").strip() or None,
-            "page_name": str(name).strip(),
-            "facebook_url": _pick(item, "linkedinUrl") or url,
-            "platform": "linkedin",
-            "category": category,
-            "about": _pick(item, "description", "tagline"),
-            "followers": _as_int(_pick(item, "followerCount")),
-            "likes": None,
-            "verified": None,
-            "phone": _pick(item, "phone"),
-            "email": None,
-            "whatsapp": None,
-            "website": _pick(item, "website"),
-            "address": (loc or {}).get("line1"),
-            "city": (loc or {}).get("city"),
-            "state": (loc or {}).get("geographicArea"),
-            "country": (loc or {}).get("country"),
-            "profile_picture": _pick(item, "logo") or _pick(item, "logoUrl", "pictureUrl"),
-            "cover_image": _pick(item, "coverImageUrl", "backgroundUrl"),
-            "source_type": "company_url",
-            "source_page_url": url,
-            "search_run_id": run_id,
-            "search_keyword": url,
-            "source": "apify_url_search",
-            "posts_status": "not_started",
-            "comments_status": "not_started",
-        }
 
     def normalize_post(self, item: Dict[str, Any], page_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        if not isinstance(item, dict):
+        try:
+            if not isinstance(item, dict):
+                return None
+            post_url = _pick(item, "linkedinUrl", "url", "postUrl")
+            if not post_url:
+                return None
+            posted_at = item.get("postedAt") if isinstance(item.get("postedAt"), dict) else {}
+            engagement = item.get("engagement") if isinstance(item.get("engagement"), dict) else {}
+            return {
+                "post_id": str(_pick(item, "id", "urn") or "").strip() or None,
+                "post_url": str(post_url).strip(),
+                "page_id": page_doc.get("page_id"),
+                "page_name": page_doc.get("page_name"),
+                "platform": "linkedin",
+                "caption": str(_pick(item, "content", "text", "description") or "").strip() or None,
+                "images": [],
+                "videos": [],
+                "external_links": [],
+                "published_date": str(posted_at.get("date") or _pick(item, "date", "createdAt") or "").strip() or None,
+                "likes_count": _as_int(engagement.get("likes")),
+                "total_comment_count": _as_int(engagement.get("comments")),
+                "scraped_comment_count": None,
+                "comments_count": _as_int(engagement.get("comments")),
+                "shares_count": _as_int(engagement.get("shares")),
+                "is_relevant": True,
+                "is_qualifying": False,
+                "page_ref": str(page_doc["_id"]),
+                "search_run_id": page_doc.get("search_run_id"),
+                "provider": "apify",
+            }
+        except Exception as e:
+            logger.warning("[LinkedIn] post normalization failed: %s", e)
             return None
-        post_url = _pick(item, "linkedinUrl", "url", "postUrl")
-        if not post_url:
-            return None
-        posted_at = item.get("postedAt") if isinstance(item.get("postedAt"), dict) else {}
-        engagement = item.get("engagement") if isinstance(item.get("engagement"), dict) else {}
-        return {
-            "post_id": str(_pick(item, "id", "urn") or "").strip() or None,
-            "post_url": str(post_url).strip(),
-            "page_id": page_doc.get("page_id"),
-            "page_name": page_doc.get("page_name"),
-            "platform": "linkedin",
-            "caption": str(_pick(item, "content", "text", "description") or "").strip() or None,
-            "images": [],
-            "videos": [],
-            "external_links": [],
-            "published_date": str(posted_at.get("date") or _pick(item, "date", "createdAt") or "").strip() or None,
-            "likes_count": _as_int(engagement.get("likes")),
-            "total_comment_count": _as_int(engagement.get("comments")),
-            "scraped_comment_count": None,
-            "comments_count": _as_int(engagement.get("comments")),
-            "shares_count": _as_int(engagement.get("shares")),
-            "is_relevant": True,
-            "is_qualifying": False,
-            "page_ref": str(page_doc["_id"]),
-            "search_run_id": page_doc.get("search_run_id"),
-            "provider": "apify",
-        }
 
     def normalize_comment(self, item: Dict[str, Any], post_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        if not isinstance(item, dict):
+        try:
+            if not isinstance(item, dict):
+                return None
+            comment_id = str(_pick(item, "id") or "").strip()
+            if not comment_id:
+                return None
+            actor = item.get("actor") if isinstance(item.get("actor"), dict) else {}
+            post_url = post_doc.get("post_url") or str(_pick(item, "postUrl") or "")
+            comment_url = str(_pick(item, "linkedinUrl", "url") or "").strip() or (
+                post_url.split("?")[0] + f"?comment_id={comment_id}")
+            return {
+                "comment_id": comment_id,
+                "comment_url": comment_url,
+                "author_name": str(_pick(actor, "name") or "").strip() or None,
+                "author_profile_url": _pick(actor, "linkedinUrl", "profileUrl") or None,
+                "text": str(_pick(item, "commentary", "text") or "").strip() or None,
+                "published_date": str(_pick(item, "createdAt", "timestamp", "date") or "").strip() or None,
+                "reactions_count": _as_int(_pick(item, "numReactions", "likesCount")),
+                "post_id": post_doc.get("post_id") or str(post_doc.get("_id") or ""),
+                "post_url": post_url,
+                "page_id": post_doc.get("page_id"),
+                "post_ref": str(post_doc["_id"]),
+                "search_run_id": post_doc.get("search_run_id"),
+                "platform": "linkedin",
+            }
+        except Exception as e:
+            logger.warning("[LinkedIn] comment normalization failed: %s", e)
             return None
-        comment_id = str(_pick(item, "id") or "").strip()
-        if not comment_id:
-            return None
-        actor = item.get("actor") if isinstance(item.get("actor"), dict) else {}
-        post_url = post_doc.get("post_url") or str(_pick(item, "postUrl") or "")
-        comment_url = str(_pick(item, "linkedinUrl", "url") or "").strip() or (
-            post_url.split("?")[0] + f"?comment_id={comment_id}")
-        return {
-            "comment_id": comment_id,
-            "comment_url": comment_url,
-            "author_name": str(_pick(actor, "name") or "").strip() or None,
-            "author_profile_url": _pick(actor, "linkedinUrl", "profileUrl") or None,
-            "text": str(_pick(item, "commentary", "text") or "").strip() or None,
-            "published_date": str(_pick(item, "createdAt", "timestamp", "date") or "").strip() or None,
-            "reactions_count": _as_int(_pick(item, "numReactions", "likesCount")),
-            "post_id": post_doc.get("post_id") or str(post_doc.get("_id") or ""),
-            "post_url": post_url,
-            "page_id": post_doc.get("page_id"),
-            "post_ref": str(post_doc["_id"]),
-            "search_run_id": post_doc.get("search_run_id"),
-            "platform": "linkedin",
-        }
 
 
 def get_scraper(platform: str) -> SocialMediaScraper:

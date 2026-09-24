@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Request a demo · LeadAI</title>
+  <meta name="description" content="Request a LeadAI demo and start discovering high-intent leads from social media."/>
+  <meta name="robots" content="noindex,nofollow"/>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>"/>
+  <link rel="stylesheet" href="/static/design/tokens.css"/>
+  <link rel="stylesheet" href="/static/design/components.css"/>
+  <script src="/static/design/theme.js"></script>
+  <style>
+    .signup-card { max-width:980px; padding:0; display:grid; grid-template-columns:minmax(0,0.9fr) minmax(0,1.1fr); overflow:hidden; }
+    .signup-aside {
+      position:relative; padding:40px 36px; border-right:1px solid var(--border);
+      background:
+        radial-gradient(80% 60% at 0% 0%, var(--ambient) 0%, transparent 70%),
+        radial-gradient(60% 50% at 100% 100%, var(--ambient-2) 0%, transparent 70%),
+        var(--surface);
+    }
+    .signup-aside h2 { font-size:var(--text-xl); font-weight:700; letter-spacing:-0.01em; line-height:1.3; }
+    .signup-aside > p { color:var(--text-secondary); font-size:var(--text-sm); margin-top:10px; }
+    .benefits { list-style:none; display:grid; gap:18px; margin-top:28px; }
+    .benefits li { display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:start; }
+    .benefit-icon { width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center; background:var(--primary-light); color:var(--text-link); border:1px solid var(--border); }
+    .benefit-icon svg { width:18px; height:18px; }
+    .benefits strong { display:block; font-size:var(--text-sm); color:var(--text-primary); }
+    .benefits span { font-size:var(--text-xs); color:var(--text-secondary); line-height:1.5; }
+    .aside-note { margin-top:32px; padding-top:20px; border-top:1px solid var(--border); font-size:var(--text-xs); color:var(--text-secondary); display:flex; gap:10px; align-items:flex-start; }
+    .aside-note svg { width:16px; height:16px; flex-shrink:0; margin-top:1px; color:var(--success-text); }
+    .signup-main { padding:40px; }
+    .consent-row { display:flex; gap:10px; align-items:flex-start; }
+    .consent-row input { width:18px; height:18px; margin-top:2px; accent-color:var(--primary); flex-shrink:0; cursor:pointer; }
+    .consent-row label { font-size:var(--text-sm); color:var(--text-secondary); line-height:1.5; cursor:pointer; }
+    .char-count { font-size:var(--text-xs); color:var(--text-muted); text-align:right; }
+    @media (max-width:880px) {
+      .signup-card { grid-template-columns:1fr; max-width:560px; }
+      .signup-aside { border-right:0; border-bottom:1px solid var(--border); padding:28px; }
+      .benefits { grid-template-columns:1fr; gap:14px; margin-top:20px; }
+      .aside-note { display:none; }
+    }
+    @media (max-width:520px) {
+      .signup-main, .signup-aside { padding:24px 20px; }
+    }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="auth-shell">
+  <header class="brand-bar">
+    <a class="brand" href="/website">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.1 6.4 6.4 2.1-6.4 2.1L12 19.5l-2.1-6.4L3.5 11l6.4-2.1z"/></svg></span>
+      <span data-brand-name>LeadAI</span>
+    </a>
+    <div class="brand-actions">
+      <a class="btn btn-ghost btn-sm" href="/login">Sign in</a>
+      <button type="button" class="btn theme-toggle" data-theme-toggle aria-label="Switch theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="auth-main" id="main">
+    <div class="auth-card signup-card">
+      <aside class="signup-aside" aria-label="Why LeadAI">
+        <h2>Find buyers the moment they ask for help.</h2>
+        <p>LeadAI scans social conversations for people actively looking for what you sell, and hands your team qualified leads.</p>
+        <ul class="benefits">
+          <li>
+            <span class="benefit-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+            <div><strong>Social listening that finds intent</strong><span>Search posts and comments for buying signals, not just keywords.</span></div>
+          </li>
+          <li>
+            <span class="benefit-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5l2.1 6.4 6.4 2.1-6.4 2.1L12 19.5l-2.1-6.4L3.5 11l6.4-2.1z"/></svg></span>
+            <div><strong>AI lead scoring</strong><span>Every lead is scored and summarised so reps know who to contact first.</span></div>
+          </li>
+          <li>
+            <span class="benefit-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+            <div><strong>Built for teams</strong><span>Invite teammates, assign roles and track every lead through your pipeline.</span></div>
+          </li>
+        </ul>
+        <p class="aside-note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <span>Every demo request is reviewed by our team. Once approved, you'll get an email and can sign in with the password you choose here.</span>
+        </p>
+      </aside>
+
+      <section class="signup-main" aria-labelledby="title">
+        <div class="auth-header" style="margin-bottom:24px">
+          <h1 class="auth-title" id="title" tabindex="-1">Request a demo</h1>
+          <p class="auth-subtitle">Tell us a little about you. It takes under a minute.</p>
+        </div>
+
+        <div class="alert alert-danger hidden" id="formAlert" role="alert" style="margin-bottom:18px">
+          <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div class="alert-body">
+            <p id="formAlertText"></p>
+            <p class="alert-actions hidden" id="formAlertActions"></p>
+          </div>
+        </div>
+
+        <form class="auth-form" id="signupForm" novalidate>
+          <div class="auth-row">
+            <div class="form-group">
+              <label class="form-label" for="name">Full name</label>
+              <input class="form-input" type="text" id="name" name="name" autocomplete="name" maxlength="120" required
+                     aria-describedby="nameError" data-error="nameError"/>
+              <div class="field-error" id="nameError" aria-live="polite"></div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="email">Work email</label>
+              <input class="form-input" type="email" id="email" name="email" autocomplete="email" inputmode="email"
+                     spellcheck="false" autocapitalize="off" placeholder="you@company.com" required
+                     aria-describedby="emailError" data-error="emailError"/>
+              <div class="field-error" id="emailError" aria-live="polite"></div>
+            </div>
+          </div>
+          <div class="auth-row">
+            <div class="form-group">
+              <label class="form-label" for="company">Company</label>
+              <input class="form-input" type="text" id="company" name="company" autocomplete="organization" maxlength="200" required
+                     aria-describedby="companyError" data-error="companyError"/>
+              <div class="field-error" id="companyError" aria-live="polite"></div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="phone">Phone <span class="optional">(optional)</span></label>
+              <input class="form-input" type="tel" id="phone" name="phone" autocomplete="tel" inputmode="tel" maxlength="30"
+                     aria-describedby="phoneError" data-error="phoneError"/>
+              <div class="field-error" id="phoneError" aria-live="polite"></div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="password">Password</label>
+            <div class="input-wrap">
+              <input class="form-input" type="password" id="password" name="password" autocomplete="new-password" required
+                     aria-describedby="pwRules pwStrength passwordError" data-error="passwordError"/>
+              <button type="button" class="input-affix" data-toggle-password="password" aria-label="Show password" aria-pressed="false">
+                <svg class="icon-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="icon-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              </button>
+            </div>
+            <div class="pw-meter" id="pwMeter" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+            <div class="pw-meter-label"><span id="pwStrength" aria-live="polite"></span><span class="text-muted">You'll use this to sign in once approved</span></div>
+            <ul class="pw-rules" id="pwRules" aria-label="Password requirements">
+              <li data-rule="length">8+ characters<span class="sr-only"></span></li>
+              <li data-rule="upper">An uppercase letter<span class="sr-only"></span></li>
+              <li data-rule="number">A number<span class="sr-only"></span></li>
+            </ul>
+            <div class="field-error" id="passwordError" aria-live="polite"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="message">What are you hoping to find? <span class="optional">(optional)</span></label>
+            <textarea class="form-input form-textarea" id="message" name="message" maxlength="1000" rows="3" style="min-height:88px"
+                      placeholder="e.g. Local businesses asking for accounting help on Facebook and Reddit"
+                      aria-describedby="messageCount"></textarea>
+            <div class="char-count" id="messageCount" aria-live="off"><span id="charCount">0</span> / 1000</div>
+          </div>
+          <div class="form-group">
+            <div class="consent-row">
+              <input type="checkbox" id="terms" name="terms" required aria-describedby="termsError" data-error="termsError"/>
+              <label for="terms">I agree to the <a class="link" href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a class="link" href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</label>
+            </div>
+            <div class="field-error" id="termsError" aria-live="polite"></div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-lg btn-block" id="submitBtn">
+            <span class="spinner" aria-hidden="true"></span><span class="btn-label">Request demo</span>
+          </button>
+        </form>
+        <p class="auth-alt">Already approved? <a class="link" href="/login">Sign in</a></p>
+      </section>
+    </div>
+  </main>
+
+  <footer class="auth-footer">
+    <nav aria-label="Footer"><a href="/website">Home</a><a href="/contact">Contact</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+    <p style="margin-top:6px">© 2026 LeadAI</p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var UI = window.LeadAIUI;
+  var $ = function (id) { return document.getElementById(id); };
+  var f = { name: $("name"), email: $("email"), company: $("company"), phone: $("phone"), password: $("password"), message: $("message"), terms: $("terms") };
+  var PHONE_RE = /^[+()\-.\s\d]{6,30}$/;
+
+  UI.bindPasswordMeter(f.password, $("pwMeter"), $("pwStrength"), $("pwRules"));
+  UI.bindPasswordToggles(document);
+
+  f.message.addEventListener("input", function () { $("charCount").textContent = String(f.message.value.length); });
+
+  // Prefill from the website (e.g. /request-demo?email=…&company=…)
+  var qs = new URLSearchParams(location.search);
+  if (qs.get("email") && UI.isEmail(qs.get("email"))) f.email.value = qs.get("email");
+  if (qs.get("company")) f.company.value = qs.get("company").slice(0, 200);
+
+  function validators() {
+    return {
+      name: function () { return f.name.value.trim() ? "" : "Enter your full name."; },
+      email: function () {
+        var v = f.email.value.trim();
+        if (!v) return "Enter your work email.";
+        return UI.isEmail(v) ? "" : "Enter a valid email address, like name@company.com.";
+      },
+      company: function () { return f.company.value.trim() ? "" : "Enter your company name."; },
+      phone: function () {
+        var v = f.phone.value.trim();
+        return !v || PHONE_RE.test(v) ? "" : "Use digits, spaces and + ( ) - only.";
+      },
+      password: function () { return UI.passwordProblem(f.password.value); },
+      terms: function () { return f.terms.checked ? "" : "Please accept the Terms and Privacy Policy to continue."; }
+    };
+  }
+  var V = validators();
+
+  // Inline validation: validate on blur, clear as soon as the value becomes valid.
+  Object.keys(V).forEach(function (key) {
+    var input = f[key];
+    var ev = key === "terms" ? "change" : "blur";
+    input.addEventListener(ev, function () {
+      if (key !== "terms" && !input.value) return; // don't nag on empty blur
+      UI.fieldError(input, V[key]());
+    });
+    input.addEventListener(key === "terms" ? "change" : "input", function () {
+      if (input.getAttribute("aria-invalid") && !V[key]()) UI.fieldError(input, "");
+    });
+  });
+
+  function formAlert(msg, actionsHtml) {
+    var box = $("formAlert");
+    if (!msg) { box.classList.add("hidden"); return; }
+    $("formAlertText").textContent = msg;
+    var actions = $("formAlertActions");
+    actions.innerHTML = actionsHtml || "";
+    actions.classList.toggle("hidden", !actionsHtml);
+    box.classList.remove("hidden");
+    box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  $("signupForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    formAlert("");
+    var firstInvalid = null;
+    ["name", "email", "company", "phone", "password", "terms"].forEach(function (key) {
+      var msg = V[key]();
+      UI.fieldError(f[key], msg);
+      if (msg && !firstInvalid) firstInvalid = f[key];
+    });
+    if (firstInvalid) { firstInvalid.focus(); return; }
+
+    var btn = $("submitBtn");
+    UI.setBusy(btn, true, "Sending request…");
+    var email = f.email.value.trim();
+    var res = await UI.api("/api/auth/signup", {
+      method: "POST",
+      body: {
+        name: f.name.value.trim(),
+        email: email,
+        company: f.company.value.trim(),
+        phone: f.phone.value.trim() || null,
+        password: f.password.value,
+        message: f.message.value.trim() || null
+      }
+    });
+
+    if (res.ok && res.data && res.data.success !== false) {
+      $("submitBtn").querySelector(".btn-label").textContent = "Request sent — redirecting…";
+      if (res.data.status === "approved") {
+        location.href = "/login?approved=1";
+      } else {
+        try { sessionStorage.setItem("leadai_demo_email", email); } catch (_) {}
+        location.href = "/demo-pending";
+      }
+      return;
+    }
+    UI.setBusy(btn, false);
+
+    if (res.networkError) {
+      formAlert("We couldn't reach LeadAI. Check your connection and press “Request demo” again — your details are still here.");
+      return;
+    }
+    var msg = UI.errorMessage(res.data, "We couldn't send your request. Please try again.");
+    if (res.status === 429) {
+      formAlert("Too many requests from this network. Please wait a few minutes and try again.");
+      return;
+    }
+    if (res.status === 403) {
+      formAlert(msg || "New registrations are currently closed.",
+        'Want to talk to us anyway? <a href="/contact">Contact our team</a>');
+      return;
+    }
+    if (res.status === 400 || res.status === 409 || res.status === 422) {
+      if (/already exists|already registered|already have an account/i.test(msg)) {
+        UI.fieldError(f.email, msg);
+        formAlert(msg, '<a href="/login">Sign in</a><a href="/forgot-password?email=' + encodeURIComponent(email) + '">Reset your password</a>');
+        f.email.focus();
+        return;
+      }
+      if (/password/i.test(msg)) { UI.fieldError(f.password, msg); f.password.focus(); return; }
+      if (/email/i.test(msg)) { UI.fieldError(f.email, msg); f.email.focus(); return; }
+      if (/company|organi[sz]ation/i.test(msg)) { UI.fieldError(f.company, msg); f.company.focus(); return; }
+      if (/phone/i.test(msg)) { UI.fieldError(f.phone, msg); f.phone.focus(); return; }
+      if (/name/i.test(msg)) { UI.fieldError(f.name, msg); f.name.focus(); return; }
+    }
+    formAlert(msg);
+  });
+})();
+</script>
+</body>
+</html>

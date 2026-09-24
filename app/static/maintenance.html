@@ -3,99 +3,80 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Maintenance — LeadAI</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500;1,9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <title>Maintenance · LeadAI</title>
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="stylesheet" href="/static/design/tokens.css">
+  <link rel="stylesheet" href="/static/design/components.css">
+  <script src="/static/design/theme.js"></script>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
   <style>
-    :root {
-      --bg: #f5f4fb;
-      --bg-grad: radial-gradient(120% 140% at 10% -10%, #fdeee0 0%, #f5f4fb 38%),
-                 radial-gradient(100% 120% at 100% 0%, #eaf1ff 0%, transparent 45%);
-      --surface: #ffffff;
-      --border: #e7e4f1;
-      --border-soft: #efedf7;
-      --text: #1c1a2b;
-      --text-dim: #66607f;
-      --amber: #f0a531;
-      --amber-deep: #d0821a;
-      --amber-soft: #fdf1de;
-      --shadow-md: 0 10px 30px rgba(60, 40, 120, 0.08);
-      --font-display: "Fraunces", Georgia, serif;
-      --font-ui: "Inter", system-ui, -apple-system, sans-serif;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: var(--font-ui);
-      background: var(--bg-grad) fixed;
-      color: var(--text);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      padding: 24px;
-    }
-    .m-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 42px 36px;
-      max-width: 480px;
-      width: 100%;
-      text-align: center;
-      box-shadow: var(--shadow-md);
-    }
     .m-icon {
-      width: 56px;
-      height: 56px;
-      border-radius: 14px;
-      display: grid;
-      place-items: center;
-      font-size: 24px;
-      color: #ffffff;
-      background: linear-gradient(135deg, var(--amber), var(--amber-deep));
-      box-shadow: 0 6px 18px rgba(240, 165, 49, 0.35);
-      margin: 0 auto 20px;
+      width:64px; height:64px; margin:0 auto 20px; border-radius:18px;
+      display:flex; align-items:center; justify-content:center;
+      background:var(--secondary-soft); color:var(--secondary-text); border:1px solid var(--secondary-border);
     }
-    h1 {
-      font-family: var(--font-display);
-      font-size: 26px;
-      font-weight: 500;
-      font-style: italic;
-      margin-bottom: 12px;
-      color: var(--text);
-    }
-    p {
-      color: var(--text-dim);
-      font-size: 14px;
-      line-height: 1.6;
-      margin-bottom: 24px;
-    }
-    .m-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 11.5px;
-      font-weight: 600;
-      color: var(--amber-deep);
-      background: var(--amber-soft);
-      border: 1px solid rgba(240, 165, 49, 0.35);
-      padding: 5px 14px;
-      border-radius: 999px;
-    }
+    .m-icon svg { width:28px; height:28px; }
+    .m-icon.has-img { width:auto; height:56px; padding:0 8px; }
+    .m-status { display:flex; justify-content:center; margin-top:4px; }
+    .m-note { margin-top:20px; font-size:var(--text-xs); color:var(--text-secondary); display:flex; align-items:center; justify-content:center; gap:8px; min-height:18px; }
+    .m-note .live-dot { width:7px; height:7px; border-radius:50%; background:var(--warning); animation:shimmer 1.4s ease-in-out infinite; }
   </style>
 </head>
 <body>
-  <div class="m-card">
-    <div class="m-icon" data-brand-logo="primary">✦</div>
-    <h1>System Maintenance</h1>
-    <p data-brand-maintenance-message>LeadAI is currently undergoing scheduled system updates. We'll be back online shortly.</p>
-    <div class="m-badge">● Maintenance in progress</div>
-  </div>
-  <script src="/static/config.js"></script>
-  <script>
-    if (window.AppConfig) AppConfig.load();
-  </script>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="auth-shell">
+  <header class="brand-bar">
+    <span class="brand">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.1 6.4 6.4 2.1-6.4 2.1L12 19.5l-2.1-6.4L3.5 11l6.4-2.1z"/></svg></span>
+      <span data-brand-name>LeadAI</span>
+    </span>
+    <div class="brand-actions">
+      <button type="button" class="btn theme-toggle" data-theme-toggle aria-label="Switch theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="auth-main" id="main">
+    <section class="auth-card text-center" aria-labelledby="title">
+      <div class="m-icon" data-brand-logo="primary" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      </div>
+      <div class="m-status"><span class="status-pill is-live" data-status="pending">Maintenance in progress</span></div>
+      <div class="auth-header text-center" style="margin:16px 0 0">
+        <h1 class="auth-title" id="title">We'll be right back</h1>
+        <p class="auth-subtitle" data-brand-maintenance-message>LeadAI is undergoing scheduled system updates. We'll be back online shortly.</p>
+      </div>
+      <div class="auth-actions">
+        <button type="button" class="btn btn-primary btn-lg btn-block" id="retryBtn">
+          <span class="spinner" aria-hidden="true"></span><span class="btn-label">Try again</span>
+        </button>
+        <a class="btn btn-ghost btn-block" href="/login?admin=1">Admin sign in</a>
+      </div>
+      <p class="m-note" id="pollNote" role="status"><span class="live-dot" aria-hidden="true"></span><span>This page checks again automatically every minute.</span></p>
+    </section>
+  </main>
+
+  <footer class="auth-footer">
+    <p>Your data is safe — nothing is lost during maintenance.</p>
+  </footer>
+</div>
+
+<script src="/static/config.js"></script>
+<script>
+(function () {
+  "use strict";
+  if (window.AppConfig) AppConfig.load();
+  var btn = document.getElementById("retryBtn");
+  // A reload re-runs the maintenance gate: once maintenance ends the real page loads.
+  function retry() {
+    if (window.LeadAIUI) LeadAIUI.setBusy(btn, true, "Checking…");
+    location.reload();
+  }
+  btn.addEventListener("click", retry);
+  setTimeout(retry, 60000);
+})();
+</script>
 </body>
 </html>

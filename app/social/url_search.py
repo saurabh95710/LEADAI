@@ -16,11 +16,8 @@ search results too — the docs carry a `platform` field for display.
 """
 import logging
 import threading
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from pymongo.errors import DuplicateKeyError
-
-from app.config import get_settings
 from app.db.mongo import get_sync_db
 from app.db.models import utcnow
 from app.social.url_detector import UrlError, detect_social_url
@@ -81,14 +78,39 @@ def _url_derived_page(platform: str, url: str, run_id: str,
 
 
 def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
-                   max_comments_per_post: int = 30) -> Dict[str, Any]:
+                   max_comments_per_post: int = 30,
+                   organization_id: Optional[str] = None,
+                   created_by: Optional[str] = None,
+                   user_id: Optional[str] = None) -> Dict[str, Any]:
     """Execute one URL search. Returns a bundle with page/posts/comments counts."""
     db = get_sync_db()
     if db is None:
         return {"status": "error", "error": "Database unavailable"}
-    settings = get_settings()
+    from app.agent.search import (is_run_cancelled, mark_run_cancelled,
+                                  notify_apify_failure, pipeline_audit)
 
-    from app.agent.search import is_run_cancelled, mark_run_cancelled
+    # Tenant ownership comes from the search_history doc (the source of
+    # truth) — every page/post/comment this run writes carries it.
+    if not organization_id or not created_by or not user_id:
+        try:
+            sh = db.search_history.find_one({"run_id": run_id})
+            if sh:
+                if not organization_id:
+                    organization_id = sh.get("organization_id")
+                if not created_by:
+                    created_by = sh.get("created_by")
+                if not user_id:
+                    user_id = sh.get("user_id")
+        except Exception:
+            pass
+    owner: Dict[str, Any] = {k: v for k, v in (
+        ("organization_id", organization_id), ("user_id", user_id),
+        ("created_by", created_by)) if v}
+
+    def audit_run(action: str, category: str, success: bool = True, **details):
+        pipeline_audit(action, category, owner, success=success,
+                       resource_type="search_run", resource_id=run_id,
+                       details=details)
 
     def progress(message: str = "", **fields):
         db.search_history.update_one(
@@ -136,6 +158,9 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
     progress(phase="page", platform=platform,
              message=f"Fetching {platform} page details…")
     scraper = get_scraper(platform)
+    audit_run("apify.job_created", "apify", platform=platform,
+              url=canonical_url, max_posts=max_posts,
+              max_comments_per_post=max_comments_per_post)
 
     # ── 2. fetch + store the page ──────────────────────────────────────────
     page_error: Dict[str, Any] = {}
@@ -158,11 +183,17 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
 
     page_doc = None
     for item in page_items:
-        page_json = scraper.normalize_page(item, run_id, canonical_url)
+        try:
+            page_json = scraper.normalize_page(item, run_id, canonical_url)
+        except Exception as e:
+            logger.warning("[URL SEARCH] page normalization failed: %s", e)
+            continue
         if not page_json:
             continue
         page_json.setdefault("created_at", utcnow())
         page_json["updated_at"] = utcnow()
+        page_json.setdefault("search_run_id", run_id)
+        page_json.update(owner)
         # the pages collection indexes on (facebook_url, search_run_id) — dedupe
         existing = db.facebook_pages.find_one(
             {"facebook_url": page_json["facebook_url"], "search_run_id": run_id})
@@ -170,6 +201,7 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
             # augment (never lose original run data we keep) then refresh stats
             merged = {k: v for k, v in page_json.items() if v is not None}
             merged["search_run_id"] = run_id
+            merged.update(owner)
             db.facebook_pages.update_one({"_id": existing["_id"]},
                                          {"$set": {**merged, "updated_at": utcnow()}})
             page_doc = {**existing, **merged}
@@ -186,6 +218,7 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
             "errorType": "EMPTY_DETAILS",
             "message": "Page details unavailable; continuing with post and comment extraction."
         })
+        page_doc.update(owner)
         try:
             page_doc["_id"] = ObjectId()
             db.facebook_pages.insert_one(page_doc)
@@ -193,6 +226,8 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
             logger.warning("[URL SEARCH] fallback page insert failed", exc_info=True)
 
     page_id = str(page_doc["_id"])
+    audit_run("scrape.pages_saved", "scrape", count=1, page_id=page_id,
+              platform=platform, details_available=not page_error)
     logger.info(f"[URL SEARCH] page stored: {page_id} "
                 f"({page_doc.get('platform', 'facebook')})")
 
@@ -215,21 +250,37 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
             progress(status="cancelled", phase="cancelled",
                      message="Search cancelled by user", completed_at=utcnow())
             return cancelled()
-        post_json = scraper.normalize_post(item, page_doc)
+        try:
+            post_json = scraper.normalize_post(item, page_doc)
+        except Exception as e:
+            logger.warning("[URL SEARCH] post normalization failed: %s", e)
+            continue
         if not post_json or not post_json.get("post_url"):
             continue
         post_json["_id"] = ObjectId()
         post_json["page_ref"] = page_id
         post_json["search_run_id"] = run_id
         post_json["provider"] = page_doc.get("provider") or "apify"
+        post_json.update(owner)
         post_json["created_at"] = utcnow()
         post_json["updated_at"] = utcnow()
-        existing = db.facebook_posts.find_one(
-            {"post_url": post_json["post_url"], "page_ref": page_id})
+        # Deduplicate by post_url per page, and also by native post_id when
+        # available — prevents the same video/post stored under URL variants.
+        dedup_query: Dict[str, Any] = {"post_url": post_json["post_url"], "page_ref": page_id}
+        if post_json.get("post_id"):
+            dedup_query = {"$or": [
+                {"post_url": post_json["post_url"], "page_ref": page_id},
+                {"post_id": post_json["post_id"], "page_ref": page_id},
+            ]}
+        existing = db.facebook_posts.find_one(dedup_query)
         if existing:
-            db.facebook_posts.update_one(
-                {"_id": existing["_id"]},
-                {"$set": {k: v for k, v in post_json.items() if v is not None}})
+            # Only update fields that are not None — never overwrite real data
+            # with null from a duplicate/variant record.
+            update = {k: v for k, v in post_json.items()
+                      if v is not None and k not in ("_id", "created_at")}
+            if update:
+                db.facebook_posts.update_one(
+                    {"_id": existing["_id"]}, {"$set": update})
             post_docs.append({**existing, **post_json})
         else:
             db.facebook_posts.insert_one(post_json)
@@ -240,6 +291,8 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
         "posts_count": len(post_docs),
         "posts_collected_at": utcnow(), "updated_at": utcnow()}})
     logger.info(f"[URL SEARCH] stored {len(post_docs)} posts for page {page_id}")
+    audit_run("scrape.posts_saved", "scrape", count=len(post_docs),
+              received=len(post_items), page_id=page_id, platform=platform)
 
     # post statistics for this page — identical to the keyword-search flow
     try:
@@ -301,7 +354,11 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
                     progress(status="cancelled", phase="cancelled",
                              message="Search cancelled by user", completed_at=utcnow())
                     return cancelled()
-                comment_json = scraper.normalize_comment(item, post)
+                try:
+                    comment_json = scraper.normalize_comment(item, post)
+                except Exception as e:
+                    logger.warning("[URL SEARCH] comment normalization failed: %s", e)
+                    continue
                 if not comment_json or not (comment_json.get("text") or comment_json.get("comment_id")):
                     continue
                 # every scraped comment is kept; comments carrying a phone
@@ -311,6 +368,7 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
                     has_contact_info(comment_json.get("text")))
                 comment_json["post_ref"] = str(post["_id"])
                 comment_json["search_run_id"] = run_id
+                comment_json.update(owner)
                 comment_json["created_at"] = utcnow()
                 comment_json["updated_at"] = utcnow()
 
@@ -395,6 +453,9 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
                     logger.warning(f"[URL SEARCH] AI comment analysis failed for "
                                    f"{post['post_url']}: {e}")
 
+    audit_run("scrape.comments_saved", "scrape", count=comment_docs,
+              posts=len(post_docs), page_id=page_id, platform=platform)
+
     # ── 5. finalize ────────────────────────────────────────────────────────
     # a run that could not fetch details AND got no posts is a failure, not
     # a success — surface the real reason (actor access/credits/block/private)
@@ -405,10 +466,14 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
                      f"{platform} link. {page_error.get('message', '')}".strip())
         elif comment_docs == 0:
             error = None  # page-only runs are still meaningful
+    last_call = dict(getattr(getattr(scraper, "connector", None), "last_call", None) or {})
     if error:
         progress(status="error", error=error, phase="failed",
                  message=error, completed_at=utcnow())
         logger.info(f"[URL SEARCH] run {run_id} failed: {error}")
+        audit_run("apify.job_failed", "apify", success=False, platform=platform,
+                  error=error[:500], apify_run_id=last_call.get("runId"))
+        notify_apify_failure(owner, run_id, error, last_call.get("runId"))
         return {
             "status": "error", "error": error, "success": False,
             "platform": platform, "url": canonical_url, "page_id": page_id,
@@ -420,6 +485,20 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
              completed_at=utcnow())
     logger.info(f"[URL SEARCH] run {run_id} completed: platform={platform} "
                 f"posts={len(post_docs)} comments={comment_docs}")
+    audit_run("apify.job_completed", "apify", platform=platform,
+              posts=len(post_docs), comments=comment_docs,
+              apify_run_id=last_call.get("runId"),
+              usage_usd=last_call.get("usageUsd"))
+    if owner.get("user_id"):
+        try:
+            from app.events.notifications import notify_user
+            notify_user(str(owner["user_id"]), "search_completed", "Search completed",
+                        f"{platform} search finished — {len(post_docs)} posts, "
+                        f"{comment_docs} comments",
+                        organization_id=str(owner.get("organization_id") or "") or None,
+                        severity="success", data={"search_run_id": run_id})
+        except Exception:
+            logger.warning("[URL SEARCH] completion notification failed", exc_info=True)
     # persist the last Apify call metadata (actor/run/usage) for the admin
     # Usage page — real figures only
     try:
@@ -443,17 +522,26 @@ class UrlSearchThread(threading.Thread):
     """Background worker for the URL search route."""
 
     def __init__(self, run_id: str, url: str, max_posts: int,
-                 max_comments_per_post: int = 30):
+                 max_comments_per_post: int = 30,
+                 organization_id: Optional[str] = None,
+                 created_by: Optional[str] = None,
+                 user_id: Optional[str] = None):
         super().__init__(daemon=True)
         self.run_id = run_id
         self.url = url
         self.max_posts = max_posts
         self.max_comments_per_post = max_comments_per_post
+        self.organization_id = organization_id
+        self.created_by = created_by
+        self.user_id = user_id
 
     def run(self):
         try:
             run_url_search(self.run_id, self.url, self.max_posts,
-                           self.max_comments_per_post)
+                           self.max_comments_per_post,
+                           organization_id=self.organization_id,
+                           created_by=self.created_by,
+                           user_id=self.user_id)
         except Exception as e:
             logger.exception("[URL SEARCH] background run crashed")
             db = get_sync_db()

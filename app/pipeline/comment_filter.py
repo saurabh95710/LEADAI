@@ -37,7 +37,6 @@ Matching semantics
 """
 import logging
 import re
-import time
 import unicodedata
 from typing import Any, Dict, List, Optional
 
@@ -719,8 +718,9 @@ def resolve_effective_rule(db, run_doc: Optional[Dict[str, Any]] = None
     Effective rule for a scrape run:
       1. explicit rule reference stored on the run (preset or rule)
       2. inline run configuration (keywords/categories from the search form)
-      3. the globally active rule (activated from the admin panel)
-      4. None  -> NO FILTER (all comments), the default
+      3. the run's organization lead keywords (Org Admin portal)
+      4. the globally active rule (activated from the admin panel)
+      5. None  -> NO FILTER (all comments), the default
 
     A run that explicitly references a rule uses it even when the rule is not
     the active one; a run with no configuration follows the active rule.
@@ -735,6 +735,11 @@ def resolve_effective_rule(db, run_doc: Optional[Dict[str, Any]] = None
         inline = build_inline_rule(cf_cfg)
         if inline:
             return inline
+        if run_doc.get("organization_id"):
+            from app.pipeline.org_lead_rules import org_rule
+            org_specific = org_rule(run_doc["organization_id"], db=db)
+            if org_specific:
+                return org_specific
     return load_active_rule(db)
 
 
@@ -742,10 +747,17 @@ def store_filter_result(db, comment_id: str, result: Dict[str, Any],
                         rule: Optional[Dict[str, Any]] = None,
                         post_ref: Optional[str] = None,
                         search_run_id: Optional[str] = None,
-                        platform: Optional[str] = None) -> None:
+                        platform: Optional[str] = None,
+                        owner: Optional[Dict[str, Any]] = None) -> None:
     """Persist one comment's filter result (comment_filter_results) and mirror
-    the compact fields onto the comment doc for the Comment Intelligence UI."""
+    the compact fields onto the comment doc for the Comment Intelligence UI.
+
+    ``owner`` carries the tenant ownership (organization_id, user_id,
+    created_by) of the comment so result rows are always tenant-scoped."""
     rule_id = str(rule["_id"]) if rule else None
+    ownership = {k: (owner or {}).get(k)
+                 for k in ("organization_id", "user_id", "created_by")
+                 if (owner or {}).get(k)}
     try:
         db[RESULTS_COLLECTION].update_one(
             {"comment_id": comment_id},
@@ -757,10 +769,11 @@ def store_filter_result(db, comment_id: str, result: Dict[str, Any],
                 "matched_categories": result.get("matched_categories") or [],
                 "excluded_keywords": result.get("excluded_keywords") or [],
                 "filter_score": result.get("filter_score", 0),
-                "processed_at": time.time(),
+                "processed_at": utcnow(),
                 "post_ref": post_ref,
                 "search_run_id": search_run_id,
                 "platform": platform,
+                **ownership,
             }},
             upsert=True,
         )
@@ -816,7 +829,8 @@ def filter_comments_for_post(db, post_ref: str, rule: Dict[str, Any],
     query = {"post_ref": post_ref}
     try:
         comments = list(db.facebook_comments.find(
-            query, {"_id": 1, "text": 1}))
+            query, {"_id": 1, "text": 1, "organization_id": 1,
+                    "user_id": 1, "created_by": 1}))
     except Exception as e:
         logger.warning("[CommentFilter] load comments failed: %s", e)
         return {**summary, "status": "error", "error": str(e)}
@@ -840,7 +854,7 @@ def filter_comments_for_post(db, post_ref: str, rule: Dict[str, Any],
         store_filter_result(db, str(doc["_id"]), result, rule,
                             post_ref=post_ref,
                             search_run_id=search_run_id,
-                            platform=platform)
+                            platform=platform, owner=doc)
     return summary
 
 
@@ -857,5 +871,6 @@ def apply_filter_to_comment(db, comment_doc: Dict[str, Any], rule: Dict[str, Any
                         post_ref=post_ref or comment_doc.get("post_ref"),
                         search_run_id=search_run_id
                         or comment_doc.get("search_run_id"),
-                        platform=platform or comment_doc.get("platform"))
+                        platform=platform or comment_doc.get("platform"),
+                        owner=comment_doc)
     return result

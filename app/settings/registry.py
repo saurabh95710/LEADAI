@@ -328,6 +328,12 @@ SETTINGS: List[SettingSpec] = [
        label="URL search enabled", is_public=True),
     _s("features.exports.enabled", "features", "Features", "bool",
        label="Exports enabled", is_public=True),
+    _s("features.demo_registration.enabled", "features", "Features", "bool",
+       label="Demo registration enabled", is_public=True,
+       description="When off, the public website stops accepting new demo requests."),
+    _s("features.ai_analysis.enabled", "features", "Features", "bool",
+       label="AI analysis enabled", is_public=True,
+       description="Global kill switch for AI comment analysis (rules still run)."),
 
     # ── Notifications & Email ────────────────────────────────────────────
     # Forward-looking: no mail backend exists yet — registered so the panel
@@ -413,9 +419,14 @@ SETTINGS: List[SettingSpec] = [
        description="Hard idle timeout on top of the cookie lifetime."),
     _s("security.login_protection", "security", "Sessions", "bool",
        label="Login protection (rate limiting)"),
-    _s("security.audit_logging", "security", "Sessions", "bool",
-       label="Audit logging",
-       description="When off, admin actions are not written to the audit log."),
+    _s("security.lockout_threshold", "security", "Sessions", "int",
+       label="Failed logins before lockout", min=1, max=50,
+       description="Consecutive failed sign-ins that lock an account."),
+    _s("security.lockout_minutes", "security", "Sessions", "int",
+       label="Lockout duration (minutes)", min=1, max=1440),
+    _s("security.impersonation_minutes", "security", "Sessions", "int",
+       label="Impersonation time limit (minutes)", min=5, max=240,
+       description="Support impersonation sessions end automatically after this time."),
 ]
 
 SPEC_BY_KEY: Dict[str, SettingSpec] = {spec.key: spec for spec in SETTINGS}
@@ -703,6 +714,8 @@ async def build_public_config(get: Callable[[str], Any]) -> Dict[str, Any]:
         "features": {
             "url_search": bool(g("features.url_search.enabled", True)),
             "exports": bool(g("features.exports.enabled", True)),
+            "demo_registration": bool(g("features.demo_registration.enabled", True)),
+            "ai_analysis": bool(g("features.ai_analysis.enabled", True)),
         },
         "maintenance": {
             "enabled": bool(g("maintenance.enabled", False)),

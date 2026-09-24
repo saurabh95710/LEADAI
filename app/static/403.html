@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Access denied · LeadAI</title>
+  <meta name="robots" content="noindex,nofollow"/>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>"/>
+  <link rel="stylesheet" href="/static/design/tokens.css"/>
+  <link rel="stylesheet" href="/static/design/components.css"/>
+  <script src="/static/design/theme.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="auth-shell">
+  <header class="brand-bar">
+    <a class="brand" href="/website">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.1 6.4 6.4 2.1-6.4 2.1L12 19.5l-2.1-6.4L3.5 11l6.4-2.1z"/></svg></span>
+      <span data-brand-name>LeadAI</span>
+    </a>
+    <div class="brand-actions">
+      <button type="button" class="btn theme-toggle" data-theme-toggle aria-label="Switch theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="auth-main" id="main">
+    <section class="auth-card text-center" aria-labelledby="title">
+      <div class="error-code" aria-hidden="true">403</div>
+      <div class="auth-header text-center" style="margin-bottom:0">
+        <h1 class="auth-title" id="title">You don't have access to this page</h1>
+        <p class="auth-subtitle">Your account is signed in, but it doesn't have permission to view this area. If you think you should have access, ask an admin of your workspace to update your role.</p>
+      </div>
+
+      <div class="alert alert-danger hidden" id="logoutError" role="alert" style="margin-top:20px;text-align:left">
+        <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div class="alert-body" id="logoutErrorText"></div>
+      </div>
+
+      <div class="auth-actions">
+        <a class="btn btn-primary btn-lg btn-block" href="/dashboard">Go to dashboard</a>
+        <button type="button" class="btn btn-secondary btn-lg btn-block" id="switchUser">
+          <span class="spinner" aria-hidden="true"></span><span class="btn-label">Sign in as a different user</span>
+        </button>
+      </div>
+      <p class="auth-alt">Need help? <a class="link" href="/contact">Contact support</a></p>
+    </section>
+  </main>
+
+  <footer class="auth-footer">
+    <nav aria-label="Footer"><a href="/website">Home</a><a href="/contact">Contact</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+    <p style="margin-top:6px">© 2026 LeadAI</p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var UI = window.LeadAIUI;
+  var btn = document.getElementById("switchUser");
+  var errBox = document.getElementById("logoutError");
+  var errText = document.getElementById("logoutErrorText");
+
+  btn.addEventListener("click", async function () {
+    errBox.classList.add("hidden");
+    UI.setBusy(btn, true, "Signing out…");
+    var res = await UI.api("/api/auth/logout", { method: "POST" });
+    // 401 means there is no session any more — that's fine, continue to sign-in.
+    if (res.ok || res.status === 401) {
+      location.href = "/login";
+      return;
+    }
+    UI.setBusy(btn, false);
+    errText.textContent = res.networkError
+      ? "We couldn't reach LeadAI to sign you out. Check your connection and try again."
+      : UI.errorMessage(res.data, "We couldn't sign you out. Please try again.");
+    errBox.classList.remove("hidden");
+  });
+})();
+</script>
+</body>
+</html>

@@ -107,6 +107,8 @@ def _norm_facebook(parts) -> str:
         "login", "checkpoint", "sharer", "share", "photo", "watch",
         "events", "messages", "friends", "settings", "help", "stories",
         "stories_", "recover", "reg", "act", "r", "l", "policy",
+        "groups", "marketplace", "gaming", "pages", "fundraisers",
+        "commerce", "jobs", "offers", "live", "reel",
     ):
         raise UrlError("invalid", INVALID_MSG)
     return _canonical("facebook", raw)
@@ -116,6 +118,9 @@ def _norm_instagram(parts) -> str:
     path = parts.path or "/"
     raw = path.rstrip("/") or "/"
     segs = [s for s in raw.split("/") if s]
+    # Reject non-profile paths
+    if segs and segs[0].lower() in ("explore", "reel", "reels", "tv", "stories", "p"):
+        raise UrlError("invalid", INVALID_MSG)
     # profile URL required: <host>/<username>
     if len(segs) != 1 or not re.fullmatch(r"[A-Za-z0-9._]{1,30}", segs[0]):
         raise UrlError("invalid", INVALID_MSG)
@@ -128,38 +133,38 @@ def _norm_youtube(parts) -> str:
     raw = path.rstrip("/") or "/"
     segs = [s for s in raw.split("/") if s]
 
-    # 1. Shortened video link: youtu.be/VIDEO_ID
+    # Reject video-only URLs — only channel/profile URLs are supported
+    # for scraping a channel's video list.
     if host == "youtu.be":
-        if segs:
-            return f"https://www.youtube.com/watch?v={segs[0]}"
         raise UrlError("invalid", INVALID_MSG)
 
     if not segs:
         raise UrlError("invalid", INVALID_MSG)
 
-    # 2. Watch video link: youtube.com/watch?v=VIDEO_ID
+    # Reject watch video links: youtube.com/watch?v=VIDEO_ID
     if segs[0].lower() == "watch":
-        params = dict(parse_qsl(parts.query))
-        vid = params.get("v")
-        if vid:
-            return f"https://www.youtube.com/watch?v={vid}"
         raise UrlError("invalid", INVALID_MSG)
 
-    # 3. Shorts link: youtube.com/shorts/VIDEO_ID
-    if segs[0].lower() == "shorts" and len(segs) >= 2:
-        return f"https://www.youtube.com/watch?v={segs[1]}"
+    # Reject shorts links: youtube.com/shorts/VIDEO_ID
+    if segs[0].lower() == "shorts":
+        raise UrlError("invalid", INVALID_MSG)
 
-    # 4. Handle: youtube.com/@handle or youtube.com/@handle/videos etc.
+    # Reject live/replay links: youtube.com/live/VIDEO_ID
+    if segs[0].lower() == "live":
+        raise UrlError("invalid", INVALID_MSG)
+
+    # Accept handle: youtube.com/@handle
     if segs[0].startswith("@"):
         return _canonical("youtube", segs[0])
 
-    # 5. Channel/User/Custom URLs: youtube.com/channel/UC..., youtube.com/c/Name, youtube.com/user/Name
-    if segs[0].lower() in ("channel", "user", "c", "handle"):
+    # Accept channel/user/custom URLs: youtube.com/channel/UC..., /c/Name, /user/Name
+    if segs[0].lower() in ("channel", "user", "c"):
         if len(segs) >= 2:
             return _canonical("youtube", "/".join(segs[:2]))
+        raise UrlError("invalid", INVALID_MSG)
 
-    # 6. Direct channel slug: youtube.com/ChannelName (legacy custom URL)
-    if len(segs) >= 1 and segs[0].lower() not in ("feed", "gaming", "music", "trending", "live", "premium", "browse"):
+    # Accept direct channel slug: youtube.com/ChannelName (legacy custom URL)
+    if len(segs) >= 1 and segs[0].lower() not in ("feed", "gaming", "music", "trending", "live", "premium", "browse", "shorts", "watch"):
         return _canonical("youtube", segs[0])
 
     raise UrlError("invalid", INVALID_MSG)

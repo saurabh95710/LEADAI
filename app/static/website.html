@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <!--seo:start-->
+  <title>LeadAI</title>
+  <!--seo:end-->
+  <meta name="theme-color" content="#0a0a0f" media="(prefers-color-scheme: dark)"/>
+  <meta name="theme-color" content="#f6f5fb" media="(prefers-color-scheme: light)"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap"/>
+  <link rel="stylesheet" href="/static/design/tokens.css"/>
+  <link rel="stylesheet" href="/static/design/components.css"/>
+  <link rel="stylesheet" href="/static/website.css"/>
+  <script src="/static/design/theme.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="site">
+  <div id="site-announcement" hidden></div>
+  <header class="site-header" id="site-header">
+    <div class="wrap site-header-inner">
+      <a class="site-brand" href="/website"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name" data-brand-name>LeadAI</span></a>
+    </div>
+  </header>
+
+  <main id="main" tabindex="-1" aria-busy="true">
+    <!-- Loading placeholder (replaced by CMS content) -->
+    <div class="hero" aria-hidden="true">
+      <div class="wrap hero-grid">
+        <div>
+          <div class="sk sk-line" style="width:180px"></div>
+          <div class="sk sk-title"></div>
+          <div class="sk sk-title" style="max-width:420px"></div>
+          <div class="sk sk-line" style="max-width:520px;margin-top:28px"></div>
+          <div class="sk sk-line" style="max-width:460px"></div>
+        </div>
+        <div class="sk sk-card" style="height:320px"></div>
+      </div>
+    </div>
+    <p class="sr-only" role="status">Loading…</p>
+  </main>
+
+  <footer class="site-footer" id="site-footer"></footer>
+</div>
+
+<script src="/static/website.js"></script>
+<script>
+(function () {
+  'use strict';
+  const S = window.LeadAISite;
+  const main = document.getElementById('main');
+
+  // Route → [CMS page used for SEO, section to open]
+  const LANDING = {
+    '/': ['home', null], '/website': ['home', null], '/features': ['features', 'features'],
+    '/how-it-works': ['how-it-works', 'how-it-works'], '/pricing': ['pricing', 'pricing'],
+    '/faq': ['faq', 'faq'], '/testimonials': ['home', 'testimonials'],
+  };
+  const LEGAL = { privacy: 1, terms: 1, cookies: 1 };
+  const reduceMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let settings = {};
+  let landingReady = false;
+
+  function onNavigate(e, href) {
+    if (!landingReady || !LANDING[href] || e.metaKey || e.ctrlKey || e.shiftKey || e.button > 0) return;
+    e.preventDefault();
+    if (href !== S.curPath()) history.pushState({}, '', href);
+    goTo(href, true);
+  }
+
+  async function goTo(path, smooth) {
+    const route = LANDING[path] || LANDING['/website'];
+    document.querySelectorAll('.site-nav a, .mobile-menu a, .footer-col a').forEach(a => {
+      if (a.getAttribute('href') === path) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    });
+    const target = route[1] && document.getElementById(route[1]);
+    if (target) {
+      target.classList.add('is-visible');
+      target.scrollIntoView({ behavior: smooth && !reduceMotion() ? 'smooth' : 'auto', block: 'start' });
+      target.setAttribute('tabindex', '-1');
+      target.focus({ preventScroll: true });
+    } else if (smooth) {
+      window.scrollTo({ top: 0, behavior: reduceMotion() ? 'auto' : 'smooth' });
+    }
+    const seoPage = route[0] === 'home' ? null : await S.soft(S.api('/api/public/page/' + route[0]));
+    S.applySeo(seoPage || await S.soft(S.api('/api/public/page/home')), settings);
+  }
+
+  async function renderLanding(path) {
+    const [home, plans, faq, testimonials] = await Promise.all([
+      S.api('/api/public/page/home'),
+      S.soft(S.api('/api/public/pricing').then(d => d.plans || [])),
+      S.soft(S.api('/api/public/faq').then(d => d.faq || [])),
+      S.soft(S.api('/api/public/testimonials').then(d => d.testimonials || [])),
+    ]);
+    S.renderSections(main, home.sections, { plans: plans, faq: faq || [], testimonials: testimonials || [] });
+    if (!main.children.length) throw Object.assign(new Error('empty'), { status: 404 });
+    landingReady = true;
+    await goTo(path, false);
+  }
+
+  async function renderContent(slug) {
+    const page = await S.api('/api/public/page/' + encodeURIComponent(slug));
+    const ctx = { updated: LEGAL[slug] ? S.niceDate(page.published_at) : '' };
+    S.renderSections(main, page.sections, ctx);
+    if (!main.children.length) throw Object.assign(new Error('empty'), { status: 404 });
+    S.applySeo(page, settings);
+  }
+
+  function showError(err) {
+    S.clear(main);
+    if (err && err.status === 404) {
+      document.title = 'Page not found · ' + (settings.brand_name || 'LeadAI');
+      const m = document.querySelector('meta[name="robots"]') || document.head.appendChild(Object.assign(document.createElement('meta'), { name: 'robots' }));
+      m.setAttribute('content', 'noindex');
+      main.appendChild(S.stateCard('This page isn’t available', 'It may have moved or is being updated.',
+        [S.h('a', { class: 'btn btn-primary', href: '/website', text: 'Go to homepage' }),
+         S.h('a', { class: 'btn btn-secondary', href: '/contact', text: 'Contact us' })]));
+    } else {
+      main.appendChild(S.stateCard('We couldn’t load this page', 'Check your connection and try again.',
+        [S.h('button', { type: 'button', class: 'btn btn-primary', text: 'Try again', onclick: () => location.reload() }),
+         S.h('a', { class: 'btn btn-secondary', href: '/login', text: 'Sign in' })]));
+    }
+  }
+
+  async function boot() {
+    const path = S.curPath();
+    // Start content requests in parallel with the chrome (api() memoises).
+    (LANDING[path] ? ['/api/public/page/home', '/api/public/pricing', '/api/public/faq', '/api/public/testimonials']
+      : ['/api/public/page/' + encodeURIComponent(path.slice(1).split('/')[0] || 'home')])
+      .forEach(u => S.api(u).catch(() => {}));
+    const chrome = S.initChrome(onNavigate);
+    try {
+      settings = await chrome;
+      if (LANDING[path]) await renderLanding(path);
+      else await renderContent(path.slice(1).split('/')[0] || 'home');
+    } catch (err) {
+      showError(err);
+    } finally {
+      main.removeAttribute('aria-busy');
+    }
+  }
+  window.addEventListener('popstate', () => { if (landingReady && LANDING[S.curPath()]) goTo(S.curPath(), false); });
+  boot();
+})();
+</script>
+</body>
+</html>

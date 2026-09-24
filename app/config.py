@@ -25,11 +25,22 @@ class Settings(BaseSettings):
     # Apify — the Facebook data source
     apify_api_token: str = ""
 
-    # Admin sign-in — the only account. The password is stored as a sha256
-    # hash, never as plaintext. Generate a new hash for a custom password:
-    #   python -c "import hashlib;print(hashlib.sha256(b'YourPass').hexdigest())"
-    admin_email: str = "admin@gmail.com"
-    admin_password_hash: str = "a36aef5a11c4073fbe60314fc9df530a9d5f986533594d1f5190742ff9e0e408"
+    # ── Site sign-in (locks the user app) ──────────────────────────────
+    # Email + password hash for the main website login page.
+    # Password hashes are stored as bcrypt hashes (migrated from SHA-256).
+    # Set these in .env — no default credentials are embedded in source.
+    admin_email: str = ""
+    admin_password_hash: str = ""
+    # ── Admin portal sign-in (locks /admin and /api/admin/*) ───────────
+    # Customer organization admin. Managed accounts live in
+    # the admin_users collection (Security page); a DB record with the same
+    # email takes precedence over this env account.
+    admin_panel_email: str = ""
+    admin_panel_password_hash: str = ""
+    # ── Super Admin portal sign-in (locks /super-admin) ────────────────
+    # Platform owner / recovery super-admin for the admin panel.
+    panel_admin_email: str = ""
+    panel_admin_password_hash: str = ""
     # Secret signing the session cookie (any long random string; without it a
     # per-process random secret is used and sessions reset on restart)
     session_secret: str = ""
@@ -37,6 +48,11 @@ class Settings(BaseSettings):
     session_ttl_days: int = 7
     # Set true when serving over HTTPS so the cookie is only sent over TLS
     session_cookie_secure: bool = False
+
+    # CORS — comma-separated allowed origins (empty = same-origin only)
+    # For local dev: http://localhost:8000
+    # For production: https://yourdomain.com
+    allowed_origins: str = ""
 
     # URL-based social search — Apify actor IDs for non-Facebook platforms.
     # Change these if you have your own actors (or a cheaper/more updated one).
@@ -47,6 +63,15 @@ class Settings(BaseSettings):
     linkedin_posts_actor_id: str = "harvestapi/linkedin-company-posts"
     # Max comments collected per URL-search run (per-platform cap)
     max_comments_to_collect: int = 100
+
+    # Security hardening
+    # Disable API documentation in production (set to "true" to enable /docs)
+    enable_api_docs: bool = False
+
+    # ── Billing / Stripe (optional — mock provider used when unset) ───
+    stripe_secret_key: str = ""
+    stripe_publishable_key: str = ""
+    stripe_webhook_secret: str = ""
 
 
 @lru_cache

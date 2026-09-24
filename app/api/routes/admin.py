@@ -13,9 +13,11 @@ User management & security: super_admin only.
 Secrets policy: the Apify token and password hashes are never returned;
 only masked hints (``apify.token.masked``) are exposed.
 """
+import json
 import logging
 import os
 import re
+import secrets
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -27,6 +29,15 @@ from fastapi.responses import Response
 from app.admin import settings as s
 from app.admin import audit as a
 from app.admin import envvars as ev
+from app.api.models import (
+    ApifyTokenRequest,
+    ChangePasswordRequest,
+    CreateUserRequest,
+    EnvPasswordRequest,
+    EnvUnlockRequest,
+    EnvVarUpdateRequest,
+    UpdateUserRequest,
+)
 from app.auth.roles import (require_env_unlocked, require_manager,
                             require_super, require_viewer)
 from app.config import get_settings
@@ -36,6 +47,7 @@ from app.db.models import utcnow
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 settings = get_settings()
+_APP_START_TIME = time.time()
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -95,7 +107,8 @@ def _serialize_oid(value: Any) -> Any:
 
 
 def _lead_statuses() -> List[str]:
-    return ["new", "contacted", "qualified", "converted", "ignored"]
+    return ["new", "contacted", "qualified", "follow_up",
+            "converted", "lost", "disqualified", "archived"]
 
 
 def _score_bucket(score: Optional[Any]) -> str:
@@ -332,8 +345,8 @@ async def dashboard(days: int = Query(30, ge=1, le=365),
     daily = {}
     for key, (coll, field, extra) in {
         "searches": ("search_history", "created_at", None),
-        "pages": ("facebook_pages", "collected_at", None),
-        "posts": ("facebook_posts", "collected_at", None),
+        "pages": ("facebook_pages", "created_at", None),
+        "posts": ("facebook_posts", "created_at", None),
         "comments": ("facebook_comments", "created_at", None),
         "leads": ("ai_comments", "analyzed_at", {"is_lead": True}),
     }.items():
@@ -482,6 +495,19 @@ async def dashboard(days: int = Query(30, ge=1, le=365),
     except Exception as e:
         logger.warning("dashboard comment_filter block failed: %s", e)
 
+    # Average lead score
+    avg_score = None
+    try:
+        pipeline = [
+            {"$match": {"is_lead": True}},
+            {"$group": {"_id": None, "avg": {"$avg": "$lead_score"}}},
+        ]
+        async for doc in db.ai_comments.aggregate(pipeline):
+            avg = doc.get("avg")
+            avg_score = round(avg, 1) if avg is not None else None
+    except Exception as e:
+        logger.warning("dashboard avg_lead_score failed: %s", e)
+
     return {
         "range": {
             "from": start.isoformat(), "to": end.isoformat(), "days": span,
@@ -505,6 +531,14 @@ async def dashboard(days: int = Query(30, ge=1, le=365),
             "comments": kpis[5]["value"], "analyzed": kpis[6]["value"],
             "leads": leads_now, "leads_contact": await _count(
                 db, "ai_comments", _contact_query()),
+            "admin_users": await _count(db, "admin_users"),
+            "overdue_follow_ups": await _count(
+                db, "ai_comments",
+                {"follow_ups": {"$elemMatch": {
+                    "status": "pending",
+                    "due_at": {"$lt": utcnow()}
+                }}}),
+            "avg_lead_score": avg_score,
         },
         "platforms": by_platform,
         "recent_jobs": recent,
@@ -527,7 +561,7 @@ async def alerts():
     now = datetime.now(timezone.utc)
     start = now - timedelta(days=1)
     return {"alerts": await _derive_alerts(db, start, now),
-            "checked_at": time.time()}
+            "checked_at": utcnow().isoformat()}
 
 
 @router.get("/search", dependencies=[Depends(require_viewer)])
@@ -670,7 +704,7 @@ async def _retry_job(run_id: str, admin: dict) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="Run has no search URL")
 
     from app.social.url_search import UrlSearchThread
-    from app.api.routes.search import _start
+    from app.api.routes.search import _start, new_url_run_id
 
     lim = s.effective_limits()
     max_posts = min(int(intent.get("limit") or lim["max_posts_default"]),
@@ -679,9 +713,8 @@ async def _retry_job(run_id: str, admin: dict) -> Dict[str, Any]:
                            or lim["max_comments_per_post_default"]),
                        lim["max_comments_per_post_cap"], lim["global_max_comments"])
 
-    new_run_id = (f"URL{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                  f"{abs(hash(url + str(time.time()))) % 1000:03d}")
-    await db.search_history.insert_one({
+    new_run_id = new_url_run_id()
+    new_doc = {
         "run_id": new_run_id, "query": url, "intent": {
             "keyword": url, "type": "url", "platform": intent.get("platform"),
             "canonical_url": url, "limit": max_posts,
@@ -692,9 +725,17 @@ async def _retry_job(run_id: str, admin: dict) -> Dict[str, Any]:
         "pages_found": 0, "pages_stored": 0,
         "created_at": utcnow(), "completed_at": None,
         "retried_from": run_id,
-    })
+    }
+    # the retried run belongs to the ORIGINAL owner/tenant, not the admin
+    for key in ("organization_id", "user_id", "created_by"):
+        if doc.get(key):
+            new_doc[key] = doc[key]
+    await db.search_history.insert_one(new_doc)
     _start(f"url_search:{new_run_id}",
-           UrlSearchThread(new_run_id, url, max_posts, max_comments).run)
+           UrlSearchThread(new_run_id, url, max_posts, max_comments,
+                           organization_id=new_doc.get("organization_id"),
+                           created_by=new_doc.get("created_by"),
+                           user_id=new_doc.get("user_id")).run)
     return {"run_id": new_run_id, "status": "running", "retried_from": run_id}
 
 
@@ -711,14 +752,14 @@ async def retry_job(run_id: str, request: Request,
 @router.post("/jobs/{run_id}/cancel")
 async def cancel_job(run_id: str, request: Request,
                      admin: dict = Depends(require_manager)):
-    from app.api.routes.search import cancel_search_run
+    from app.api.routes.search import mark_cancel_requested
     db = await _db()
     run = await db.search_history.find_one({"run_id": run_id})
     if not run:
         raise HTTPException(status_code=404, detail="Search run not found")
     if run.get("status") != "running":
         raise HTTPException(status_code=400, detail="Run is not running")
-    await cancel_search_run(run_id)
+    await mark_cancel_requested(run_id)
     await a.aaudit("job.cancel", "jobs", user=admin,
                    ip=request.client.host if request.client else None,
                    details={"run_id": run_id})
@@ -732,7 +773,7 @@ async def _delete_job(run_id: str) -> None:
         raise HTTPException(status_code=404, detail="Search run not found")
     if doc.get("status") == "running":
         raise HTTPException(status_code=400, detail="Cancel the run before deleting it")
-    # best-effort cascade: run â†’ pages â†’ posts â†’ comments â†’ ai_comments
+    # best-effort cascade: run → pages → posts → comments → ai_comments + filter_results
     page_ids = [p["_id"] async for p in
                 db.facebook_pages.find({"search_run_id": run_id}, {"_id": 1})]
     for pid in page_ids:
@@ -741,8 +782,12 @@ async def _delete_job(run_id: str) -> None:
         for post_id in post_ids:
             comment_ids = [c["_id"] async for c in
                            db.facebook_comments.find({"post_ref": str(post_id)}, {"_id": 1})]
-            await db.ai_comments.delete_many(
-                {"comment_ref": {"$in": [str(c) for c in comment_ids]}})
+            comment_id_strs = [str(c) for c in comment_ids]
+            if comment_id_strs:
+                await db.ai_comments.delete_many(
+                    {"comment_ref": {"$in": comment_id_strs}})
+                await db.comment_filter_results.delete_many(
+                    {"comment_id": {"$in": comment_id_strs}})
             await db.facebook_comments.delete_many({"post_ref": str(post_id)})
         await db.facebook_posts.delete_many({"page_ref": str(pid)})
     await db.facebook_pages.delete_many({"search_run_id": run_id})
@@ -916,18 +961,86 @@ async def update_lead(lead_id: str, body: Dict[str, Any]):
     lead = await db.ai_comments.find_one({"_id": ObjectId(lead_id)})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    status = body.get("status")
-    if status is not None and status not in _lead_statuses():
-        raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
-    update: Dict[str, Any] = {"updated_at": utcnow()}
-    if status is not None:
-        update["lead_status"] = status
+
+    update: Dict[str, Any] = {"updated_at": utcnow(), "lead_updated_at": utcnow()}
+    current_status = lead.get("lead_status", "new")
+
+    # Status update with transition validation
+    new_status = body.get("status") or body.get("lead_status")
+    if new_status and new_status != current_status:
+        valid_transitions = {
+            "new": ("contacted", "qualified", "follow_up", "disqualified", "lost", "archived"),
+            "contacted": ("qualified", "follow_up", "lost", "archived"),
+            "qualified": ("follow_up", "converted", "lost", "archived"),
+            "follow_up": ("contacted", "qualified", "converted", "lost", "archived"),
+            "converted": ("archived",),
+            "lost": ("archived",),
+            "disqualified": ("archived",),
+            "archived": (),
+        }
+        allowed = valid_transitions.get(current_status, ())
+        all_statuses = ("new", "contacted", "qualified", "follow_up",
+                        "converted", "lost", "disqualified", "archived")
+        if new_status not in all_statuses:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {new_status}")
+        if new_status not in allowed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot transition from {current_status!r} to {new_status!r}"
+            )
+        update["lead_status"] = new_status
+        history_entry = {
+            "from_status": current_status,
+            "to_status": new_status,
+            "changed_at": utcnow(),
+            "changed_by": body.get("changed_by", "admin"),
+            "reason": body.get("reason", ""),
+        }
+        await db.ai_comments.update_one(
+            {"_id": lead["_id"]},
+            {"$push": {"status_history": history_entry}}
+        )
+
+    # Priority update
+    new_priority = body.get("lead_priority") or body.get("priority")
+    if new_priority:
+        valid_priorities = ("high", "medium", "low")
+        if new_priority not in valid_priorities:
+            raise HTTPException(status_code=400, detail=f"Invalid priority: {new_priority}")
+        update["lead_priority"] = new_priority
+
+    # Assignment
+    if "assigned_to" in body:
+        update["assigned_to"] = body["assigned_to"]
+
+    # Notes (append as list item, not overwrite)
+    note_text = body.get("note")
+    if note_text:
+        note = {
+            "text": str(note_text).strip()[:2000],
+            "author": body.get("changed_by", "admin"),
+            "created_at": utcnow(),
+            "updated_at": utcnow(),
+        }
+        await db.ai_comments.update_one(
+            {"_id": lead["_id"]},
+            {
+                "$push": {"notes": note},
+                "$set": {"updated_at": utcnow(), "lead_updated_at": utcnow()},
+            }
+        )
+        await a.aaudit("lead.note.add", "leads",
+                       details={"lead_id": lead_id})
+        return {"success": True, "lead": _serialize_oid({**lead, **update})}
+
+    # Legacy notes field (overwrite for backward compatibility)
     for key in ("notes",):
         if key in body:
             update[key] = str(body[key])[:500]
+
     await db.ai_comments.update_one({"_id": lead["_id"]}, {"$set": update})
     await a.aaudit("lead.update", "leads",
-                   details={"lead_id": lead_id, "status": status})
+                   details={"lead_id": lead_id, "status": new_status})
     return {"success": True, "lead": _serialize_oid({**lead, **update})}
 
 
@@ -946,12 +1059,31 @@ async def bulk_leads(body: Dict[str, Any]):
             raise HTTPException(status_code=400, detail=f"Invalid lead id: {raw}")
     action = body.get("action")
     query = {"_id": {"$in": oids}}
+
+    all_statuses = ("new", "contacted", "qualified", "follow_up",
+                    "converted", "lost", "disqualified", "archived")
+
     if action == "set_status":
         status = body.get("value")
-        if status not in _lead_statuses():
+        if status not in all_statuses:
             raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
         result = await db.ai_comments.update_many(
-            query, {"$set": {"lead_status": status, "updated_at": utcnow()}})
+            query, {"$set": {"lead_status": status, "updated_at": utcnow(),
+                             "lead_updated_at": utcnow()}})
+        count = result.modified_count
+    elif action == "set_priority":
+        priority = body.get("value")
+        if priority not in ("high", "medium", "low"):
+            raise HTTPException(status_code=400, detail=f"Invalid priority: {priority}")
+        result = await db.ai_comments.update_many(
+            query, {"$set": {"lead_priority": priority, "updated_at": utcnow(),
+                             "lead_updated_at": utcnow()}})
+        count = result.modified_count
+    elif action == "assign":
+        assignee = body.get("value", "")
+        result = await db.ai_comments.update_many(
+            query, {"$set": {"assigned_to": assignee, "updated_at": utcnow(),
+                             "lead_updated_at": utcnow()}})
         count = result.modified_count
     elif action == "delete":
         result = await db.ai_comments.delete_many(query)
@@ -972,6 +1104,8 @@ async def analytics(
     days: Optional[int] = Query(None, ge=1, le=365),
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
+    platform: Optional[str] = Query(None),
+    lead_status: Optional[str] = Query(None),
 ):
     db = await _db()
     if from_date or to_date:
@@ -984,13 +1118,17 @@ async def analytics(
         since = datetime.now(timezone.utc) - timedelta(days=days or 14)
         end = None
     range_filter: Dict[str, Any] = {}
-    analyzed_range: Dict[str, Any] = {}
     if since:
         range_filter["$gte"] = since
     if end:
         range_filter["$lte"] = end
-    created_match = {"created_at": range_filter} if range_filter else {}
-    analyzed_match = {"analyzed_at": range_filter} if range_filter else {}
+    created_match: Dict[str, Any] = {"created_at": range_filter} if range_filter else {}
+    analyzed_match: Dict[str, Any] = {"analyzed_at": range_filter} if range_filter else {}
+    if platform:
+        created_match["platform"] = platform
+        analyzed_match["platform"] = platform
+    if lead_status:
+        analyzed_match["lead_status"] = lead_status
 
     jobs_series = []
     async for doc in db.search_history.aggregate([
@@ -1062,9 +1200,9 @@ async def analytics(
         "success_rate": round(completed_jobs / total_jobs * 100, 1)
         if total_jobs else None,
         "pages": await _count(db, "facebook_pages",
-                              {"collected_at": range_filter} if range_filter else {}),
+                              {"created_at": range_filter} if range_filter else {}),
         "posts": await _count(db, "facebook_posts",
-                              {"collected_at": range_filter} if range_filter else {}),
+                              {"created_at": range_filter} if range_filter else {}),
         "comments": await _count(db, "facebook_comments",
                                  {"created_at": range_filter} if range_filter else {}),
         "analyzed": await _count(db, "ai_comments", analyzed_match),
@@ -1191,7 +1329,8 @@ async def _apify_probe(actor_id: Optional[str] = None) -> Dict[str, Any]:
         return {"ok": True, "actor": target,
                 "title": info.get("title") if isinstance(info, dict) else None}
     except Exception as e:
-        return {"ok": False, "error": str(e)[:300]}
+        logger.warning("System info query failed: %s", e)
+        return {"ok": False, "error": "Failed to retrieve system info"}
 
 
 @router.get("/apify", dependencies=[Depends(require_viewer)])
@@ -1210,21 +1349,19 @@ async def apify_status():
 async def apify_test():
     result = await _apify_probe()
     await s.aset_setting("apify.last_test_ok", result["ok"], by="admin")
-    await s.aset_setting("apify.last_test_at", time.time(), by="admin")
+    await s.aset_setting("apify.last_test_at", utcnow().isoformat(), by="admin")
     await a.aaudit("apify.test", "apify", success=result["ok"],
                    details={"ok": result["ok"]})
     return result
 
 
 @router.post("/apify/token", dependencies=[Depends(require_manager)])
-async def set_apify_token(body: Dict[str, Any]):
-    token = str(body.get("token") or "").strip()
-    if len(token) < 10:
-        raise HTTPException(status_code=400, detail="Token looks too short")
+async def set_apify_token(body: ApifyTokenRequest):
+    token = body.token.strip()
     await s.aset_setting("apify.token", token, by="admin")
     result = await _apify_probe()
     await s.aset_setting("apify.last_test_ok", result["ok"], by="admin")
-    await s.aset_setting("apify.last_test_at", time.time(), by="admin")
+    await s.aset_setting("apify.last_test_at", utcnow().isoformat(), by="admin")
     await a.aaudit("apify.token.update", "apify", success=result["ok"],
                    details={"ok": result["ok"]})
     return {"success": True, "test": result}
@@ -1256,9 +1393,9 @@ async def env_lock_status(request: Request):
 
 
 @router.post("/env/unlock", dependencies=[Depends(require_viewer)])
-async def env_unlock(body: Dict[str, Any], response: Response,
+async def env_unlock(body: EnvUnlockRequest, response: Response,
                      admin: dict = Depends(require_viewer)):
-    password = str(body.get("password") or "")
+    password = body.password
     if not ev.verify_guard_password(password):
         await a.aaudit("env.unlock.failed", "env", success=False)
         raise HTTPException(status_code=401, detail="Wrong password")
@@ -1284,13 +1421,13 @@ async def env_list():
 
 @router.put("/env/{name}", dependencies=[Depends(require_manager),
                                          Depends(require_env_unlocked)])
-async def env_set(name: str, body: Dict[str, Any],
+async def env_set(name: str, body: EnvVarUpdateRequest,
                   admin: dict = Depends(require_viewer)):
     if not ev.known_name(name):
         raise HTTPException(status_code=404, detail=f"Unknown env var: {name}")
     # Secrets are editable like everything else here: the guard password on
     # the whole section is the protection, so no extra role gate.
-    value = body.get("value")
+    value = body.value
     if value is None or value == "":
         raise HTTPException(status_code=400, detail="value is required")
     ok = await ev.aset_envvar_override(name, value, by="admin")
@@ -1316,21 +1453,18 @@ async def env_delete(name: str, admin: dict = Depends(require_viewer)):
 
 @router.post("/env/password", dependencies=[Depends(require_manager),
                                             Depends(require_env_unlocked)])
-async def env_change_password(body: Dict[str, Any]):
-    """Change the recovery admin password: hash it server-side, store as an
-    override of ADMIN_PASSWORD_HASH. Takes effect on the next login."""
-    new_password = str(body.get("new_password") or "")
-    if len(new_password) < 8:
-        raise HTTPException(status_code=400,
-                            detail="Password must be at least 8 characters")
-    import hashlib
-    hashed = hashlib.sha256(new_password.encode("utf-8")).hexdigest()
-    ok = await ev.aset_envvar_override("ADMIN_PASSWORD_HASH", hashed, by="admin")
+async def env_change_password(body: EnvPasswordRequest):
+    """Change the admin portal's recovery password: hash it server-side,
+    store as an override of PANEL_ADMIN_PASSWORD_HASH. Takes effect on the
+    next admin login."""
+    from app.auth.crypto import hash_password
+    hashed = hash_password(body.new_password)
+    ok = await ev.aset_envvar_override("PANEL_ADMIN_PASSWORD_HASH", hashed, by="admin")
     if not ok:
         raise HTTPException(status_code=503, detail="Database unavailable")
     await a.aaudit("env.password.change", "env",
                    details={"admin_password_hash": "••••"})
-    return {"success": True, "masked": ev.envvar_info("ADMIN_PASSWORD_HASH")["masked"]}
+    return {"success": True, "masked": ev.envvar_info("PANEL_ADMIN_PASSWORD_HASH")["masked"]}
 
 
 @router.get("/usage", dependencies=[Depends(require_viewer)])
@@ -1664,7 +1798,7 @@ async def list_admin_pages(
     if contact:
         query.update(_contact_query())
     if from_date or to_date:
-        query["collected_at"] = _date_filter(from_date, to_date).get("created_at", {})
+        query["created_at"] = _date_filter(from_date, to_date).get("created_at", {})
     offset, limit = _pagination(offset, limit)
     rows = [doc async for doc in
             db.facebook_pages.find(query).sort([("lead_score", -1), ("followers", -1)])
@@ -1797,7 +1931,8 @@ async def database():
                     ("db", "collections", "objects", "dataSize", "storageSize",
                      "indexes", "indexSize", "avgObjSize")}
     except Exception as e:
-        db_stats = {"error": str(e)[:200]}
+        logger.warning("Database stats query failed: %s", e)
+        db_stats = {"error": "Failed to retrieve database stats"}
     collections = []
     for name in ("search_history", "facebook_pages", "facebook_posts",
                  "facebook_comments", "ai_comments", "system_settings",
@@ -1838,25 +1973,17 @@ def _log_file_path() -> str:
         os.path.dirname(os.path.abspath(__file__))))), "logs", "app.log")
 
 
-def _tail_log(lines: int = 200, level: Optional[str] = None,
-              q: Optional[str] = None) -> List[str]:
+def _tail_log_raw(lines: int = 200) -> List[str]:
+    """Read the last N lines from the log file (raw strings)."""
     path = _log_file_path()
     if not os.path.exists(path):
         return []
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             all_lines = fh.readlines()
-    except Exception as e:
-        return [f"[error] Cannot read log: {e}"]
-    selected = all_lines[-max(lines, 1):]
-    if level:
-        level_upper = level.upper()
-        selected = [ln for ln in selected
-                    if f" {level_upper} " in ln or ln.startswith(level_upper)]
-    if q:
-        needle = q.lower()
-        selected = [ln for ln in selected if needle in ln.lower()]
-    return selected
+    except Exception:
+        return []
+    return [ln.rstrip("\n") for ln in all_lines[-max(lines, 1):]]
 
 
 @router.get("/logs", dependencies=[Depends(require_viewer)])
@@ -1865,11 +1992,92 @@ async def logs(
     level: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
     offset: int = Query(0, ge=0),
+    source: Optional[str] = Query(None),
+    module: Optional[str] = Query(None),
+    structured: bool = Query(False),
 ):
-    selected = _tail_log(lines, level, q)
-    total = len(selected)
-    page = selected[offset:offset + 300]
-    return {"lines": page, "total": total, "offset": offset, "level": level, "q": q}
+    """Application log endpoint with optional structured parsing."""
+    from app.log_parser import parse_log_lines
+
+    raw_lines = _tail_log_raw(lines)
+
+    # Parse into structured entries
+    entries = parse_log_lines(raw_lines)
+
+    # Apply filters on structured data
+    filtered = entries
+    if level:
+        level_upper = level.upper()
+        filtered = [e for e in filtered if e.get("level") == level_upper]
+    if q:
+        needle = q.lower()
+        filtered = [e for e in filtered if needle in json.dumps(e, default=str).lower()]
+    if source:
+        source_lower = source.lower()
+        filtered = [e for e in filtered if e.get("source", "").lower() == source_lower]
+    if module:
+        module_lower = module.lower()
+        filtered = [e for e in filtered if module_lower in e.get("module", "").lower()]
+
+    total = len(filtered)
+
+    # Paginate (newest first)
+    page_size = min(lines, 300)
+    page = filtered[offset:offset + page_size]
+
+    # Compute summary counts
+    all_levels = [e.get("level", "UNKNOWN") for e in entries]
+    summary = {
+        "critical": all_levels.count("CRITICAL"),
+        "error": all_levels.count("ERROR"),
+        "warning": all_levels.count("WARNING"),
+        "info": all_levels.count("INFO"),
+        "debug": all_levels.count("DEBUG"),
+        "other": sum(1 for l in all_levels if l not in ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG")),
+    }
+
+    # Collect distinct modules and sources for filter dropdowns
+    modules = sorted(set(e.get("module", "") for e in entries if e.get("module")))
+    sources = sorted(set(e.get("source", "") for e in entries if e.get("source")))
+
+    return {
+        "entries": page if structured else None,
+        "lines": [e.get("raw", "") for e in page] if not structured else None,
+        "total": total,
+        "offset": offset,
+        "level": level,
+        "q": q,
+        "source": source,
+        "module": module,
+        "summary": summary,
+        "modules": modules,
+        "sources": sources,
+    }
+
+
+@router.get("/logs/stats", dependencies=[Depends(require_viewer)])
+async def logs_stats(
+    lines: int = Query(500, ge=10, le=5000),
+):
+    """Return log statistics for the summary cards without returning all entries."""
+    from app.log_parser import parse_log_lines
+
+    raw_lines = _tail_log_raw(lines)
+    entries = parse_log_lines(raw_lines)
+
+    all_levels = [e.get("level", "UNKNOWN") for e in entries]
+    summary = {
+        "critical": all_levels.count("CRITICAL"),
+        "error": all_levels.count("ERROR"),
+        "warning": all_levels.count("WARNING"),
+        "info": all_levels.count("INFO"),
+        "debug": all_levels.count("DEBUG"),
+        "other": sum(1 for l in all_levels if l not in ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG")),
+        "total": len(entries),
+    }
+    modules = sorted(set(e.get("module", "") for e in entries if e.get("module")))
+    sources = sorted(set(e.get("source", "") for e in entries if e.get("source")))
+    return {"summary": summary, "modules": modules, "sources": sources}
 
 
 @router.get("/logs/download", dependencies=[Depends(require_manager)])
@@ -1946,7 +2154,10 @@ async def admin_export(
         out = []
         for r in rows:
             date_part, time_part = _split_date_time(r.get("analyzed_at"))
-            out.append({**r, "date": date_part, "time": time_part})
+            out.append({**r, "date": date_part, "time": time_part,
+                        "lead_status": r.get("lead_status", "new"),
+                        "lead_priority": r.get("lead_priority", "low"),
+                        "assigned_to": r.get("assigned_to", "")})
         response = _csv_response(out, COMMENTS_CSV, f"admin_leads_{stamp}.csv")
     elif scope == "jobs":
         query = {"platform": platform} if platform else {}
@@ -1961,6 +2172,36 @@ async def admin_export(
                    "pages_found", "pages_stored", "created_at", "completed_at"]
         response = _csv_response(
             rows, columns, f"admin_jobs_{stamp}.csv")
+    elif scope == "follow-ups":
+        # Export follow-ups from all leads that have them
+        match: Dict[str, Any] = {"is_lead": True, "follow_ups": {"$exists": True, "$ne": []}}
+        if platform:
+            match["platform"] = platform
+        match.update(_date_filter(from_date, to_date))
+        rows = [doc async for doc in
+                db.ai_comments.find(match).sort("lead_updated_at", -1)]
+        fu_rows = []
+        for lead in rows:
+            for fu in (lead.get("follow_ups") or []):
+                fu_rows.append({
+                    "lead_id": str(lead.get("_id", "")),
+                    "commenter_name": lead.get("commenter_name", ""),
+                    "platform": lead.get("platform", ""),
+                    "lead_status": lead.get("lead_status", ""),
+                    "lead_score": lead.get("lead_score", 0),
+                    "title": fu.get("title", ""),
+                    "due_at": fu.get("due_at", ""),
+                    "status": fu.get("status", ""),
+                    "notes": fu.get("notes", ""),
+                    "created_by": fu.get("created_by", ""),
+                    "created_at": fu.get("created_at", ""),
+                    "completed_at": fu.get("completed_at", ""),
+                })
+        exported = len(fu_rows)
+        fu_columns = ["lead_id", "commenter_name", "platform", "lead_status",
+                      "lead_score", "title", "due_at", "status", "notes",
+                      "created_by", "created_at", "completed_at"]
+        response = _csv_response(fu_rows, fu_columns, f"admin_followups_{stamp}.csv")
     else:
         raise HTTPException(status_code=400, detail=f"Unknown scope: {scope}")
     await a.aaudit("export.csv", "exports",
@@ -2015,13 +2256,31 @@ async def list_users():
     rows = []
     async for doc in db["admin_users"].find(
             {}, {"password_hash": 0}).sort("email", 1):
-        rows.append(_serialize_oid(doc))
+        d = _serialize_oid(doc)
+        d["user_type"] = "admin"
+        rows.append(d)
+
+    async for doc in db["users"].find(
+            {}, {"password_hash": 0}).sort("email", 1):
+        d = _serialize_oid(doc)
+        d["user_type"] = "customer"
+        d["enabled"] = d.get("status") == "active"
+        if d.get("organization_id"):
+            try:
+                org = await db.organizations.find_one({"_id": ObjectId(d["organization_id"])})
+                if org:
+                    d["organization_name"] = org.get("name")
+            except Exception:
+                pass
+        rows.append(d)
+
     env_admin = {
-        "email": ev.get_envvar_str("ADMIN_EMAIL", settings.admin_email),
+        "email": ev.get_envvar_str("PANEL_ADMIN_EMAIL", settings.panel_admin_email),
         "name": "Admin",
         "role": "super_admin",
         "env_account": True,
         "enabled": True,
+        "user_type": "admin",
     }
     env_email = env_admin["email"]
     if not any(r["email"] == env_email for r in rows):
@@ -2034,39 +2293,34 @@ async def list_users():
 
 
 @router.post("/users", dependencies=[Depends(require_super)])
-async def create_user(body: Dict[str, Any]):
-    import hashlib
+async def create_user(body: CreateUserRequest):
+    from app.auth.crypto import hash_password
     db = await _db()
-    email = str(body.get("email") or "").strip().lower()
-    password = str(body.get("password") or "")
-    role = body.get("role") or "viewer"
-    if not re.match(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
-        raise HTTPException(status_code=400, detail="Invalid email")
-    if len(password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
-    if role not in ("viewer", "manager", "super_admin"):
-        raise HTTPException(status_code=400, detail=f"Invalid role: {role}")
+    email = body.email.strip().lower()
+    password = body.password
+    role = body.role
     existing = await db["admin_users"].find_one({"email": email})
     if existing:
         raise HTTPException(status_code=400, detail="User already exists")
     doc = {
         "email": email,
-        "name": str(body.get("name") or email.split("@")[0]),
+        "name": body.name or email.split("@")[0],
         "role": role,
-        "enabled": bool(body.get("enabled", True)),
-        "password_hash": hashlib.sha256(password.encode()).hexdigest(),
+        "enabled": True,
+        "password_hash": hash_password(password),
         "created_at": utcnow(),
         "last_login": None,
     }
     await db["admin_users"].insert_one(doc)
     await a.aaudit("user.create", "users",
                    details={"email": email, "role": role})
+    doc.pop("password_hash", None)
     return {"success": True, "user": _serialize_oid(doc)}
 
 
 @router.patch("/users/{user_id}", dependencies=[Depends(require_super)])
-async def update_user(user_id: str, body: Dict[str, Any]):
-    import hashlib
+async def update_user(user_id: str, body: UpdateUserRequest):
+    from app.auth.crypto import hash_password
     db = await _db()
     try:
         oid = ObjectId(user_id)
@@ -2076,25 +2330,19 @@ async def update_user(user_id: str, body: Dict[str, Any]):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     update: Dict[str, Any] = {}
-    if "name" in body:
-        update["name"] = str(body["name"]).strip()[:80]
-    if "role" in body:
-        role = body["role"]
-        if role not in ("viewer", "manager", "super_admin"):
-            raise HTTPException(status_code=400, detail=f"Invalid role: {role}")
-        update["role"] = role
-    if "enabled" in body:
-        update["enabled"] = bool(body["enabled"])
-    if body.get("password"):
-        if len(str(body["password"])) < 8:
-            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
-        update["password_hash"] = hashlib.sha256(
-            str(body["password"]).encode()).hexdigest()
+    if body.name is not None:
+        update["name"] = body.name.strip()[:80]
+    if body.role is not None:
+        update["role"] = body.role
+    if body.password is not None:
+        update["password_hash"] = hash_password(body.password)
     if update:
         await db["admin_users"].update_one({"_id": oid},
                                            {"$set": {**update, "updated_at": utcnow()}})
     await a.aaudit("user.update", "users", details={"email": user["email"]})
-    return {"success": True, "user": _serialize_oid({**user, **update})}
+    updated = {**user, **update}
+    updated.pop("password_hash", None)
+    return {"success": True, "user": _serialize_oid(updated)}
 
 
 @router.delete("/users/{user_id}", dependencies=[Depends(require_super)])
@@ -2107,7 +2355,7 @@ async def delete_user(user_id: str):
     user = await db["admin_users"].find_one({"_id": oid})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    if user["email"] == ev.get_envvar_str("ADMIN_EMAIL", settings.admin_email):
+    if user["email"] == ev.get_envvar_str("PANEL_ADMIN_EMAIL", settings.panel_admin_email):
         raise HTTPException(status_code=400, detail="The environment admin account cannot be deleted")
     await db["admin_users"].delete_one({"_id": oid})
     await a.aaudit("user.delete", "users", details={"email": user["email"]})
@@ -2161,15 +2409,13 @@ async def revoke_sessions(admin: dict = Depends(require_super)):
 
 
 @router.post("/security/change-password")
-async def change_password(body: Dict[str, Any],
+async def change_password(body: ChangePasswordRequest,
                           admin: dict = Depends(require_super)):
     """Change the signed-in account's password. For the env admin this
     creates a managed override record (the .env password stays valid as a
     recovery fallback)."""
-    import hashlib
-    password = str(body.get("password") or "")
-    if len(password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    from app.auth.crypto import hash_password
+    password = body.new_password
     db = await _db()
     email = admin["email"]
     record = await db["admin_users"].find_one({"email": email})
@@ -2178,7 +2424,7 @@ async def change_password(body: Dict[str, Any],
         "name": record.get("name") if record else admin["name"],
         "role": record.get("role") if record else "super_admin",
         "enabled": True,
-        "password_hash": hashlib.sha256(password.encode()).hexdigest(),
+        "password_hash": hash_password(password),
         "updated_at": utcnow(),
     }
     if record:
@@ -2221,7 +2467,8 @@ async def health_check():
         else:
             checks["mongo"] = {"ok": False, "error": "No database client"}
     except Exception as e:
-        checks["mongo"] = {"ok": False, "error": str(e)[:200]}
+        logger.warning("MongoDB health check failed: %s", e)
+        checks["mongo"] = {"ok": False, "error": "MongoDB connection failed"}
     # Apify
     token = s.get_apify_token()
     checks["apify"] = {
@@ -2235,11 +2482,825 @@ async def health_check():
     log_path = _log_file_path()
     checks["logs"] = {
         "ok": os.path.exists(log_path),
-        "path": log_path,
     }
     checks["maintenance"] = {"enabled": await s.aget_setting("maintenance.enabled")}
+
+    # Recent errors (last 24h)
+    recent_errors = 0
+    if db is not None:
+        recent_errors = await _count(
+            db, "search_history",
+            {"status": "error",
+             "created_at": {"$gte": utcnow() - timedelta(hours=24)}})
+    checks["recent_errors"] = {"count_24h": recent_errors}
+
+    # Uptime
+    uptime_s = round(time.time() - _APP_START_TIME, 1)
+
     all_ok = all(v.get("ok", False) for k, v in checks.items()
                  if k in ("mongo", "apify"))
     return {"overall": "ok" if all_ok else "degraded",
-            "checked_at": time.time(),
+            "checked_at": utcnow().isoformat(),
+            "version": "2.3.0",
+            "uptime_s": uptime_s,
             "checks": checks}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SAAS MULTI-TENANT MANAGEMENT (Super Admin Foundation)
+# ─────────────────────────────────────────────────────────────────────────────
+
+from pydantic import BaseModel as _PydanticBaseModel
+
+
+class CreateOrgRequest(_PydanticBaseModel):
+    name: str
+    slug: Optional[str] = None
+    owner_email: Optional[str] = None
+    plan_id: str = "starter"
+
+
+class UpdateOrgRequest(_PydanticBaseModel):
+    name: Optional[str] = None
+    plan_id: Optional[str] = None
+    status: Optional[str] = None
+
+
+class SuspendOrgRequest(_PydanticBaseModel):
+    reason: str = "Administrative policy enforcement"
+
+
+class ImpersonateRequest(_PydanticBaseModel):
+    user_id: str
+    organization_id: Optional[str] = None
+    reason: str = "Customer support assistance"
+
+
+@router.get("/saas/overview", dependencies=[Depends(require_viewer)])
+async def saas_overview():
+    """Real platform and product KPIs across all tenants."""
+    db = await _db()
+    orgs_total = await _count(db, "organizations")
+    orgs_active = await _count(db, "organizations", {"status": "active"})
+    orgs_trial = await _count(db, "organizations", {"status": "trial"})
+    orgs_suspended = await _count(db, "organizations", {"status": "suspended"})
+
+    users_total = await _count(db, "users")
+    users_active = await _count(db, "users", {"status": "active"})
+
+    searches_total = await _count(db, "search_history")
+    leads_total = await _count(db, "ai_comments", {"is_lead": True})
+    posts_total = await _count(db, "facebook_posts")
+    comments_total = await _count(db, "facebook_comments")
+
+    # Component health
+    mongo_ok = True
+    try:
+        await db.command("ping")
+    except Exception:
+        mongo_ok = False
+
+    token = s.get_apify_token()
+    gemini_key = ev.get_envvar_str("GEMINI_API_KEY", settings.gemini_api_key)
+
+    from app.api.routes.search import _tasks
+    active_jobs = sum(1 for t in _tasks.values() if not t.done())
+
+    return {
+        "success": True,
+        "platform": {
+            "organizations_total": orgs_total,
+            "organizations_active": orgs_active,
+            "organizations_trial": orgs_trial,
+            "organizations_suspended": orgs_suspended,
+            "users_total": users_total,
+            "users_active": users_active,
+        },
+        "product": {
+            "searches_total": searches_total,
+            "leads_total": leads_total,
+            "posts_total": posts_total,
+            "comments_total": comments_total,
+        },
+        "health": {
+            "fastapi": "ok",
+            "mongodb": "ok" if mongo_ok else "down",
+            "apify": "ok" if bool(token) else "missing_token",
+            "gemini": "ok" if bool(gemini_key) else "missing_key",
+            "background_jobs_active": active_jobs,
+        }
+    }
+
+
+@router.get("/organizations", dependencies=[Depends(require_viewer)])
+async def list_organizations(
+    q: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+):
+    """List tenant organizations with search, filters, and activity metrics."""
+    db = await _db()
+    query: Dict[str, Any] = {}
+    if q:
+        query["$or"] = [
+            {"name": {"$regex": re.escape(q), "$options": "i"}},
+            {"slug": {"$regex": re.escape(q), "$options": "i"}},
+        ]
+    if status:
+        query["status"] = status
+
+    rows = []
+    async for doc in db.organizations.find(query).sort("created_at", -1).skip(offset).limit(limit):
+        org_id = str(doc["_id"])
+        # Aggregate real metrics for organization
+        member_count = await _count(db, "organization_members", {"organization_id": org_id})
+        lead_count = await _count(db, "ai_comments", {"organization_id": org_id, "is_lead": True})
+        search_count = await _count(db, "search_history", {"organization_id": org_id})
+
+        owner_email = "—"
+        if doc.get("owner_id"):
+            try:
+                owner = await db.users.find_one({"_id": ObjectId(doc["owner_id"])})
+                if owner:
+                    owner_email = owner.get("email", "—")
+            except Exception:
+                pass
+
+        serialized = _serialize_oid(doc)
+        serialized["id"] = org_id
+        serialized["member_count"] = member_count
+        serialized["lead_count"] = lead_count
+        serialized["search_count"] = search_count
+        serialized["owner_email"] = owner_email
+        rows.append(serialized)
+
+    total = await _count(db, "organizations", query)
+    return {"organizations": rows, "total": total, "offset": offset, "limit": limit}
+
+
+@router.post("/organizations", dependencies=[Depends(require_super)])
+async def create_organization(body: CreateOrgRequest, request: Request):
+    """Create a tenant organization (Super Admin). A new owner receives an
+    emailed one-time link to set their own password — never a password."""
+    from app.auth.roles import current_admin
+    from app.billing.plans import get_plan_by_slug_or_id
+    db = await _db()
+    actor = current_admin(request) or {}
+    name_clean = body.name.strip()
+    if not name_clean:
+        raise HTTPException(status_code=422, detail="Organization name is required")
+    base_slug = body.slug.strip().lower() if body.slug else re.sub(r"[^\w\s-]", "", name_clean.lower()).strip()
+    slug = re.sub(r"[-\s]+", "-", base_slug) or "org"
+
+    existing = await db.organizations.find_one({"slug": slug})
+    if existing:
+        raise HTTPException(status_code=400, detail="An organization with this slug already exists")
+    plan = await get_plan_by_slug_or_id(body.plan_id, db=db) if body.plan_id else None
+    if body.plan_id and not plan:
+        raise HTTPException(status_code=422, detail="Unknown plan")
+
+    doc = {
+        "name": name_clean,
+        "slug": slug,
+        "status": "active",
+        "plan_id": plan["slug"] if plan else None,
+        "admin_portal_enabled": True,
+        "timezone": "UTC",
+        "currency": "USD",
+        "settings": {"auto_export": True, "shared_workspace": False},
+        "metadata": {"created_by_admin": actor.get("email")},
+        "created_at": utcnow(),
+        "updated_at": utcnow(),
+        "last_activity_at": utcnow(),
+    }
+    res = await db.organizations.insert_one(doc)
+    doc["_id"] = str(res.inserted_id)
+    doc["id"] = doc["_id"]
+
+    if body.owner_email:
+        owner_email = body.owner_email.strip().lower()
+        user_doc = await db.users.find_one({"email": owner_email})
+        if not user_doc:
+            import hashlib as _hashlib
+            from datetime import timedelta as _td
+            from app.auth.crypto import hash_password
+            from app.events.email import absolute_url, send_email
+            u_res = await db.users.insert_one({
+                "email": owner_email,
+                "name": owner_email.split("@")[0].capitalize(),
+                # unusable random hash: the owner sets a password via the link below
+                "password_hash": hash_password(secrets.token_urlsafe(32)),
+                "default_organization_id": doc["id"],
+                "status": "active",
+                "is_platform_admin": False,
+                "platform_role": None,
+                "created_at": utcnow(),
+                "updated_at": utcnow(),
+            })
+            user_id = str(u_res.inserted_id)
+            token = secrets.token_urlsafe(32)
+            await db.password_resets.insert_one({
+                "user_id": user_id, "token_hash": _hashlib.sha256(token.encode()).hexdigest(),
+                "expires_at": utcnow() + _td(hours=72), "used_at": None,
+                "purpose": "account_setup", "created_at": utcnow()})
+            send_email(owner_email, f"Your LeadAI workspace {name_clean} is ready",
+                       f"Hi,\n\nA LeadAI workspace for {name_clean} was created for you.\n"
+                       f"Set your password here (valid for 72 hours, single use):\n"
+                       f"{absolute_url('/reset-password?token=' + token)}\n\n— The LeadAI team",
+                       kind="account_setup", organization_id=doc["id"])
+            await a.aaudit("user.created", "organizations", user=actor, organization_id=doc["id"],
+                           resource_type="user", resource_id=user_id,
+                           details={"email": owner_email, "role": "owner", "via": "super_admin"})
+        else:
+            user_id = str(user_doc["_id"])
+            await db.users.update_one({"_id": user_doc["_id"]},
+                                      {"$set": {"default_organization_id": doc["id"]}})
+
+        await db.organizations.update_one({"_id": res.inserted_id}, {"$set": {"owner_id": user_id}})
+        doc["owner_id"] = user_id
+        await db.organization_members.insert_one({
+            "organization_id": doc["id"],
+            "user_id": user_id,
+            "role": "owner",
+            "status": "active",
+            "joined_at": utcnow(),
+            "invited_by": "super_admin",
+            "last_activity_at": utcnow(),
+            "permissions_override": {},
+        })
+
+    await a.aaudit("organization.create", "organizations", user=actor, organization_id=doc["id"],
+                   resource_type="organization", resource_id=doc["id"],
+                   details={"slug": slug, "name": name_clean, "plan": doc["plan_id"]})
+    return {"success": True, "organization": _serialize_oid(doc)}
+
+
+@router.get("/organizations/{org_id}", dependencies=[Depends(require_viewer)])
+async def get_organization(org_id: str):
+    """Get organization details, members, and activity metrics."""
+    db = await _db()
+    try:
+        oid = ObjectId(org_id)
+        org = await db.organizations.find_one({"_id": oid})
+    except Exception:
+        org = await db.organizations.find_one({"slug": org_id})
+
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    real_org_id = str(org["_id"])
+    serialized = _serialize_oid(org)
+    serialized["id"] = real_org_id
+
+    # Retrieve members
+    members = []
+    async for m in db.organization_members.find({"organization_id": real_org_id}):
+        m_ser = _serialize_oid(m)
+        try:
+            u = await db.users.find_one({"_id": ObjectId(m["user_id"])})
+            if u:
+                m_ser["email"] = u.get("email")
+                m_ser["name"] = u.get("name")
+                m_ser["user_status"] = u.get("status")
+        except Exception:
+            pass
+        members.append(m_ser)
+
+    # Activity metrics
+    serialized["members"] = members
+    serialized["member_count"] = len(members)
+    serialized["searches_count"] = await _count(db, "search_history", {"organization_id": real_org_id})
+    serialized["leads_count"] = await _count(db, "ai_comments", {"organization_id": real_org_id, "is_lead": True})
+    return {
+        "organization": serialized,
+        "members": members,
+        "metrics": {
+            "searches_count": serialized["searches_count"],
+            "leads_count": serialized["leads_count"],
+        }
+    }
+
+
+@router.patch("/organizations/{org_id}", dependencies=[Depends(require_super)])
+async def update_organization(org_id: str, body: UpdateOrgRequest):
+    """Update organization details."""
+    db = await _db()
+    try:
+        oid = ObjectId(org_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid organization id")
+
+    org = await db.organizations.find_one({"_id": oid})
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    updates = {}
+    if body.name is not None:
+        updates["name"] = body.name.strip()
+    if body.plan_id is not None:
+        updates["plan_id"] = body.plan_id.strip()
+    if body.status is not None:
+        updates["status"] = body.status.strip()
+
+    if updates:
+        updates["updated_at"] = utcnow()
+        await db.organizations.update_one({"_id": oid}, {"$set": updates})
+
+    await a.aaudit("organization.update", "organizations", details={"org_id": org_id, "updates": updates})
+    return {"success": True, "organization": _serialize_oid({**org, **updates})}
+
+
+@router.post("/organizations/{org_id}/suspend", dependencies=[Depends(require_super)])
+async def suspend_organization(org_id: str, body: SuspendOrgRequest):
+    """Suspend an organization, blocking customer access."""
+    db = await _db()
+    try:
+        oid = ObjectId(org_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid organization id")
+
+    org = await db.organizations.find_one({"_id": oid})
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    await db.organizations.update_one(
+        {"_id": oid},
+        {"$set": {"status": "suspended", "suspended_reason": body.reason, "updated_at": utcnow()}}
+    )
+    await a.aaudit("organization.suspend", "organizations", details={"org_id": org_id, "reason": body.reason})
+    return {"success": True, "message": "Organization suspended successfully"}
+
+
+@router.post("/organizations/{org_id}/activate", dependencies=[Depends(require_super)])
+async def activate_organization(org_id: str):
+    """Activate or reactivate an organization."""
+    db = await _db()
+    try:
+        oid = ObjectId(org_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid organization id")
+
+    org = await db.organizations.find_one({"_id": oid})
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    await db.organizations.update_one(
+        {"_id": oid},
+        {"$set": {"status": "active", "updated_at": utcnow()}, "$unset": {"suspended_reason": ""}}
+    )
+    await a.aaudit("organization.activate", "organizations", details={"org_id": org_id})
+    return {"success": True, "message": "Organization activated successfully"}
+
+
+@router.post("/users/{user_id}/revoke-sessions", dependencies=[Depends(require_super)])
+async def revoke_user_sessions_endpoint(user_id: str):
+    """Revoke all active sessions for a user."""
+    from app.auth.service import revoke_user_sessions
+    count = revoke_user_sessions(user_id, revoked_by="super_admin")
+    await a.aaudit("user.revoke_sessions", "users", details={"user_id": user_id, "revoked_count": count})
+    return {"success": True, "revoked_count": count}
+
+
+@router.post("/users/{user_id}/suspend", dependencies=[Depends(require_super)])
+async def suspend_user(user_id: str):
+    """Suspend a customer user account."""
+    db = await _db()
+    try:
+        oid = ObjectId(user_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid user id")
+
+    user = await db.users.find_one({"_id": oid})
+    if not user:
+        # Check admin_users
+        admin_user = await db.admin_users.find_one({"_id": oid})
+        if admin_user:
+            await db.admin_users.update_one({"_id": oid}, {"$set": {"enabled": False, "updated_at": utcnow()}})
+            await a.aaudit("user.suspend", "admin_users", details={"user_id": user_id})
+            return {"success": True, "message": "Admin user disabled"}
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await db.users.update_one({"_id": oid}, {"$set": {"status": "suspended", "updated_at": utcnow()}})
+    from app.auth.service import revoke_user_sessions
+    revoke_user_sessions(user_id, revoked_by="super_admin")
+    await a.aaudit("user.suspend", "users", details={"user_id": user_id})
+    return {"success": True, "message": "User suspended"}
+
+
+@router.post("/users/{user_id}/activate", dependencies=[Depends(require_super)])
+async def activate_user(user_id: str):
+    """Activate a customer user account."""
+    db = await _db()
+    try:
+        oid = ObjectId(user_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid user id")
+
+    user = await db.users.find_one({"_id": oid})
+    if not user:
+        admin_user = await db.admin_users.find_one({"_id": oid})
+        if admin_user:
+            await db.admin_users.update_one({"_id": oid}, {"$set": {"enabled": True, "updated_at": utcnow()}})
+            await a.aaudit("user.activate", "admin_users", details={"user_id": user_id})
+            return {"success": True, "message": "Admin user enabled"}
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await db.users.update_one({"_id": oid}, {"$set": {"status": "active", "updated_at": utcnow()}})
+    await a.aaudit("user.activate", "users", details={"user_id": user_id})
+    return {"success": True, "message": "User activated"}
+
+
+@router.post("/impersonate", dependencies=[Depends(require_super)])
+async def impersonate_user(body: ImpersonateRequest, request: Request, response: Response):
+    """Initiate a controlled support impersonation session."""
+    db = await _db()
+    target_id = body.user_id.strip()
+
+    try:
+        target_user = await db.users.find_one({"_id": ObjectId(target_id)})
+    except Exception:
+        target_user = await db.users.find_one({"email": target_id.lower()})
+
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Target user not found")
+
+    # Prevent impersonating a platform super admin
+    if target_user.get("is_platform_admin") and target_user.get("platform_role") == "super_admin":
+        raise HTTPException(status_code=403, detail="Impersonating another Super Admin is prohibited")
+
+    # Resolve target organization
+    org_id = target_user.get("default_organization_id")
+    membership = None
+    if org_id:
+        membership = await db.organization_members.find_one({
+            "user_id": str(target_user["_id"]),
+            "organization_id": org_id,
+        })
+    if not membership:
+        membership = await db.organization_members.find_one({"user_id": str(target_user["_id"])})
+        if membership:
+            org_id = membership["organization_id"]
+
+    org_name = "Default Organization"
+    org_slug = "default-org"
+    org_role = membership.get("role", "member") if membership else "member"
+
+    if org_id:
+        try:
+            org_doc = await db.organizations.find_one({"_id": ObjectId(org_id)})
+            if org_doc:
+                org_name = org_doc.get("name", org_name)
+                org_slug = org_doc.get("slug", org_slug)
+        except Exception:
+            pass
+
+    from app.auth.service import session_user, create_tracked_session, set_session_cookie, public_user
+    from app.auth.tenant import impersonation_expiry
+    admin_claims = session_user(request)
+    admin_email = (admin_claims or {}).get("email", "admin")
+
+    impersonated_user = {
+        "user_id": str(target_user["_id"]),
+        "email": target_user["email"],
+        "name": target_user.get("name") or target_user["email"].split("@")[0],
+        "role": org_role,
+        "scope": "site",
+        "organization_id": org_id,
+        "organization_name": org_name,
+        "organization_slug": org_slug,
+        "org_role": org_role,
+        "impersonated_by": admin_email,
+        "impersonation_reason": body.reason,
+        "impersonation_expires_at": impersonation_expiry(),
+    }
+    if not (body.reason or "").strip():
+        raise HTTPException(status_code=422, detail="A reason is required to impersonate")
+
+    tracked = create_tracked_session(
+        impersonated_user,
+        ip=request.client.host if request.client else "unknown",
+        user_agent=request.headers.get("user-agent", "unknown"),
+        impersonated_by=admin_email,
+        impersonation_reason=body.reason,
+    )
+    set_session_cookie(response, tracked)
+
+    await a.aaudit(
+        "impersonation.start",
+        "security",
+        user=admin_claims,
+        organization_id=org_id,
+        resource_type="user",
+        resource_id=str(target_user["_id"]),
+        ip=request.client.host if request.client else None,
+        details={
+            "target_user_id": str(target_user["_id"]),
+            "target_email": target_user["email"],
+            "admin_email": admin_email,
+            "reason": body.reason,
+        }
+    )
+
+    return {"success": True, "impersonated_user": public_user(tracked)}
+
+
+@router.post("/impersonate/exit")
+async def exit_impersonation(request: Request, response: Response):
+    """Exit an active impersonation session and restore super admin access."""
+    from app.auth.service import (session_user, clear_session_cookie,
+                                  set_session_cookie, create_tracked_session,
+                                  _panel_scope_user)
+    current = session_user(request)
+    admin_email = (current or {}).get("impersonated_by")
+
+    if not admin_email:
+        clear_session_cookie(response)
+        return {"success": True, "message": "Session cleared"}
+    from app.auth.roles import effective_role
+    if effective_role(admin_email) != "super_admin":
+        clear_session_cookie(response)
+        raise HTTPException(status_code=403, detail="Impersonator is no longer a Super Admin")
+    if current.get("session_id"):
+        from app.auth.service import revoke_session
+        revoke_session(current["session_id"], revoked_by="impersonation_exit")
+
+    # Restore admin session with tracked session for revocation support
+    admin_user = _panel_scope_user(admin_email, "Super Admin", "super_admin")
+    ip = request.client.host if request.client else None
+    ua = request.headers.get("user-agent", "")
+    tracked = create_tracked_session(admin_user, ip=ip, user_agent=ua)
+    set_session_cookie(response, tracked)
+
+    await a.aaudit(
+        "impersonation.stop",
+        "security",
+        user=admin_email,
+        organization_id=current.get("organization_id") or None,
+        details={"admin_email": admin_email, "exited_target": current.get("email")}
+    )
+
+    return {"success": True, "message": "Impersonation session ended; admin restored"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SAAS PLANS, SUBSCRIPTIONS & BILLING MANAGEMENT (Master Prompt 2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class PlanCreateRequest(_PydanticBaseModel):
+    name: str
+    slug: str
+    description: str = ""
+    price_monthly: float = 0.0
+    price_yearly: float = 0.0
+    currency: str = "USD"
+    trial_days: int = 0
+    features: Any = []          # list of keys, or {key: bool} (normalized server-side)
+    limits: Dict[str, int] = {}
+    display_order: int = 10
+    is_public: bool = True
+    is_default: bool = False
+    is_trial: bool = False
+
+
+class PlanUpdateRequest(_PydanticBaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    price_monthly: Optional[float] = None
+    price_yearly: Optional[float] = None
+    currency: Optional[str] = None
+    trial_days: Optional[int] = None
+    features: Optional[Any] = None
+    limits: Optional[Dict[str, int]] = None
+    status: Optional[str] = None
+    display_order: Optional[int] = None
+    is_public: Optional[bool] = None
+    is_default: Optional[bool] = None
+    is_trial: Optional[bool] = None
+
+
+class GrantFeatureRequest(_PydanticBaseModel):
+    feature: str
+    expires_days: Optional[int] = 30
+    reason: str = "Promotional trial / VIP customer"
+
+
+class GrantCreditsRequest(_PydanticBaseModel):
+    metric: str
+    credits: int
+    expires_days: Optional[int] = 30
+    reason: str = "Customer support accommodation"
+
+
+class ChangeSubPlanRequest(_PydanticBaseModel):
+    plan_slug: str
+    billing_cycle: str = "monthly"
+
+
+class ExtendSubTrialRequest(_PydanticBaseModel):
+    extra_days: int = 14
+    reason: str = "Trial extension by support"
+
+
+@router.get("/plans", dependencies=[Depends(require_viewer)])
+async def list_admin_plans():
+    """List all subscription plans for Super Admin."""
+    from app.billing.plans import get_all_plans
+    db = await _db()
+    plans = await get_all_plans(active_only=False, db=db)
+    return {"success": True, "plans": plans, "total": len(plans)}
+
+
+@router.post("/plans", dependencies=[Depends(require_super)])
+async def create_admin_plan(body: PlanCreateRequest, request: Request):
+    """Create a new SaaS plan tier (shared service: app.billing.plan_admin)."""
+    from app.billing.plan_admin import create_plan
+    from app.auth.roles import current_admin
+    db = await _db()
+    plan = await create_plan(db, body.model_dump(), actor=current_admin(request) or {})
+    return {"success": True, "plan": _serialize_oid(plan)}
+
+
+@router.get("/plans/{plan_id}", dependencies=[Depends(require_viewer)])
+async def get_admin_plan(plan_id: str):
+    """Get plan details by ID or slug."""
+    from app.billing.plans import get_plan_by_slug_or_id
+    db = await _db()
+    plan = await get_plan_by_slug_or_id(plan_id, db=db)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return {"success": True, "plan": plan}
+
+
+@router.patch("/plans/{plan_id}", dependencies=[Depends(require_super)])
+async def update_admin_plan(plan_id: str, body: PlanUpdateRequest, request: Request):
+    """Update plan attributes; limits are merged, never wiped."""
+    from app.billing.plan_admin import update_plan
+    from app.billing.plans import get_plan_by_slug_or_id
+    from app.auth.roles import current_admin
+    db = await _db()
+    await update_plan(db, plan_id, body.model_dump(exclude_none=True),
+                      actor=current_admin(request) or {})
+    refreshed = await get_plan_by_slug_or_id(plan_id, db=db)
+    return {"success": True, "plan": refreshed}
+
+
+@router.delete("/plans/{plan_id}", dependencies=[Depends(require_super)])
+async def archive_admin_plan(plan_id: str, request: Request):
+    """Archive a plan so new subscribers cannot select it."""
+    from app.billing.plan_admin import archive_plan
+    from app.auth.roles import current_admin
+    db = await _db()
+    await archive_plan(db, plan_id, actor=current_admin(request) or {})
+    return {"success": True, "message": "Plan archived"}
+
+
+@router.get("/subscriptions", dependencies=[Depends(require_viewer)])
+async def list_admin_subscriptions(
+    status: Optional[str] = Query(None),
+    plan: Optional[str] = Query(None),
+    offset: int = 0,
+    limit: int = 50,
+):
+    """List customer subscriptions with filtering."""
+    db = await _db()
+    query = {}
+    if status:
+        query["status"] = status
+    if plan:
+        query["plan_id"] = plan
+
+    cursor = db.subscriptions.find(query).sort("created_at", -1).skip(offset).limit(limit)
+    rows = []
+    async for s in cursor:
+        doc = _serialize_oid(s)
+        # Enrich with org name
+        try:
+            org = await db.organizations.find_one({"_id": ObjectId(doc["organization_id"])})
+            doc["organization_name"] = org.get("name") if org else "Unknown"
+        except Exception:
+            doc["organization_name"] = "Unknown"
+        rows.append(doc)
+
+    total = await _count(db, "subscriptions", query)
+    return {"success": True, "subscriptions": rows, "total": total, "offset": offset, "limit": limit}
+
+
+@router.post("/subscriptions/{sub_id}/change-plan", dependencies=[Depends(require_super)])
+async def change_subscription_plan_admin(sub_id: str, body: ChangeSubPlanRequest):
+    """Super Admin manual plan change for an organization's subscription."""
+    from app.billing.subscriptions import change_subscription_plan
+    db = await _db()
+    try:
+        oid = ObjectId(sub_id)
+        sub = await db.subscriptions.find_one({"_id": oid})
+    except Exception:
+        sub = await db.subscriptions.find_one({"organization_id": sub_id})
+
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    updated = await change_subscription_plan(
+        organization_id=sub["organization_id"],
+        target_plan_slug=body.plan_slug,
+        billing_cycle=body.billing_cycle,
+        db=db,
+    )
+    await a.aaudit("subscription.change_plan", "subscriptions", details={"sub_id": sub_id, "new_plan": body.plan_slug})
+    return {"success": True, "subscription": updated}
+
+
+@router.post("/subscriptions/{sub_id}/extend-trial", dependencies=[Depends(require_super)])
+async def extend_subscription_trial_admin(sub_id: str, body: ExtendSubTrialRequest):
+    """Super Admin action to extend trial period."""
+    from app.billing.subscriptions import extend_trial
+    db = await _db()
+    try:
+        oid = ObjectId(sub_id)
+        sub = await db.subscriptions.find_one({"_id": oid})
+    except Exception:
+        sub = await db.subscriptions.find_one({"organization_id": sub_id})
+
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    updated = await extend_trial(
+        organization_id=sub["organization_id"],
+        extra_days=body.extra_days,
+        reason=body.reason,
+        db=db,
+    )
+    await a.aaudit("subscription.extend_trial", "subscriptions", details={"sub_id": sub_id, "extra_days": body.extra_days})
+    return {"success": True, "subscription": updated}
+
+
+@router.post("/organizations/{org_id}/grant-feature", dependencies=[Depends(require_super)])
+async def grant_temporary_feature_admin(org_id: str, body: GrantFeatureRequest):
+    """Grant a temporary feature to an organization without altering its plan."""
+    db = await _db()
+    now = utcnow()
+    expires_at = (now + timedelta(days=body.expires_days)) if body.expires_days else None
+
+    doc = {
+        "organization_id": str(org_id),
+        "entitlement_type": "feature",
+        "key": body.feature.strip(),
+        "value": True,
+        "granted_by": "super_admin",
+        "reason": body.reason,
+        "expires_at": expires_at,
+        "created_at": now,
+    }
+    res = await db.temporary_entitlements.insert_one(doc)
+    doc["_id"] = str(res.inserted_id)
+
+    await a.aaudit("entitlement.grant_feature", "temporary_entitlements", details={"org_id": org_id, "feature": body.feature})
+    return {"success": True, "entitlement": _serialize_oid(doc)}
+
+
+@router.post("/organizations/{org_id}/grant-credits", dependencies=[Depends(require_super)])
+async def grant_temporary_credits_admin(org_id: str, body: GrantCreditsRequest):
+    """Grant extra usage quota credits to an organization."""
+    db = await _db()
+    now = utcnow()
+    expires_at = (now + timedelta(days=body.expires_days)) if body.expires_days else None
+
+    doc = {
+        "organization_id": str(org_id),
+        "entitlement_type": "credit",
+        "key": body.metric.strip(),
+        "value": int(body.credits),
+        "granted_by": "super_admin",
+        "reason": body.reason,
+        "expires_at": expires_at,
+        "created_at": now,
+    }
+    res = await db.temporary_entitlements.insert_one(doc)
+    doc["_id"] = str(res.inserted_id)
+
+    await a.aaudit("entitlement.grant_credits", "temporary_entitlements", details={"org_id": org_id, "metric": body.metric, "credits": body.credits})
+    return {"success": True, "entitlement": _serialize_oid(doc)}
+
+
+@router.get("/invoices", dependencies=[Depends(require_viewer)])
+async def list_admin_invoices(status: Optional[str] = Query(None)):
+    """View all invoices across tenants."""
+    from app.billing.invoices import get_all_invoices_admin
+    db = await _db()
+    invoices = await get_all_invoices_admin(status=status, limit=200, db=db)
+    return {"success": True, "invoices": invoices, "total": len(invoices)}
+
+
+@router.get("/billing/export", dependencies=[Depends(require_viewer)])
+async def export_admin_billing_csv():
+    """Export billing & revenue data as CSV."""
+    from app.billing.invoices import export_invoices_csv
+    db = await _db()
+    csv_data = await export_invoices_csv(db=db)
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=billing_export_{datetime.now().strftime('%Y%m%d')}.csv"},
+    )
+
+

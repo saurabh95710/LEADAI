@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.config import get_settings
 from app.db.mongo import get_async_db, get_sync_db
+from app.db.models import utcnow
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -108,8 +109,11 @@ SETTING_DEFAULTS: Dict[str, Any] = {
     # Security
     "security.session_timeout_hours": settings.session_ttl_days * 24,
     "security.login_protection": True,
-    "security.audit_logging": True,
+    "security.audit_logging": True,  # informational only: audit logging cannot be disabled
     "security.session_epoch": 0,
+    "security.lockout_threshold": 5,
+    "security.lockout_minutes": 15,
+    "security.impersonation_minutes": 30,
 
     # Maintenance mode — gates the user app, never the admin panel
     "maintenance.enabled": False,
@@ -119,6 +123,8 @@ SETTING_DEFAULTS: Dict[str, Any] = {
     # Feature flags
     "features.url_search.enabled": True,
     "features.exports.enabled": True,
+    "features.demo_registration.enabled": True,
+    "features.ai_analysis.enabled": True,
 
     # ── White-label / Global Settings (managed from the Global Settings UI) ──
     "general.app.name": "LeadAI",
@@ -335,7 +341,7 @@ def set_setting(key: str, value: Any, by: str = "admin") -> bool:
         db[COLLECTION].update_one(
             {"_id": key},
             {"$set": {"value": coerced,
-                      "updated_at": time.time(),
+                      "updated_at": utcnow(),
                       "updated_by": by}},
             upsert=True)
         return True
@@ -397,7 +403,7 @@ async def aset_setting(key: str, value: Any, by: str = "admin") -> bool:
         await db[COLLECTION].update_one(
             {"_id": key},
             {"$set": {"value": coerced,
-                      "updated_at": time.time(),
+                      "updated_at": utcnow(),
                       "updated_by": by}},
             upsert=True)
         return True
@@ -500,6 +506,8 @@ def effective_limits() -> Dict[str, int]:
         "max_comments_per_post_cap": get_int(
             "limits.max_comments_per_post_cap", 500),
         "global_max_comments": get_int("limits.global_max_comments", 100),
+        "stop_on_limit": get_bool("cost.stop_on_limit"),
+        "warn_before_expensive": get_bool("cost.warn_before_expensive"),
     }
 
 
@@ -564,7 +572,7 @@ async def push_revision(snapshot: Dict[str, Any], changed: Dict[str, Any],
             "changed_by": by,
             "ip": ip or "",
             "reason": reason or "",
-            "created_at": time.time(),
+            "created_at": utcnow(),
         })
         return version
     except Exception as e:
@@ -635,7 +643,7 @@ def export_payload() -> Dict[str, Any]:
     return {
         "version": 1,
         "schema": "leadai.settings.v1",
-        "exported_at": time.time(),
+        "exported_at": utcnow().isoformat(),
         "settings": out,
     }
 

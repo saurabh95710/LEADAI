@@ -5,13 +5,45 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LeadAI — AI Lead Intelligence Platform</title>
   <meta name="description" content="AI-powered social lead intelligence — paste a Facebook, Instagram, YouTube or LinkedIn URL and uncover high-intent prospects through real Apify data.">
+  <meta name="color-scheme" content="light dark">
+  <script>
+    /* apply the saved colour mode before first paint (theme.js keeps it in sync) */
+    try { var m = localStorage.getItem('leadai_color_mode'); if (m === 'light' || m === 'dark') document.documentElement.setAttribute('data-theme', m); } catch (_) {}
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500;1,9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=light1">
+  <link rel="stylesheet" href="/static/design/tokens.css?v=step3">
+  <link rel="stylesheet" href="/static/styles.css?v=step3">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <!-- Line icons (referenced with <use href="#i-…">) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+      <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
+      <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M4 20h16"/></symbol>
+      <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 16a8 8 0 1 1 16 0"/><path d="m12 16 4-5"/></symbol>
+      <symbol id="i-card" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+      <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></symbol>
+      <symbol id="i-token" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5h4.5a2 2 0 0 1 0 4H10a2 2 0 0 0 0 4h5"/></symbol>
+      <symbol id="i-columns" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a5.5 5.5 0 0 1 3.5 6"/></symbol>
+    </defs>
+  </svg>
+
   <div class="app-shell">
 
     <!-- ── Ambient background (subtle) ── -->
@@ -25,7 +57,10 @@
     <!-- ── Header ── -->
     <header class="topbar">
       <div class="topbar-left">
-        <a class="brand-logo" href="/" aria-label="LeadAI home">
+        <button type="button" class="icon-btn sidebar-toggle" id="sidebarToggle" aria-label="Open navigation" aria-controls="portalSidebar" aria-expanded="false">
+          <svg class="ico" aria-hidden="true"><use href="#i-menu"/></svg>
+        </button>
+        <a class="brand-logo" href="/dashboard#dashboard" aria-label="LeadAI home">
           <span class="logo-icon" data-brand-logo="primary" aria-hidden="true">✦</span>
           <span class="brand-text">
             <span class="brand-name" data-brand-name>LeadAI</span>
@@ -34,357 +69,854 @@
         </a>
       </div>
       <div class="topbar-right">
-        <div id="userChip" class="user-chip hidden">
-          <span class="user-avatar" id="userAvatar" aria-hidden="true">A</span>
-          <span class="user-name" id="userName"></span>
-          <button type="button" class="btn-logout" onclick="logout()" title="Sign out">Sign out</button>
-        </div>
         <span id="pipelineStatusBadge" class="status-badge status-idle" role="status">⬤ Idle</span>
-        <a href="/docs" target="_blank" rel="noopener" class="docs-link">API Docs <span aria-hidden="true">↗</span></a>
+
+        <!-- Token meter (always visible in the main UI) -->
+        <button type="button" class="token-chip hidden" id="tokenChip" data-nav="usage" title="Tokens — open usage">
+          <svg class="ico" aria-hidden="true"><use href="#i-token"/></svg>
+          <span class="token-chip-text" id="tokenChipText">—</span>
+          <span class="token-chip-bar" aria-hidden="true"><span id="tokenChipFill"></span></span>
+        </button>
+
+        <!-- Notifications -->
+        <div class="menu-wrap" id="notifWrap">
+          <button type="button" class="icon-btn" id="notifBtn" aria-haspopup="true" aria-expanded="false" aria-controls="notifPanel" aria-label="Notifications">
+            <svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg>
+            <span class="notif-count hidden" id="notifCount" aria-hidden="true">0</span>
+          </button>
+          <div class="menu-panel notif-panel hidden" id="notifPanel" role="region" aria-label="Notifications">
+            <div class="menu-panel-head">
+              <strong>Notifications</strong>
+              <button type="button" class="link-btn" id="notifMarkAll">Mark all read</button>
+            </div>
+            <div class="notif-list" id="notifList" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <button type="button" class="icon-btn" id="themeToggle" aria-label="Switch colour theme" title="Switch colour theme">
+          <svg class="ico theme-ico-dark" aria-hidden="true"><use href="#i-moon"/></svg>
+          <svg class="ico theme-ico-light" aria-hidden="true"><use href="#i-sun"/></svg>
+        </button>
+
+        <!-- User menu -->
+        <div class="menu-wrap" id="userMenuWrap">
+          <button type="button" id="userChip" class="user-chip hidden" aria-haspopup="true" aria-expanded="false" aria-controls="userMenu">
+            <span class="user-avatar" id="userAvatar" aria-hidden="true">A</span>
+            <span class="user-name" id="userName"></span>
+          </button>
+          <div class="menu-panel user-menu hidden" id="userMenu" role="menu" aria-label="Account">
+            <div class="user-menu-head">
+              <div class="user-menu-name" id="userMenuName">—</div>
+              <div class="user-menu-email" id="userMenuEmail"></div>
+              <div class="user-menu-role" id="userMenuRole"></div>
+            </div>
+            <button type="button" role="menuitem" class="menu-item" data-nav="settings" data-tab="profile">Profile &amp; preferences</button>
+            <button type="button" role="menuitem" class="menu-item" data-nav="settings" data-tab="security">Password &amp; sessions</button>
+            <button type="button" role="menuitem" class="menu-item hidden" id="menuWorkspace" onclick="openWorkspaceModal()">Workspace settings</button>
+            <button type="button" role="menuitem" class="menu-item hidden" id="menuTeam" onclick="openTeamModal()">Team members</button>
+            <a role="menuitem" class="menu-item hidden" id="menuAdminPortal" href="/org-admin">Admin portal <svg class="ico ico-sm" aria-hidden="true"><use href="#i-external"/></svg></a>
+            <a role="menuitem" class="menu-item" href="/docs" target="_blank" rel="noopener">API docs <svg class="ico ico-sm" aria-hidden="true"><use href="#i-external"/></svg></a>
+            <button type="button" role="menuitem" class="menu-item menu-item-danger" onclick="logout()">Sign out</button>
+          </div>
+        </div>
       </div>
     </header>
 
-    <!-- ── Workflow navigation (Search → Pages → Posts → Comments) ── -->
-    <nav class="workflow-breadcrumb" id="workflowBreadcrumb" aria-label="Lead workflow">
-      <div class="steps-track">
-        <button type="button" class="breadcrumb-item active" data-view="search" onclick="navigateToView('search')">
-          <span class="step-index" aria-hidden="true">1</span>
-          <span class="step-label">Search</span>
-        </button>
-        <span class="step-line" aria-hidden="true"></span>
-        <button type="button" class="breadcrumb-item" data-view="pages" onclick="navigateToView('pages')" disabled>
-          <span class="step-index" aria-hidden="true">2</span>
-          <span class="step-label">Pages</span>
-        </button>
-        <span class="step-line" aria-hidden="true"></span>
-        <button type="button" class="breadcrumb-item" data-view="posts" onclick="navigateToView('posts')" disabled>
-          <span class="step-index" aria-hidden="true">3</span>
-          <span class="step-label">Posts</span>
-        </button>
-        <span class="step-line" aria-hidden="true"></span>
-        <button type="button" class="breadcrumb-item" data-view="comments" onclick="navigateToView('comments')" disabled>
-          <span class="step-index" aria-hidden="true">4</span>
-          <span class="step-label">Comments</span>
-        </button>
-      </div>
-    </nav>
-
-    <main class="main-content">
-
-      <!-- ══════════ VIEW 1: SEARCH + HERO ══════════ -->
-      <section id="view-search" class="workflow-view">
-
-        <div class="hero">
-          <div class="hero-badge"><span class="hero-badge-star" aria-hidden="true">✦</span> AI-powered lead intelligence</div>
-          <h1 class="hero-title">Find your next <span class="grad-text">high-intent leads</span></h1>
-          <p class="hero-sub">Analyze a social profile, page, or channel — and uncover valuable conversations, prospects, and buying signals with AI.</p>
+    <div class="portal-layout">
+      <!-- ── Sidebar navigation ── -->
+      <aside class="portal-sidebar" id="portalSidebar" aria-label="Workspace navigation">
+        <div class="sidebar-org">
+          <div class="sidebar-org-name" id="topbarWorkspaceName">Workspace</div>
+          <div class="sidebar-org-meta">
+            <span id="topbarPlanBadge" class="plan-badge-pill">—</span>
+            <span class="sidebar-role" id="sidebarRole"></span>
+          </div>
         </div>
 
-        <!-- ── Premium search card ── -->
-        <div class="search-card glass-card" id="searchCard">
-          <div class="search-card-glow" aria-hidden="true"></div>
-          <form id="urlSearchForm" class="search-form" onsubmit="handleUrlSearch(event)">
-            <div class="search-field">
-              <label class="field-label" for="urlSearchInput">Social Profile URL</label>
-              <div class="input-shell">
-                <span class="input-icon" aria-hidden="true">🔗</span>
-                <input type="url" id="urlSearchInput" class="form-input" placeholder="https://www.facebook.com/yourpage" autocomplete="off" spellcheck="false" required>
-                <span id="urlDetectionHint" class="detect-hint" role="status">Waiting for URL…</span>
+        <nav class="side-nav">
+          <div class="side-nav-label">Workspace</div>
+          <button type="button" class="side-link" data-nav="dashboard"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg><span>Dashboard</span></button>
+          <button type="button" class="side-link" data-nav="search"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg><span>New search</span></button>
+          <button type="button" class="side-link" data-nav="results" id="navResults"><svg class="ico" aria-hidden="true"><use href="#i-layers"/></svg><span>Results</span></button>
+
+          <div class="side-nav-label">Intelligence</div>
+          <button type="button" class="side-link" data-nav="leads"><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg><span>Leads</span><span class="side-badge hidden" id="navAssignedBadge" title="Assigned to me">0</span></button>
+          <button type="button" class="side-link" data-nav="history"><svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg><span>Search history</span></button>
+          <button type="button" class="side-link" data-nav="exports"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg><span>Exports</span></button>
+
+          <div class="side-nav-label">Account</div>
+          <button type="button" class="side-link" data-nav="usage"><svg class="ico" aria-hidden="true"><use href="#i-gauge"/></svg><span>Usage &amp; tokens</span></button>
+          <button type="button" class="side-link" data-nav="billing"><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg><span>Plans &amp; billing</span></button>
+          <button type="button" class="side-link" data-nav="settings"><svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg><span>Settings</span></button>
+          <a class="side-link hidden" id="navAdminPortal" href="/org-admin"><svg class="ico" aria-hidden="true"><use href="#i-users"/></svg><span>Admin portal</span><svg class="ico ico-sm side-ext" aria-hidden="true"><use href="#i-external"/></svg></a>
+        </nav>
+
+        <!-- Token meter component (demo / plan tokens) -->
+        <div class="sidebar-token-card" id="sidebarTokenCard" aria-live="polite">
+          <div class="stc-head"><span>Tokens</span><span id="stcValue" class="stc-value"><span class="skeleton skeleton-inline"></span></span></div>
+          <div class="quota-bar" role="progressbar" aria-label="Tokens used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="stcBar"><div class="quota-fill" id="stcFill" style="width:0%"></div></div>
+          <div class="stc-note" id="stcNote"></div>
+          <button type="button" class="btn-primary btn-block btn-sm hidden" id="stcUpgrade" data-action="upgrade">Upgrade plan</button>
+        </div>
+      </aside>
+      <div class="sidebar-scrim hidden" id="sidebarScrim"></div>
+
+      <div class="portal-main">
+        <!-- Global banner: blockers / pending confirmation / demo expiry -->
+        <div id="portalBanner" class="portal-banner hidden" role="status"></div>
+
+        <!-- ── Workflow navigation (Search → Pages → Posts → Comments) ── -->
+        <nav class="workflow-breadcrumb hidden" id="workflowBreadcrumb" aria-label="Lead workflow">
+          <div class="steps-track">
+            <button type="button" class="breadcrumb-item active" data-view="search" onclick="navigateToView('search')">
+              <span class="step-index" aria-hidden="true">1</span>
+              <span class="step-label">Search</span>
+            </button>
+            <span class="step-line" aria-hidden="true"></span>
+            <button type="button" class="breadcrumb-item" data-view="pages" onclick="navigateToView('pages')" disabled>
+              <span class="step-index" aria-hidden="true">2</span>
+              <span class="step-label">Pages</span>
+            </button>
+            <span class="step-line" aria-hidden="true"></span>
+            <button type="button" class="breadcrumb-item" data-view="posts" onclick="navigateToView('posts')" disabled>
+              <span class="step-index" aria-hidden="true">3</span>
+              <span class="step-label">Posts</span>
+            </button>
+            <span class="step-line" aria-hidden="true"></span>
+            <button type="button" class="breadcrumb-item" data-view="comments" onclick="navigateToView('comments')" disabled>
+              <span class="step-index" aria-hidden="true">4</span>
+              <span class="step-label">Comments &amp; leads</span>
+            </button>
+          </div>
+        </nav>
+
+        <main class="main-content" id="main" tabindex="-1">
+          <nav class="page-crumbs" id="pageCrumbs" aria-label="Breadcrumb"></nav>
+
+          <!-- ══════════ DASHBOARD ══════════ -->
+          <section id="view-dashboard" class="workflow-view portal-view hidden" aria-labelledby="dashTitle">
+            <div class="page-head">
+              <div>
+                <h1 class="page-title" id="dashTitle">Welcome back</h1>
+                <p class="page-sub" id="dashSub">Your private workspace — only your own searches, leads and usage.</p>
               </div>
-              <div id="urlPlatformChip" class="detect-result hidden" role="status"></div>
+              <div class="page-actions">
+                <button type="button" class="btn-primary" data-nav="search" id="dashNewSearch"><span aria-hidden="true">✦</span> New search</button>
+              </div>
             </div>
 
-            <div class="search-actions-row">
-              <div class="maxposts-field">
-                <label class="field-label" for="urlSearchLimit">Max Posts</label>
-                <input type="number" id="urlSearchLimit" class="form-input" min="1" max="100" value="20">
-                <span class="field-hint">1 – 100</span>
+            <div id="dashAlerts" class="alert-stack" aria-live="polite"></div>
+            <div id="dashError" class="hidden"></div>
+
+            <div class="kpi-grid" id="dashKpis">
+              <div class="kpi-card kpi-token" id="kpiTokens">
+                <div class="kpi-label">Tokens</div>
+                <div class="kpi-value"><span class="skeleton skeleton-line w-60"></span></div>
+                <div class="kpi-foot"><span class="skeleton skeleton-line w-80"></span></div>
               </div>
-              <div class="maxposts-field">
-                <label class="field-label" for="urlSearchCommentsPerPost">Comments / Post</label>
-                <input type="number" id="urlSearchCommentsPerPost" class="form-input" min="1" max="500" value="30">
-                <span class="field-hint" title="Whole run is also capped by the MAX_COMMENTS_TO_COLLECT env setting (default 100)">1 – 500</span>
+              <div class="kpi-card" id="kpiSearches">
+                <div class="kpi-label">Searches</div>
+                <div class="kpi-value"><span class="skeleton skeleton-line w-40"></span></div>
+                <div class="kpi-foot"><span class="skeleton skeleton-line w-70"></span></div>
               </div>
-              <button type="submit" id="urlSearchBtn" class="btn-primary btn-analyze">
-                <span class="btn-icon" aria-hidden="true">✦</span>
-                <span class="btn-text">Analyze Profile</span>
-                <span class="btn-arrow" aria-hidden="true">→</span>
-              </button>
+              <div class="kpi-card" id="kpiLeads">
+                <div class="kpi-label">Leads</div>
+                <div class="kpi-value"><span class="skeleton skeleton-line w-40"></span></div>
+                <div class="kpi-foot"><span class="skeleton skeleton-line w-70"></span></div>
+              </div>
+              <div class="kpi-card" id="kpiAssigned">
+                <div class="kpi-label">Assigned to me</div>
+                <div class="kpi-value"><span class="skeleton skeleton-line w-40"></span></div>
+                <div class="kpi-foot"><span class="skeleton skeleton-line w-70"></span></div>
+              </div>
             </div>
 
-            <!-- Comment Scraping & Keyword Intelligence: filter comments before the AI stage -->
-            <details class="filter-panel" id="urlFilterPanel">
-              <summary class="filter-panel-summary">
-                <span class="filter-panel-title">⚙ Comment Filtering</span>
-                <span class="field-hint">— only matching comments reach the AI stage; skipped comments stay stored but get no AI call</span>
-              </summary>
-              <div class="filter-panel-body">
-                <div class="filter-mode-row" role="radiogroup" aria-label="Comment filter mode" id="urlFilterModes">
-                  <label class="filter-radio"><input type="radio" name="filterMode" value="all" checked><span>All comments</span></label>
-                  <label class="filter-radio"><input type="radio" name="filterMode" value="preset"><span>Saved rule / preset</span></label>
-                  <label class="filter-radio"><input type="radio" name="filterMode" value="custom"><span>Custom keywords</span></label>
+            <div class="dash-grid">
+              <section class="panel" aria-labelledby="dashRecentSearchesTitle">
+                <div class="panel-head">
+                  <h2 class="panel-title" id="dashRecentSearchesTitle">Recent searches</h2>
+                  <button type="button" class="link-btn" data-nav="history">View all</button>
                 </div>
-                <div class="filter-field hidden" id="urlFilterPresetField">
-                  <label class="field-label" for="urlFilterPreset">Rule / preset</label>
-                  <select id="urlFilterPreset" class="form-input">
-                    <option value="">Loading…</option>
+                <div class="panel-body" id="dashRecentSearches"></div>
+              </section>
+              <section class="panel" aria-labelledby="dashRecentLeadsTitle">
+                <div class="panel-head">
+                  <h2 class="panel-title" id="dashRecentLeadsTitle">Latest leads</h2>
+                  <button type="button" class="link-btn" data-nav="leads">View all</button>
+                </div>
+                <div class="panel-body" id="dashRecentLeads"></div>
+              </section>
+            </div>
+
+            <section class="panel" aria-labelledby="dashPlanTitle">
+              <div class="panel-head">
+                <h2 class="panel-title" id="dashPlanTitle">Plan &amp; monthly usage</h2>
+                <button type="button" class="link-btn" data-nav="billing">Plans &amp; billing</button>
+              </div>
+              <div class="panel-body" id="dashPlan"></div>
+            </section>
+          </section>
+
+          <!-- ══════════ NEW SEARCH (URL Search Agent) ══════════ -->
+          <section id="view-search" class="workflow-view portal-view hidden">
+
+            <div class="hero">
+              <div class="hero-badge"><span class="hero-badge-star" aria-hidden="true">✦</span> URL Search Agent</div>
+              <h1 class="hero-title">Find your next <span class="grad-text">high-intent leads</span></h1>
+              <p class="hero-sub">Paste a Facebook, Instagram, YouTube or LinkedIn link. The agent collects the page, its posts and comments, qualifies them and scores every lead with AI.</p>
+            </div>
+
+            <div id="searchPermission" class="hidden"></div>
+
+            <!-- ── Search card ── -->
+            <div class="search-card glass-card" id="searchCard">
+              <div class="search-card-glow" aria-hidden="true"></div>
+              <ol class="search-guide" id="searchGuide" aria-label="How a search works">
+                <li data-g="url" class="current" aria-current="step"><span class="sg-num" aria-hidden="true">1</span><span class="sg-text">Paste a link</span></li>
+                <li data-g="limits"><span class="sg-num" aria-hidden="true">2</span><span class="sg-text">Set limits</span></li>
+                <li data-g="filter"><span class="sg-num" aria-hidden="true">3</span><span class="sg-text">Qualify comments <em>optional</em></span></li>
+                <li data-g="run"><span class="sg-num" aria-hidden="true">4</span><span class="sg-text">Run &amp; watch live</span></li>
+              </ol>
+              <form id="urlSearchForm" class="search-form" onsubmit="handleUrlSearch(event)" novalidate>
+                <div class="search-field">
+                  <label class="field-label" for="urlSearchInput">Social profile / page URL</label>
+                  <div class="input-shell">
+                    <span class="input-icon" aria-hidden="true">🔗</span>
+                    <input type="url" id="urlSearchInput" class="form-input" placeholder="https://www.facebook.com/yourpage" autocomplete="off" spellcheck="false" required aria-describedby="urlDetectionHint urlSearchError">
+                    <span id="urlDetectionHint" class="detect-hint" role="status">Waiting for URL…</span>
+                  </div>
+                  <div class="platform-hints" id="platformHints" aria-hidden="true">
+                    <span class="ph-label">Supported:</span>
+                    <span class="ph-chip" data-p="facebook">Facebook</span>
+                    <span class="ph-chip" data-p="instagram">Instagram</span>
+                    <span class="ph-chip" data-p="youtube">YouTube</span>
+                    <span class="ph-chip" data-p="linkedin">LinkedIn</span>
+                  </div>
+                  <div id="urlSearchError" class="field-error" role="alert"></div>
+                  <div id="urlPlatformChip" class="detect-result hidden" role="status"></div>
+                </div>
+
+                <div class="search-actions-row">
+                  <div class="maxposts-field">
+                    <label class="field-label" for="urlSearchLimit">Posts</label>
+                    <input type="number" id="urlSearchLimit" class="form-input" min="1" max="100" value="20" inputmode="numeric" aria-describedby="capPostsHint">
+                    <span class="field-hint" id="capPostsHint">1 – 100</span>
+                  </div>
+                  <div class="maxposts-field">
+                    <label class="field-label" for="urlSearchCommentsPerPost">Comments / post</label>
+                    <input type="number" id="urlSearchCommentsPerPost" class="form-input" min="1" max="500" value="30" inputmode="numeric" aria-describedby="capCommentsHint">
+                    <span class="field-hint" id="capCommentsHint">1 – 500</span>
+                  </div>
+                  <button type="submit" id="urlSearchBtn" class="btn-primary btn-analyze">
+                    <span class="btn-icon" aria-hidden="true">✦</span>
+                    <span class="btn-text">Start search</span>
+                    <span class="btn-arrow" aria-hidden="true">→</span>
+                  </button>
+                </div>
+                <div class="search-cost-row" id="searchCostRow" aria-live="polite"></div>
+                <div id="searchBlocker" class="hidden"></div>
+
+                <!-- Comment Scraping & Keyword Intelligence: filter comments before the AI stage -->
+                <details class="filter-panel" id="urlFilterPanel">
+                  <summary class="filter-panel-summary">
+                    <span class="filter-panel-title">Comment qualification</span>
+                    <span class="field-hint">— only matching comments reach the AI stage; skipped comments stay stored but get no AI call</span>
+                  </summary>
+                  <div class="filter-panel-body">
+                    <div class="filter-mode-row" role="radiogroup" aria-label="Comment filter mode" id="urlFilterModes">
+                      <label class="filter-radio"><input type="radio" name="filterMode" value="all" checked><span>All comments</span></label>
+                      <label class="filter-radio"><input type="radio" name="filterMode" value="preset"><span>Saved rule / preset</span></label>
+                      <label class="filter-radio"><input type="radio" name="filterMode" value="custom"><span>Custom keywords</span></label>
+                    </div>
+                    <div class="filter-field hidden" id="urlFilterPresetField">
+                      <label class="field-label" for="urlFilterPreset">Rule / preset</label>
+                      <select id="urlFilterPreset" class="form-input">
+                        <option value="">Loading…</option>
+                      </select>
+                      <span class="field-hint">Saved admin rules are labelled “Rule”, built-in shortcuts “Preset”</span>
+                    </div>
+                    <div class="filter-custom hidden" id="urlFilterCustomField">
+                      <div class="maxposts-field">
+                        <label class="field-label" for="urlFilterInclude">Include keywords <span class="field-hint">comma-separated</span></label>
+                        <input type="text" id="urlFilterInclude" class="form-input" placeholder="price, broking, kharar, resale" autocomplete="off" spellcheck="false">
+                      </div>
+                      <div class="maxposts-field">
+                        <label class="field-label" for="urlFilterExclude">Exclude keywords <span class="field-hint">comma-separated</span></label>
+                        <input type="text" id="urlFilterExclude" class="form-input" placeholder="job, vacancy" autocomplete="off" spellcheck="false">
+                      </div>
+                      <div class="maxposts-field">
+                        <label class="field-label" for="urlFilterMatchMode">Match mode</label>
+                        <select id="urlFilterMatchMode" class="form-input">
+                          <option value="any">Any keyword (OR)</option>
+                          <option value="all">All keywords (AND)</option>
+                          <option value="category">A whole category</option>
+                          <option value="advanced">Advanced (excludes included)</option>
+                        </select>
+                      </div>
+                      <div id="urlFilterCategoriesWrap" class="filter-cats-wrap hidden">
+                        <span class="field-label">Categories</span>
+                        <div id="urlFilterCategories" class="filter-cats"></div>
+                        <span class="field-hint">Comment is matched if it belongs to one of these categories</span>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+
+                <!-- Live pipeline (driven by the run status/phase from GET /api/search/{run_id}) -->
+                <div id="urlSearchProgress" class="pipeline-progress hidden">
+                  <div class="processing-card">
+                    <div class="processing-head">
+                      <span class="mini-spinner" id="urlSearchSpinner" aria-hidden="true"></span>
+                      <span id="urlSearchProgressLabel">Starting search…</span>
+                      <span class="processing-meta"><span id="urlSearchStepCount" class="ps-count"></span><span class="pipeline-elapsed" id="urlSearchElapsed" title="Elapsed time"></span></span>
+                    </div>
+                    <div class="progress-bar" role="progressbar" aria-label="Search progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="urlSearchProgressBar">
+                      <div class="progress-fill" id="urlSearchProgressFill"></div>
+                    </div>
+                    <ol class="pipeline-steps" id="urlSearchSteps" aria-label="Pipeline steps">
+                      <li data-step="url"><span class="ps-dot" aria-hidden="true"></span><span class="ps-label">URL</span></li>
+                      <li data-step="agent"><span class="ps-dot" aria-hidden="true"></span><span class="ps-label">Agent</span></li>
+                      <li data-step="apify"><span class="ps-dot" aria-hidden="true"></span><span class="ps-label">Apify</span></li>
+                      <li data-step="page"><span class="ps-dot" aria-hidden="true"></span><span class="ps-label">Page info</span></li>
+                      <li data-step="posts"><span class="ps-dot" aria-hidden="true"></span><span class="ps-label">Posts</span></li>
+                      <li data-step="comments"><span class="ps-dot" aria-hidden="true"></span><span class="ps-label">Comments</span></li>
+                      <li data-step="qualify"><span class="ps-dot" aria-hidden="true"></span><span class="ps-label">Qualification</span></li>
+                      <li data-step="ai"><span class="ps-dot" aria-hidden="true"></span><span class="ps-label">AI / rules</span></li>
+                      <li data-step="intel"><span class="ps-dot" aria-hidden="true"></span><span class="ps-label">Lead intelligence</span></li>
+                      <li data-step="score"><span class="ps-dot" aria-hidden="true"></span><span class="ps-label">Lead scoring</span></li>
+                      <li data-step="results"><span class="ps-dot" aria-hidden="true"></span><span class="ps-label">Results</span></li>
+                    </ol>
+                    <div class="pipeline-meta" id="urlSearchMeta" aria-live="polite"></div>
+                    <div class="progress-cancel-row">
+                      <button type="button" id="urlSearchCancelBtn" class="btn-cancel hidden" onclick="cancelCurrentSearch()">✕ Cancel search</button>
+                      <span id="urlSearchDoneActions" class="done-actions hidden"></span>
+                    </div>
+                  </div>
+                </div>
+              </form>
+            </div>
+
+            <!-- ── Session stats (aggregated from the real search history) ── -->
+            <div id="sessionStats" class="stats-strip hidden" aria-label="Session summary">
+              <div class="stat-tile">
+                <div class="stat-tile-value" id="statSearches">0</div>
+                <div class="stat-tile-label">Searches</div>
+              </div>
+              <div class="stat-tile">
+                <div class="stat-tile-value" id="statCompleted">0</div>
+                <div class="stat-tile-label">Completed</div>
+              </div>
+              <div class="stat-tile">
+                <div class="stat-tile-value" id="statPosts">0</div>
+                <div class="stat-tile-label">Pages collected</div>
+              </div>
+            </div>
+
+            <!-- ── Recent searches ── -->
+            <section class="recent-section" aria-label="Recent searches">
+              <div class="recent-head">
+                <h2 class="section-title">Recent searches</h2>
+                <div class="recent-filters" id="recentFilters" role="group" aria-label="Filter by platform">
+                  <button type="button" class="filter-chip active" data-f="all" onclick="setRecentFilter(this)">All</button>
+                  <button type="button" class="filter-chip" data-f="facebook" onclick="setRecentFilter(this)">Facebook</button>
+                  <button type="button" class="filter-chip" data-f="instagram" onclick="setRecentFilter(this)">Instagram</button>
+                  <button type="button" class="filter-chip" data-f="youtube" onclick="setRecentFilter(this)">YouTube</button>
+                  <button type="button" class="filter-chip" data-f="linkedin" onclick="setRecentFilter(this)">LinkedIn</button>
+                </div>
+                <button type="button" class="btn-ghost" id="recentViewAll" data-nav="history" title="Open the full search history">View all →</button>
+              </div>
+
+              <div class="recent-table glass-card">
+                <div class="empty-state" id="recentSearchesEmpty">
+                  <div class="empty-icon" aria-hidden="true">✦</div>
+                  <div class="empty-title">No searches yet</div>
+                  <div class="empty-sub">Paste a social URL above to start discovering high-intent leads.</div>
+                  <button type="button" class="btn-primary btn-mini-cta" data-action="focus-url">Start a search</button>
+                </div>
+                <div id="recentSearchesList" class="recent-rows"></div>
+              </div>
+            </section>
+          </section>
+
+          <!-- ══════════ RESULTS: PAGES ══════════ -->
+          <section class="workflow-view portal-view leads-panel glass-card hidden" id="view-pages">
+            <div class="leads-header">
+              <div class="leads-tabs">
+                <h1 class="tab-btn active results-title" id="tabPages"><span aria-hidden="true">📇</span> Pages found</h1>
+              </div>
+              <div class="leads-controls">
+                <label class="filter-label" for="pagesCategoryFilter">Category:</label>
+                <select id="pagesCategoryFilter" class="form-input filter-select" onchange="renderPagesScreen()">
+                  <option value="">All</option>
+                </select>
+                <label class="filter-check">
+                  <input type="checkbox" id="pagesContactOnly" onchange="renderPagesScreen()"> With contact
+                </label>
+                <button class="btn-export" onclick="exportPagesCsv()" title="Download the pages of this search as CSV">📄 Export CSV</button>
+                <button class="btn-refresh" onclick="renderPagesScreen()" title="Refresh">↺ Refresh</button>
+              </div>
+            </div>
+
+            <p class="workflow-hint">Page info collected from your URL. Qualifying posts (relevant + enough comments) get the comment scrape; low-engagement posts are skipped.</p>
+
+            <div id="pagesScreenStatus" class="page-search-summary hidden"></div>
+
+            <div class="empty-state" id="pagesListEmpty">
+              <div class="empty-icon">📇</div>
+              <div class="empty-title">No pages found</div>
+              <div class="empty-sub">Run a search first — its page appears here.</div>
+            </div>
+            <div id="pagesGrid" class="page-card-grid"></div>
+          </section>
+
+          <!-- ══════════ RESULTS: POSTS ══════════ -->
+          <section class="workflow-view portal-view leads-panel glass-card hidden" id="view-posts">
+            <div class="leads-header">
+              <div class="leads-tabs">
+                <h1 class="tab-btn active results-title" id="tabPosts"><span aria-hidden="true">📝</span> Posts of <span id="postsPageName">this page</span></h1>
+              </div>
+              <div class="leads-controls">
+                <button class="btn-export" onclick="exportPostsCsv()" title="Download posts of this page as CSV">📄 Export CSV</button>
+                <button class="btn-refresh" onclick="renderPostsScreen()" title="Refresh">↺ Refresh</button>
+              </div>
+            </div>
+
+            <p class="workflow-hint">Qualifying posts are listed first — only they are worth collecting comments from.</p>
+
+            <div id="postsScreenStatus" class="page-search-summary hidden"></div>
+
+            <div class="empty-state" id="postsListEmpty">
+              <div class="empty-icon">📝</div>
+              <div class="empty-title">No posts yet</div>
+              <div class="empty-sub">No posts collected for this page yet</div>
+            </div>
+            <div id="postsGrid" class="post-tile-grid"></div>
+          </section>
+
+          <!-- ══════════ RESULTS: COMMENTS / LEADS ══════════ -->
+          <section class="workflow-view portal-view leads-panel glass-card hidden" id="view-comments">
+            <div class="leads-header">
+              <div class="leads-tabs-bar">
+                <div class="comments-post-title-wrap">
+                  <span class="comments-post-icon">💬</span>
+                  <div class="comments-post-info">
+                    <span class="comments-post-label">Post comments &amp; leads</span>
+                    <span id="commentsPostName" class="comments-post-caption">Loading post...</span>
+                  </div>
+                </div>
+                <div class="leads-header-actions">
+                  <label class="filter-check count-field" title="Comments scraped per post when collecting comments">
+                    Max / post
+                    <input type="number" id="commentsPerPostInput" class="count-input" min="1" max="500" value="50" onchange="setCommentsPerPost(this)">
+                  </label>
+                  <button class="btn-export" onclick="exportLeadsCsv()" title="Download comments & leads as CSV">📄 Export CSV</button>
+                  <button class="btn-refresh" onclick="renderCommentsScreen()" title="Refresh comments">↺ Refresh</button>
+                </div>
+              </div>
+
+              <!-- Quick Filter Tabs / Pills -->
+              <div class="comment-filter-pills" id="commentFilterPills">
+                <button class="filter-pill active" data-filter="all" onclick="setCommentFilterType('all', this)">
+                  All comments <span class="pill-badge" id="countAll">0</span>
+                </button>
+                <button class="filter-pill" data-filter="leads" onclick="setCommentFilterType('leads', this)">
+                  🎯 Qualified leads <span class="pill-badge" id="countLeads">0</span>
+                </button>
+                <button class="filter-pill" data-filter="contact" onclick="setCommentFilterType('contact', this)">
+                  📞 Contact ready <span class="pill-badge" id="countContact">0</span>
+                </button>
+                <button class="filter-pill" data-filter="hot" onclick="setCommentFilterType('hot', this)">
+                  🔥 Hot leads <span class="pill-badge" id="countHot">0</span>
+                </button>
+                <button class="filter-pill" data-filter="pricing" onclick="setCommentFilterType('pricing', this)">
+                  💰 Pricing &amp; quotes <span class="pill-badge" id="countPricing">0</span>
+                </button>
+                <button class="filter-pill" data-filter="inquiry" onclick="setCommentFilterType('inquiry', this)">
+                  ❓ Inquiries <span class="pill-badge" id="countInquiry">0</span>
+                </button>
+              </div>
+
+              <!-- Secondary Toolbar: Search, Quality, Sort By -->
+              <div class="comments-toolbar">
+                <div class="comments-search-box">
+                  <span class="search-box-icon" aria-hidden="true">🔍</span>
+                  <input type="text" id="commentsSearchInput" class="comments-search-input" placeholder="Search comments by text, name, phone, email, location..." oninput="onCommentsSearchInput()" aria-label="Search comments">
+                  <button id="commentsSearchClear" class="search-box-clear hidden" onclick="clearCommentsSearch()" aria-label="Clear search">✕</button>
+                </div>
+
+                <div class="comments-toolbar-selects">
+                  <select id="commentsQualityFilter" class="filter-select" onchange="renderCommentsScreen()" aria-label="Filter by lead quality">
+                    <option value="">All qualities</option>
+                    <option value="hot">🔥 Hot</option>
+                    <option value="warm">⚡ Warm</option>
+                    <option value="cold">❄️ Cold</option>
                   </select>
-                  <span class="field-hint">Saved admin rules are labelled “Rule”, built-in shortcuts “Preset”</span>
-                </div>
-                <div class="filter-custom hidden" id="urlFilterCustomField">
-                  <div class="maxposts-field">
-                    <label class="field-label" for="urlFilterInclude">Include keywords <span class="field-hint">comma-separated</span></label>
-                    <input type="text" id="urlFilterInclude" class="form-input" placeholder="price, broking, kharar, resale" autocomplete="off" spellcheck="false">
-                  </div>
-                  <div class="maxposts-field">
-                    <label class="field-label" for="urlFilterExclude">Exclude keywords <span class="field-hint">comma-separated</span></label>
-                    <input type="text" id="urlFilterExclude" class="form-input" placeholder="job, vacancy" autocomplete="off" spellcheck="false">
-                  </div>
-                  <div class="maxposts-field">
-                    <label class="field-label" for="urlFilterMatchMode">Match mode</label>
-                    <select id="urlFilterMatchMode" class="form-input">
-                      <option value="any">Any keyword (OR)</option>
-                      <option value="all">All keywords (AND)</option>
-                      <option value="category">A whole category</option>
-                      <option value="advanced">Advanced (excludes included)</option>
-                    </select>
-                  </div>
-                  <div id="urlFilterCategoriesWrap" class="filter-cats-wrap hidden">
-                    <label class="field-label">Categories</label>
-                    <div id="urlFilterCategories" class="filter-cats"></div>
-                    <span class="field-hint">Comment is matched if it belongs to one of these categories</span>
-                  </div>
+
+                  <select id="commentsSortBy" class="filter-select" onchange="renderCommentsScreen()" aria-label="Sort comments">
+                    <option value="score">Sort: highest lead score</option>
+                    <option value="newest">Sort: newest first</option>
+                    <option value="oldest">Sort: oldest first</option>
+                    <option value="reactions">Sort: most reactions</option>
+                  </select>
                 </div>
               </div>
-            </details>
+            </div>
 
-            <!-- Real-time processing state (phases come from the backend run) -->
-            <div id="urlSearchProgress" class="pipeline-progress hidden">
+            <div id="commentsScreenStatus" class="page-search-summary hidden"></div>
+
+            <div id="commentsScrapeProgress" class="pipeline-progress hidden">
               <div class="processing-card">
                 <div class="processing-head">
                   <span class="mini-spinner" aria-hidden="true"></span>
-                  <span id="urlSearchProgressLabel">Analyzing profile…</span>
+                  <span id="commentsScrapeLabel">Scraping comments…</span>
                 </div>
-                <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="urlSearchProgressBar">
-                  <div class="progress-fill" id="urlSearchProgressFill"></div>
-                </div>
-                <ol class="progress-steps" id="urlSearchSteps" aria-label="Analysis steps">
-                  <li data-step="validate">URL validated</li>
-                  <li data-step="platform">Platform detected</li>
-                  <li data-step="page">Fetching page details</li>
-                  <li data-step="posts">Collecting posts</li>
-                  <li data-step="comments">Comments &amp; AI leads</li>
-                </ol>
-                <div class="progress-cancel-row">
-                  <button type="button" id="urlSearchCancelBtn" class="btn-cancel hidden" onclick="cancelCurrentSearch()">✕ Cancel Search</button>
+                <div class="progress-bar" role="progressbar" aria-label="Comment collection progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="commentsScrapeBar">
+                  <div class="progress-fill" id="commentsScrapeFill"></div>
                 </div>
               </div>
             </div>
-          </form>
-        </div>
 
-        <!-- ── Session stats (aggregated from the real search history) ── -->
-        <div id="sessionStats" class="stats-strip hidden" aria-label="Session summary">
-          <div class="stat-tile">
-            <div class="stat-tile-value" id="statSearches">0</div>
-            <div class="stat-tile-label">Searches</div>
-          </div>
-          <div class="stat-tile">
-            <div class="stat-tile-value" id="statCompleted">0</div>
-            <div class="stat-tile-label">Completed</div>
-          </div>
-          <div class="stat-tile">
-            <div class="stat-tile-value" id="statPosts">0</div>
-            <div class="stat-tile-label">Posts collected</div>
-          </div>
-        </div>
-
-        <!-- ── Recent searches ── -->
-        <section class="recent-section" aria-label="Recent searches">
-          <div class="recent-head">
-            <h2 class="section-title">Recent Searches</h2>
-            <div class="recent-filters" id="recentFilters" role="group" aria-label="Filter by platform">
-              <button type="button" class="filter-chip active" data-f="all" onclick="setRecentFilter(this)">All</button>
-              <button type="button" class="filter-chip" data-f="facebook" onclick="setRecentFilter(this)">Facebook</button>
-              <button type="button" class="filter-chip" data-f="instagram" onclick="setRecentFilter(this)">Instagram</button>
-              <button type="button" class="filter-chip" data-f="youtube" onclick="setRecentFilter(this)">YouTube</button>
-              <button type="button" class="filter-chip" data-f="linkedin" onclick="setRecentFilter(this)">LinkedIn</button>
+            <div class="empty-state" id="commentsListEmpty">
+              <div class="empty-icon">💬</div>
+              <div class="empty-title">No comments found</div>
+              <div class="empty-sub">Collect comments from the Posts screen or adjust your active filters</div>
             </div>
-            <button type="button" class="btn-ghost" id="recentViewAll" onclick="recentViewAll()" title="Load more history">View all →</button>
-          </div>
+            <div id="commentsGrid" class="lead-card-grid"></div>
+          </section>
 
-          <div class="recent-table glass-card">
-            <div class="empty-state" id="recentSearchesEmpty">
-              <div class="empty-icon" aria-hidden="true">✦</div>
-              <div class="empty-title">No searches yet</div>
-              <div class="empty-sub">Paste a social URL above to start discovering high-intent leads.</div>
-              <button type="button" class="btn-primary btn-mini-cta" onclick="document.getElementById('urlSearchInput').focus()">Analyze a Profile</button>
-            </div>
-            <div id="recentSearchesList" class="recent-rows"></div>
-          </div>
-        </section>
-      </section>
-
-      <!-- ══════════ VIEW 2: PAGES ══════════ -->
-      <section class="workflow-view leads-panel glass-card hidden" id="view-pages">
-        <div class="leads-header">
-          <div class="leads-tabs">
-            <button class="tab-btn active" id="tabPages">📇 Pages Found</button>
-          </div>
-          <div class="leads-controls">
-            <span class="filter-label">Category:</span>
-            <select id="pagesCategoryFilter" class="form-input filter-select" onchange="renderPagesScreen()" aria-label="Filter pages by category">
-              <option value="">All</option>
-            </select>
-            <label class="filter-check">
-              <input type="checkbox" id="pagesContactOnly" onchange="renderPagesScreen()"> With contact
-            </label>
-            <button class="btn-export" onclick="exportPagesCsv()" title="Download the pages of this search as CSV">📄 Export CSV</button>
-            <button class="btn-refresh" onclick="renderPagesScreen()" title="Refresh (data is cached)">↺ Refresh</button>
-          </div>
-        </div>
-
-        <p class="workflow-hint">This page was collected from your pasted URL. Qualifying posts (relevant + ≥10 comments) get the expensive comment scrape; low-engagement posts are skipped.</p>
-
-        <div id="pagesScreenStatus" class="page-search-summary hidden"></div>
-
-        <div class="empty-state" id="pagesListEmpty">
-          <div class="empty-icon">📇</div>
-          <div class="empty-title">No Pages Found</div>
-          <div class="empty-sub">Run a search on the Search screen first</div>
-        </div>
-        <div id="pagesGrid" class="page-card-grid"></div>
-      </section>
-
-      <!-- ══════════ VIEW 3: POSTS ══════════ -->
-      <section class="workflow-view leads-panel glass-card hidden" id="view-posts">
-        <div class="leads-header">
-          <div class="leads-tabs">
-            <button class="tab-btn active" id="tabPosts">📝 Posts of <span id="postsPageName">this page</span></button>
-          </div>
-          <div class="leads-controls">
-            <button class="btn-export" onclick="exportPostsCsv()" title="Download posts of this page as CSV">📄 Export CSV</button>
-            <button class="btn-refresh" onclick="renderPostsScreen()" title="Refresh (data is cached)">↺ Refresh</button>
-          </div>
-        </div>
-
-        <p class="workflow-hint">Posts are sorted with qualifying posts first. Only qualifying posts (relevant + ≥10 comments) are worth collecting comments from.</p>
-
-        <div id="postsScreenStatus" class="page-search-summary hidden"></div>
-
-        <div class="empty-state" id="postsListEmpty">
-          <div class="empty-icon">📝</div>
-          <div class="empty-title">No Posts Yet</div>
-          <div class="empty-sub">No posts collected for this page yet</div>
-        </div>
-        <div id="postsGrid" class="post-tile-grid"></div>
-      </section>
-
-      <!-- ══════════ VIEW 4: COMMENTS / LEADS ══════════ -->
-      <section class="workflow-view leads-panel glass-card hidden" id="view-comments">
-        <div class="leads-header">
-          <div class="leads-tabs-bar">
-            <div class="comments-post-title-wrap">
-              <span class="comments-post-icon">💬</span>
-              <div class="comments-post-info">
-                <span class="comments-post-label">Post Comments & Leads</span>
-                <span id="commentsPostName" class="comments-post-caption">Loading post...</span>
+          <!-- ══════════ LEADS ══════════ -->
+          <section id="view-leads" class="workflow-view portal-view hidden" aria-labelledby="leadsTitle">
+            <div class="page-head">
+              <div>
+                <h1 class="page-title" id="leadsTitle">Leads</h1>
+                <p class="page-sub">Leads found by your searches, plus leads an admin assigned to you.</p>
               </div>
             </div>
-            <div class="leads-header-actions">
-              <label class="filter-check count-field" title="Comments scraped per post when collecting comments">
-                Max / Post
-                <input type="number" id="commentsPerPostInput" class="count-input" min="1" max="500" value="50" onchange="setCommentsPerPost(this)">
-              </label>
-              <button class="btn-export" onclick="exportLeadsCsv()" title="Download comments & leads as CSV">📄 Export CSV</button>
-              <button class="btn-refresh" onclick="renderCommentsScreen()" title="Refresh comments">↺ Refresh</button>
+            <div class="seg-tabs" role="tablist" aria-label="Lead views" id="leadsTabs">
+              <button type="button" role="tab" class="seg-tab active" data-leads-view="all" aria-selected="true">All <span class="seg-count" id="leadsCountAll">·</span></button>
+              <button type="button" role="tab" class="seg-tab" data-leads-view="mine" aria-selected="false">Found by me <span class="seg-count" id="leadsCountMine">·</span></button>
+              <button type="button" role="tab" class="seg-tab" data-leads-view="assigned" aria-selected="false">Assigned to me <span class="seg-count" id="leadsCountAssigned">·</span></button>
             </div>
-          </div>
-
-          <!-- Quick Filter Tabs / Pills -->
-          <div class="comment-filter-pills" id="commentFilterPills">
-            <button class="filter-pill active" data-filter="all" onclick="setCommentFilterType('all', this)">
-              All Comments <span class="pill-badge" id="countAll">0</span>
-            </button>
-            <button class="filter-pill" data-filter="leads" onclick="setCommentFilterType('leads', this)">
-              🎯 High-Intent Leads <span class="pill-badge" id="countLeads">0</span>
-            </button>
-            <button class="filter-pill" data-filter="contact" onclick="setCommentFilterType('contact', this)">
-              📞 Contact Ready <span class="pill-badge" id="countContact">0</span>
-            </button>
-            <button class="filter-pill" data-filter="hot" onclick="setCommentFilterType('hot', this)">
-              🔥 Hot Leads <span class="pill-badge" id="countHot">0</span>
-            </button>
-            <button class="filter-pill" data-filter="pricing" onclick="setCommentFilterType('pricing', this)">
-              💰 Pricing & Quotes <span class="pill-badge" id="countPricing">0</span>
-            </button>
-            <button class="filter-pill" data-filter="inquiry" onclick="setCommentFilterType('inquiry', this)">
-              ❓ Inquiries & Questions <span class="pill-badge" id="countInquiry">0</span>
-            </button>
-          </div>
-
-          <!-- Secondary Toolbar: Search, Quality, Sort By -->
-          <div class="comments-toolbar">
-            <div class="comments-search-box">
-              <span class="search-box-icon">🔍</span>
-              <input type="text" id="commentsSearchInput" class="comments-search-input" placeholder="Search comments by text, name, phone, email, location..." oninput="onCommentsSearchInput()">
-              <button id="commentsSearchClear" class="search-box-clear hidden" onclick="clearCommentsSearch()" aria-label="Clear search">✕</button>
-            </div>
-
-            <div class="comments-toolbar-selects">
-              <select id="commentsQualityFilter" class="filter-select" onchange="renderCommentsScreen()" aria-label="Filter by Lead Quality">
-                <option value="">All Qualities</option>
-                <option value="hot">🔥 Hot Quality</option>
-                <option value="warm">⚡ Warm Quality</option>
-                <option value="cold">❄️ Cold Quality</option>
+            <div class="toolbar" id="leadsToolbar">
+              <div class="toolbar-search">
+                <label class="sr-only" for="leadsSearch">Search leads</label>
+                <input type="search" id="leadsSearch" class="form-input" placeholder="Search name, comment, requirement, location…" autocomplete="off">
+              </div>
+              <label class="sr-only" for="leadsStatus">Status</label>
+              <select id="leadsStatus" class="form-input">
+                <option value="">Any status</option>
+                <option value="new">New</option><option value="contacted">Contacted</option>
+                <option value="qualified">Qualified</option><option value="follow_up">Follow-up</option>
+                <option value="converted">Converted</option><option value="lost">Lost</option>
+                <option value="disqualified">Disqualified</option><option value="archived">Archived</option>
               </select>
-
-              <select id="commentsSortBy" class="filter-select" onchange="renderCommentsScreen()" aria-label="Sort comments">
-                <option value="score">Sort: Highest Lead Score</option>
-                <option value="newest">Sort: Newest First</option>
-                <option value="oldest">Sort: Oldest First</option>
-                <option value="reactions">Sort: Most Reactions</option>
+              <label class="sr-only" for="leadsQuality">Quality</label>
+              <select id="leadsQuality" class="form-input">
+                <option value="">Any quality</option><option value="hot">Hot</option><option value="warm">Warm</option><option value="cold">Cold</option>
               </select>
+              <label class="sr-only" for="leadsMinScore">Minimum score</label>
+              <select id="leadsMinScore" class="form-input">
+                <option value="">Any score</option><option value="80">80+</option><option value="60">60+</option><option value="40">40+</option>
+              </select>
+              <label class="sr-only" for="leadsPlatform">Platform</label>
+              <select id="leadsPlatform" class="form-input">
+                <option value="">All platforms</option><option value="facebook">Facebook</option><option value="instagram">Instagram</option><option value="youtube">YouTube</option><option value="linkedin">LinkedIn</option>
+              </select>
+              <label class="sr-only" for="leadsSort">Sort</label>
+              <select id="leadsSort" class="form-input">
+                <option value="score">Highest score</option><option value="newest">Newest</option><option value="oldest">Oldest</option><option value="updated">Recently updated</option>
+              </select>
+              <div class="toolbar-end">
+                <button type="button" class="btn-ghost tb-btn hidden" id="leadsClear" data-action="clear-lead-filters">Clear filters</button>
+                <div class="menu-wrap col-menu"><button type="button" class="btn-ghost tb-btn" data-col-toggle="leads" aria-haspopup="true" aria-expanded="false" aria-controls="colPanel-leads"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-columns"/></svg> Columns</button><div class="menu-panel col-panel hidden" id="colPanel-leads" role="group" aria-label="Visible columns"></div></div>
+              </div>
             </div>
-          </div>
-        </div>
-
-        <div id="commentsScreenStatus" class="page-search-summary hidden"></div>
-
-        <div id="commentsScrapeProgress" class="pipeline-progress hidden">
-          <div class="processing-card">
-            <div class="processing-head">
-              <span class="mini-spinner" aria-hidden="true"></span>
-              <span id="commentsScrapeLabel">Scraping comments…</span>
+            <div class="panel">
+              <div class="panel-body flush" id="leadsList" aria-live="polite"></div>
+              <div class="pager" id="leadsPager"></div>
             </div>
-            <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="commentsScrapeBar">
-              <div class="progress-fill" id="commentsScrapeFill"></div>
+          </section>
+
+          <!-- ══════════ SEARCH HISTORY ══════════ -->
+          <section id="view-history" class="workflow-view portal-view hidden" aria-labelledby="historyTitle">
+            <div class="page-head">
+              <div>
+                <h1 class="page-title" id="historyTitle">Search history</h1>
+                <p class="page-sub">Every search you ran. Open one to browse its pages, posts, comments and leads.</p>
+              </div>
+              <div class="page-actions"><button type="button" class="btn-primary" data-nav="search"><span aria-hidden="true">✦</span> New search</button></div>
             </div>
-          </div>
-        </div>
+            <div class="toolbar">
+              <div class="toolbar-search">
+                <label class="sr-only" for="historySearch">Search by URL</label>
+                <input type="search" id="historySearch" class="form-input" placeholder="Search by URL…" autocomplete="off">
+              </div>
+              <label class="sr-only" for="historyStatus">Status</label>
+              <select id="historyStatus" class="form-input">
+                <option value="">Any status</option><option value="running">Running</option><option value="completed">Completed</option><option value="error">Failed</option><option value="cancelled">Cancelled</option>
+              </select>
+              <label class="sr-only" for="historyPlatform">Platform</label>
+              <select id="historyPlatform" class="form-input">
+                <option value="">All platforms</option><option value="facebook">Facebook</option><option value="instagram">Instagram</option><option value="youtube">YouTube</option><option value="linkedin">LinkedIn</option>
+              </select>
+              <label class="sr-only" for="historySort">Sort</label>
+              <select id="historySort" class="form-input">
+                <option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="status">By status</option>
+              </select>
+              <div class="toolbar-end">
+                <button type="button" class="btn-ghost tb-btn hidden" id="historyClear" data-action="clear-history-filters">Clear filters</button>
+                <div class="menu-wrap col-menu"><button type="button" class="btn-ghost tb-btn" data-col-toggle="history" aria-haspopup="true" aria-expanded="false" aria-controls="colPanel-history"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-columns"/></svg> Columns</button><div class="menu-panel col-panel hidden" id="colPanel-history" role="group" aria-label="Visible columns"></div></div>
+                <button type="button" class="btn-ghost tb-btn" data-table-export="history" title="Download your search history as CSV (up to 1,000 rows)"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-download"/></svg> CSV</button>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-body flush" id="historyList" aria-live="polite"></div>
+              <div class="pager" id="historyPager"></div>
+            </div>
+          </section>
 
-        <div class="empty-state" id="commentsListEmpty">
-          <div class="empty-icon">💬</div>
-          <div class="empty-title">No Comments Found</div>
-          <div class="empty-sub">Collect comments from the Posts screen or adjust your active filters</div>
-        </div>
-        <div id="commentsGrid" class="lead-card-grid"></div>
-      </section>
+          <!-- ══════════ EXPORTS ══════════ -->
+          <section id="view-exports" class="workflow-view portal-view hidden" aria-labelledby="exportsTitle">
+            <div class="page-head">
+              <div>
+                <h1 class="page-title" id="exportsTitle">Exports</h1>
+                <p class="page-sub">Your CSV exports. Export again to download the latest data (uses your plan's export allowance).</p>
+              </div>
+            </div>
+            <div class="toolbar">
+              <label class="sr-only" for="exportsScope">Type</label>
+              <select id="exportsScope" class="form-input">
+                <option value="">All types</option><option value="pages">Pages</option><option value="posts">Posts</option><option value="comments">Comments &amp; leads</option>
+              </select>
+              <label class="sr-only" for="exportsSort">Sort</label>
+              <select id="exportsSort" class="form-input">
+                <option value="newest">Newest first</option><option value="oldest">Oldest first</option>
+              </select>
+              <div class="toolbar-end">
+                <div class="menu-wrap col-menu"><button type="button" class="btn-ghost tb-btn" data-col-toggle="exports" aria-haspopup="true" aria-expanded="false" aria-controls="colPanel-exports"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-columns"/></svg> Columns</button><div class="menu-panel col-panel hidden" id="colPanel-exports" role="group" aria-label="Visible columns"></div></div>
+                <button type="button" class="btn-ghost tb-btn" data-table-export="exports" title="Download your export history as CSV (up to 1,000 rows)"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-download"/></svg> CSV</button>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-body flush" id="exportsList" aria-live="polite"></div>
+              <div class="pager" id="exportsPager"></div>
+            </div>
+          </section>
 
-    </main>
+          <!-- ══════════ USAGE ══════════ -->
+          <section id="view-usage" class="workflow-view portal-view hidden" aria-labelledby="usageTitle">
+            <div class="page-head">
+              <div>
+                <h1 class="page-title" id="usageTitle">Usage &amp; tokens</h1>
+                <p class="page-sub">What you used this period, and your workspace's plan meters.</p>
+              </div>
+            </div>
+            <div id="usageBody"></div>
+            <section class="panel" aria-labelledby="ledgerTitle">
+              <div class="panel-head panel-head-tools">
+                <h2 class="panel-title" id="ledgerTitle">My token activity</h2>
+                <div class="toolbar toolbar-inline">
+                  <label class="sr-only" for="ledgerReason">Activity type</label>
+                  <select id="ledgerReason" class="form-input">
+                    <option value="">All activity</option><option value="search">URL searches</option><option value="collect">Collect posts / comments</option><option value="ai_call">AI analysis</option><option value="export">CSV exports</option>
+                  </select>
+                  <div class="menu-wrap col-menu"><button type="button" class="btn-ghost tb-btn" data-col-toggle="ledger" aria-haspopup="true" aria-expanded="false" aria-controls="colPanel-ledger"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-columns"/></svg> Columns</button><div class="menu-panel col-panel hidden" id="colPanel-ledger" role="group" aria-label="Visible columns"></div></div>
+                  <button type="button" class="btn-ghost tb-btn" data-table-export="ledger" title="Download your token activity as CSV (up to 1,000 rows)"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-download"/></svg> CSV</button>
+                </div>
+              </div>
+              <div class="panel-body flush" id="ledgerList"></div>
+              <div class="pager" id="ledgerPager"></div>
+            </section>
+          </section>
+
+          <!-- ══════════ PLANS & BILLING ══════════ -->
+          <section id="view-billing" class="workflow-view portal-view hidden" aria-labelledby="billingModalTitle">
+            <div class="page-head">
+              <div>
+                <h1 class="page-title" id="billingModalTitle">Plans &amp; billing</h1>
+                <p class="page-sub">Your workspace plan, tokens and usage. Plan changes activate only after payment is confirmed by our team.</p>
+              </div>
+            </div>
+
+            <div id="billingPending" class="hidden"></div>
+
+            <div class="billing-hero-card panel" id="billingHeroCard">
+              <div class="billing-hero-row">
+                <div>
+                  <div class="kpi-label">Current plan</div>
+                  <h2 id="billingPlanName" class="billing-plan-name"><span class="skeleton skeleton-line w-40"></span></h2>
+                  <div id="billingSubDetails" class="billing-sub-details"></div>
+                </div>
+                <div class="billing-hero-right">
+                  <div id="billingPlanPrice" class="billing-plan-price">—</div>
+                  <span id="billingStatusBadge" class="status-pill">…</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Token meter (demo / plan tokens: allocated · used · remaining) -->
+            <div class="quota-tile panel hidden" id="tokenMeter">
+              <div class="quota-tile-head">
+                <span>Tokens</span>
+                <span id="tokenMeterVal">—</span>
+              </div>
+              <div class="quota-bar" role="progressbar" aria-label="Tokens used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="quota-fill" id="tokenMeterFill" style="width: 0%;"></div></div>
+              <div id="tokenMeterNote" class="quota-note"></div>
+            </div>
+
+            <h2 class="section-title section-gap">Monthly usage</h2>
+            <div class="quota-meter-grid" id="quotaMeterGrid">
+              <div class="quota-tile panel">
+                <div class="quota-tile-head"><span>Searches</span><span id="meterSearchesVal">—</span></div>
+                <div class="quota-bar" role="progressbar" aria-label="Searches used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="quota-fill" id="meterSearchesFill" style="width: 0%;"></div></div>
+              </div>
+              <div class="quota-tile panel">
+                <div class="quota-tile-head"><span>AI lead analyses</span><span id="meterAiVal">—</span></div>
+                <div class="quota-bar" role="progressbar" aria-label="AI lead analyses used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="quota-fill" id="meterAiFill" style="width: 0%;"></div></div>
+              </div>
+              <div class="quota-tile panel">
+                <div class="quota-tile-head"><span>Team members</span><span id="meterTeamVal">—</span></div>
+                <div class="quota-bar" role="progressbar" aria-label="Team members used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="quota-fill" id="meterTeamFill" style="width: 0%;"></div></div>
+              </div>
+            </div>
+
+            <h2 class="section-title section-gap">Choose your plan</h2>
+            <div id="billingPlanNotice"></div>
+            <div class="plans-grid" id="plansCatalogGrid"></div>
+
+            <h2 class="section-title section-gap">Invoices &amp; payment history</h2>
+            <div class="table-shell panel">
+              <table class="saas-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Invoice #</th>
+                    <th scope="col">Date</th>
+                    <th scope="col">Amount</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="invoicesList">
+                  <tr><td colspan="4" class="td-empty">Loading…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="billing-footer-actions" id="billingCancelArea"></div>
+          </section>
+
+          <!-- ══════════ SETTINGS ══════════ -->
+          <section id="view-settings" class="workflow-view portal-view hidden" aria-labelledby="settingsTitle">
+            <div class="page-head">
+              <div>
+                <h1 class="page-title" id="settingsTitle">Settings</h1>
+                <p class="page-sub">Your profile, notification preferences and account security.</p>
+              </div>
+            </div>
+            <div class="seg-tabs" role="tablist" aria-label="Settings sections" id="settingsTabs">
+              <button type="button" role="tab" class="seg-tab active" data-settings-tab="profile" aria-selected="true" aria-controls="settingsProfile">Profile</button>
+              <button type="button" role="tab" class="seg-tab" data-settings-tab="notifications" aria-selected="false" aria-controls="settingsNotifications">Notifications</button>
+              <button type="button" role="tab" class="seg-tab" data-settings-tab="security" aria-selected="false" aria-controls="settingsSecurity">Security</button>
+            </div>
+
+            <div class="settings-pane" id="settingsProfile" role="tabpanel">
+              <form class="panel form-panel" id="profileForm" novalidate>
+                <div class="panel-head"><h2 class="panel-title">Profile</h2></div>
+                <div class="panel-body" id="profileBody">
+                  <div class="form-grid">
+                    <div class="form-field">
+                      <label class="field-label" for="profName">Full name</label>
+                      <input type="text" id="profName" class="form-input" maxlength="100" autocomplete="name" data-error="profNameErr" required>
+                      <div class="field-error" id="profNameErr" role="alert"></div>
+                    </div>
+                    <div class="form-field">
+                      <label class="field-label" for="profEmail">Email <span class="field-hint">read-only</span></label>
+                      <input type="email" id="profEmail" class="form-input" readonly aria-readonly="true">
+                      <div class="field-hint">Contact your workspace admin to change your sign-in email.</div>
+                    </div>
+                    <div class="form-field">
+                      <label class="field-label" for="profPhone">Phone</label>
+                      <input type="tel" id="profPhone" class="form-input" maxlength="25" autocomplete="tel" placeholder="+91 98765 43210" data-error="profPhoneErr">
+                      <div class="field-error" id="profPhoneErr" role="alert"></div>
+                    </div>
+                    <div class="form-field">
+                      <span class="field-label">Workspace &amp; role</span>
+                      <div class="static-field" id="profOrgRole">—</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="panel-foot">
+                  <span class="form-status" id="profileStatus" role="status"></span>
+                  <button type="submit" class="btn-primary" id="profileSave"><span class="btn-label">Save profile</span></button>
+                </div>
+              </form>
+            </div>
+
+            <div class="settings-pane hidden" id="settingsNotifications" role="tabpanel">
+              <form class="panel form-panel" id="prefsForm" novalidate>
+                <div class="panel-head"><h2 class="panel-title">Notification preferences</h2></div>
+                <div class="panel-body" id="prefsBody"></div>
+                <div class="panel-foot">
+                  <span class="form-status" id="prefsStatus" role="status"></span>
+                  <button type="submit" class="btn-primary" id="prefsSave"><span class="btn-label">Save preferences</span></button>
+                </div>
+              </form>
+            </div>
+
+            <div class="settings-pane hidden" id="settingsSecurity" role="tabpanel">
+              <form class="panel form-panel" id="passwordForm" novalidate>
+                <div class="panel-head"><h2 class="panel-title">Change password</h2></div>
+                <div class="panel-body">
+                  <div class="form-grid">
+                    <div class="form-field">
+                      <label class="field-label" for="pwCurrent">Current password</label>
+                      <input type="password" id="pwCurrent" class="form-input" autocomplete="current-password" data-error="pwCurrentErr" required>
+                      <div class="field-error" id="pwCurrentErr" role="alert"></div>
+                    </div>
+                    <div class="form-field">
+                      <label class="field-label" for="pwNew">New password</label>
+                      <input type="password" id="pwNew" class="form-input" autocomplete="new-password" data-error="pwNewErr" required aria-describedby="pwRules">
+                      <div class="field-error" id="pwNewErr" role="alert"></div>
+                      <div class="field-hint" id="pwRules">At least 8 characters, one uppercase letter and one number.</div>
+                    </div>
+                    <div class="form-field">
+                      <label class="field-label" for="pwConfirm">Confirm new password</label>
+                      <input type="password" id="pwConfirm" class="form-input" autocomplete="new-password" data-error="pwConfirmErr" required>
+                      <div class="field-error" id="pwConfirmErr" role="alert"></div>
+                    </div>
+                  </div>
+                  <p class="field-hint">Changing your password signs out every other session.</p>
+                </div>
+                <div class="panel-foot">
+                  <span class="form-status" id="passwordStatus" role="status"></span>
+                  <button type="submit" class="btn-primary" id="passwordSave"><span class="btn-label">Update password</span></button>
+                </div>
+              </form>
+
+              <section class="panel" aria-labelledby="sessionsTitle">
+                <div class="panel-head">
+                  <h2 class="panel-title" id="sessionsTitle">Active sessions</h2>
+                  <button type="button" class="btn-ghost" id="revokeOthersBtn">Sign out other sessions</button>
+                </div>
+                <div class="panel-body flush" id="sessionsList"></div>
+              </section>
+            </div>
+          </section>
+
+        </main>
+
+        <!-- ── Site footer (company + support from Global Settings) ── -->
+        <footer class="site-footer">
+          <span data-brand-company></span>
+          <span data-brand-support></span>
+        </footer>
+      </div>
+    </div>
   </div>
-
-  <!-- ── Site footer (company + support from Global Settings) ── -->
-  <footer class="site-footer">
-    <span data-brand-company></span>
-    <span data-brand-support></span>
-  </footer>
 
   <!-- ── Lead Details Modal ── -->
   <div id="leadDetailModal" class="modal-backdrop hidden" onclick="if(event.target===this)closeLeadDetails()">
     <div class="modal-card lead-detail-card" role="dialog" aria-modal="true" aria-labelledby="leadDetailTitle">
       <div class="modal-header">
-        <h3 id="leadDetailTitle">Lead Details</h3>
+        <h3 id="leadDetailTitle">Lead details</h3>
         <button class="modal-close" onclick="closeLeadDetails()" aria-label="Close">✕</button>
       </div>
       <div id="leadDetailContent" class="lead-detail-content"></div>
@@ -394,10 +926,151 @@
     </div>
   </div>
 
+  <!-- ── Workspace Settings & Branding Modal (workspace admins) ── -->
+  <div id="workspaceModal" class="modal-backdrop hidden" onclick="if(event.target===this)closeWorkspaceModal()">
+    <div class="modal-card saas-modal-card" role="dialog" aria-modal="true" aria-labelledby="wsModalTitle">
+      <div class="modal-header">
+        <h3 id="wsModalTitle">Workspace settings</h3>
+        <button class="modal-close" onclick="closeWorkspaceModal()" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="workspaceForm" onsubmit="saveWorkspaceSettings(event)">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="field-label" for="wsNameInput">Workspace name</label>
+              <input type="text" id="wsNameInput" class="form-input" required>
+            </div>
+            <div class="form-group">
+              <label class="field-label" for="wsWebsiteInput">Company website</label>
+              <input type="url" id="wsWebsiteInput" class="form-input" placeholder="https://example.com">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="field-label" for="wsTimezoneInput">Timezone</label>
+              <select id="wsTimezoneInput" class="form-input">
+                <option value="UTC">UTC (Universal)</option>
+                <option value="America/New_York">America/New York (EST/EDT)</option>
+                <option value="America/Los_Angeles">America/Los Angeles (PST/PDT)</option>
+                <option value="Europe/London">Europe/London (GMT/BST)</option>
+                <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+                <option value="Asia/Dubai">Asia/Dubai (GST)</option>
+                <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="field-label" for="wsCurrencyInput">Currency</label>
+              <select id="wsCurrencyInput" class="form-input">
+                <option value="USD">USD ($)</option>
+                <option value="EUR">EUR (€)</option>
+                <option value="GBP">GBP (£)</option>
+                <option value="INR">INR (₹)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="field-label" for="wsCompanyName">Brand display name</label>
+            <input type="text" id="wsCompanyName" class="form-input" placeholder="Shown in exported reports">
+          </div>
+
+          <div class="modal-footer modal-footer-inline">
+            <button type="button" class="btn-secondary" onclick="closeWorkspaceModal()">Cancel</button>
+            <button type="submit" class="btn-primary" id="btnSaveWorkspace">Save changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Team Management Modal (members.view) ── -->
+  <div id="teamModal" class="modal-backdrop hidden" onclick="if(event.target===this)closeTeamModal()">
+    <div class="modal-card saas-modal-card team-modal-card" role="dialog" aria-modal="true" aria-labelledby="teamModalTitle">
+      <div class="modal-header">
+        <h3 id="teamModalTitle">Team members</h3>
+        <button class="modal-close" onclick="closeTeamModal()" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="team-invite-card panel hidden" id="teamInviteCard">
+          <h4 class="panel-title">Invite a colleague</h4>
+          <form id="teamInviteForm" onsubmit="handleSendInvitation(event)" class="invite-form">
+            <label class="sr-only" for="inviteEmailInput">Email</label>
+            <input type="email" id="inviteEmailInput" class="form-input" placeholder="colleague@company.com" required>
+            <label class="sr-only" for="inviteRoleSelect">Role</label>
+            <select id="inviteRoleSelect" class="form-input">
+              <option value="member" selected>User</option>
+              <option value="manager">Manager</option>
+              <option value="admin">Admin</option>
+              <option value="viewer">Viewer (read-only)</option>
+            </select>
+            <button type="submit" class="btn-primary" id="btnSendInvite">Send invite →</button>
+          </form>
+        </div>
+
+        <h4 class="panel-title">Active members (<span id="teamMemberCount">0</span>)</h4>
+        <div class="table-shell">
+          <table class="saas-table">
+            <thead>
+              <tr>
+                <th scope="col">User</th>
+                <th scope="col">Role</th>
+                <th scope="col">Status</th>
+                <th scope="col" class="ta-right">Action</th>
+              </tr>
+            </thead>
+            <tbody id="teamMembersList">
+              <tr><td colspan="4" class="td-empty">Loading team…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div id="pendingInvitationsWrap" class="hidden">
+          <h4 class="panel-title">Pending invitations</h4>
+          <div class="table-shell">
+            <table class="saas-table">
+              <tbody id="pendingInvitationsList"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeTeamModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Upgrade / entitlement modal (402 codes) ── -->
+  <div id="quotaExceededModal" class="modal-backdrop hidden" onclick="if(event.target===this)closeQuotaModal()">
+    <div class="modal-card saas-modal-card entitlement-card" role="dialog" aria-modal="true" aria-labelledby="quotaExceededTitle" aria-describedby="quotaExceededMsg">
+      <div class="entitlement-icon" id="quotaExceededIcon" aria-hidden="true">⚡</div>
+      <h3 id="quotaExceededTitle" class="entitlement-title">Limit reached</h3>
+      <p id="quotaExceededMsg" class="entitlement-msg">You have reached your plan limit.</p>
+      <div id="quotaExceededStats" class="entitlement-stats hidden"></div>
+      <p id="quotaExceededHint" class="entitlement-hint"></p>
+      <div class="entitlement-actions">
+        <button type="button" class="btn-secondary" onclick="closeQuotaModal()">Not now</button>
+        <button type="button" class="btn-primary" id="quotaExceededCta" onclick="closeQuotaModal(); openBillingModal();">View plans &amp; upgrade →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Confirm dialog (destructive / costly actions) ── -->
+  <div id="confirmModal" class="modal-backdrop hidden">
+    <div class="modal-card confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMsg">
+      <div class="confirm-icon" id="confirmIcon" aria-hidden="true">?</div>
+      <h3 id="confirmTitle" class="confirm-title">Are you sure?</h3>
+      <p id="confirmMsg" class="confirm-msg"></p>
+      <div class="confirm-actions">
+        <button type="button" class="btn-secondary" id="confirmCancel">Cancel</button>
+        <button type="button" class="btn-primary" id="confirmOk">Confirm</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Toast Container ── -->
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
   <script src="/static/config.js"></script>
-  <script src="/static/app.js?v=light2"></script>
+  <script src="/static/design/theme.js"></script>
+  <script src="/static/app.js?v=step3"></script>
 </body>
 </html>

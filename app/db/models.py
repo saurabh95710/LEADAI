@@ -12,7 +12,7 @@ not return is stored as None (or omitted) — never fabricated, never faked.
 """
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 def utcnow() -> datetime:
@@ -22,7 +22,10 @@ def utcnow() -> datetime:
 class SearchHistory(BaseModel):
     """One AI-agent search run: `POST /api/search`."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     id: Optional[str] = Field(default=None, alias="_id")
+    organization_id: Optional[str] = None
     run_id: str = ""
     query: str = ""
     intent: Dict[str, Any] = Field(default_factory=dict)   # parsed {keyword, city, state, category}
@@ -37,14 +40,14 @@ class SearchHistory(BaseModel):
     created_at: datetime = Field(default_factory=utcnow)
     completed_at: Optional[datetime] = None
 
-    class Config:
-        populate_by_name = True
-
 
 class FacebookPage(BaseModel):
     """One real Facebook page found by the agent. `facebook_pages` collection."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     id: Optional[str] = Field(default=None, alias="_id")
+    organization_id: Optional[str] = None
     page_id: Optional[str] = None
     page_name: Optional[str] = None
     facebook_url: Optional[str] = None
@@ -92,14 +95,14 @@ class FacebookPage(BaseModel):
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
-    class Config:
-        populate_by_name = True
-
 
 class FacebookPost(BaseModel):
     """One post of a selected page. `facebook_posts` collection."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     id: Optional[str] = Field(default=None, alias="_id")
+    organization_id: Optional[str] = None
     post_id: Optional[str] = None
     post_url: Optional[str] = None
     page_id: Optional[str] = None
@@ -133,14 +136,14 @@ class FacebookPost(BaseModel):
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
-    class Config:
-        populate_by_name = True
-
 
 class FacebookComment(BaseModel):
     """One comment on a collected post. `facebook_comments` collection."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     id: Optional[str] = Field(default=None, alias="_id")
+    organization_id: Optional[str] = None
     comment_id: Optional[str] = None
     comment_url: Optional[str] = None
     author_name: Optional[str] = None
@@ -157,14 +160,14 @@ class FacebookComment(BaseModel):
 
     created_at: datetime = Field(default_factory=utcnow)
 
-    class Config:
-        populate_by_name = True
-
 
 class AICommentAnalysis(BaseModel):
     """AI analysis of one comment. `ai_comments` collection (unique on comment_ref)."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     id: Optional[str] = Field(default=None, alias="_id")
+    organization_id: Optional[str] = None
     comment_ref: Optional[str] = None       # ObjectId of the facebook_comments doc (unique)
     comment_id: Optional[str] = None
     comment_text: Optional[str] = None
@@ -193,9 +196,16 @@ class AICommentAnalysis(BaseModel):
     is_lead: bool = False                   # displayed as a lead candidate
     reason: Optional[str] = None
 
+    # ── Lead lifecycle fields (Prompt 7) ──────────────────────────────────
+    lead_status: str = "new"                # new | contacted | qualified | follow_up | converted | lost | disqualified | archived
+    lead_priority: str = "low"              # high | medium | low (operational, separate from AI priority)
+    assigned_to: Optional[str] = None       # admin/user email or ID
+    notes: List[Dict[str, Any]] = Field(default_factory=list)   # [{text, author, created_at, updated_at}]
+    follow_ups: List[Dict[str, Any]] = Field(default_factory=list)  # [{title, due_at, status, notes, created_at}]
+    status_history: List[Dict[str, Any]] = Field(default_factory=list)  # [{from_status, to_status, changed_at, changed_by, reason}]
+
     details: Dict[str, Any] = Field(default_factory=dict)   # full nested extraction
     analyzed_by: str = "rules"              # rules | gemini
     analyzed_at: datetime = Field(default_factory=utcnow)
-
-    class Config:
-        populate_by_name = True
+    lead_created_at: Optional[datetime] = None
+    lead_updated_at: Optional[datetime] = None

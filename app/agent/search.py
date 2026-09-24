@@ -72,6 +72,59 @@ class NotFoundError(Exception):
     pass
 
 
+_OWNER_FIELDS = ("organization_id", "user_id", "created_by")
+
+
+def ownership_from(parent: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Tenant ownership fields (organization_id, user_id, created_by) that a
+    child document inherits from its parent page/post/run doc."""
+    parent = parent or {}
+    return {k: parent[k] for k in _OWNER_FIELDS if parent.get(k)}
+
+
+def pipeline_audit(action: str, category: str, owner: Optional[Dict[str, Any]],
+                   *, resource_type: Optional[str] = None,
+                   resource_id: Optional[str] = None,
+                   success: bool = True,
+                   details: Optional[Dict[str, Any]] = None) -> None:
+    """Best-effort audit write for background pipeline events (never raises)."""
+    try:
+        from app.admin.audit import audit
+        owner = owner or {}
+        org_id = owner.get("organization_id")
+        audit(action, category,
+              user={"user_id": str(owner["user_id"]) if owner.get("user_id") else None,
+                    "email": owner.get("created_by") or "system",
+                    "role": "pipeline"},
+              success=success, details=details or {},
+              organization_id=str(org_id) if org_id else None,
+              resource_type=resource_type, resource_id=resource_id)
+    except Exception as e:  # pragma: no cover - audit is best effort
+        logger.warning(f"[Agent] audit {action} failed: {e}")
+
+
+def notify_apify_failure(owner: Optional[Dict[str, Any]], run_id: Optional[str],
+                         message: str, apify_run_id: Optional[str] = None) -> None:
+    """Best-effort: tell the super admins and the run's owner that an Apify
+    job failed."""
+    owner = owner or {}
+    try:
+        from app.events.notifications import notify_super_admins, notify_user
+        notify_super_admins(
+            "apify_failure", "Apify job failed",
+            (message or "Apify run failed")[:500], severity="danger",
+            data={"search_run_id": run_id, "apify_run_id": apify_run_id,
+                  "organization_id": str(owner.get("organization_id") or "") or None})
+        if owner.get("user_id"):
+            notify_user(str(owner["user_id"]), "search_failed", "Search failed",
+                        (message or "")[:500],
+                        organization_id=str(owner.get("organization_id") or "") or None,
+                        severity="danger",
+                        data={"search_run_id": run_id})
+    except Exception as e:  # pragma: no cover - notifications are best effort
+        logger.warning(f"[Agent] apify failure notification failed: {e}")
+
+
 # A "running" status left by a crashed/restarted server is stale after 30
 # minutes — allow retry instead of blocking the page forever.
 _STALE_TIMEOUT = timedelta(minutes=30)
@@ -581,6 +634,7 @@ def collect_page_posts(page_id: str, max_posts: int = 20,
         "posts_status": "running", "posts_error": None,
         "posts_started_at": utcnow(), "updated_at": utcnow()}})
 
+    owner = ownership_from(page)
     connector = ApifyConnector()
     # route by platform: Facebook keeps the existing actor+mapping, all other
     # platforms (Instagram/YouTube/LinkedIn) use their own scraper
@@ -594,6 +648,10 @@ def collect_page_posts(page_id: str, max_posts: int = 20,
             "updated_at": utcnow()}})
         return {"status": "skipped", "message": f"{platform} is disabled"}
     scraper = get_scraper(platform) if platform != "facebook" else None
+    pipeline_audit("apify.job_created", "apify", owner,
+                   resource_type="page", resource_id=page_id,
+                   details={"stage": "posts", "platform": platform,
+                            "search_run_id": run_id, "max_posts": max_posts})
     try:
         if scraper is None:
             items = connector.scrape_facebook_posts([page["facebook_url"]],
@@ -611,6 +669,13 @@ def collect_page_posts(page_id: str, max_posts: int = 20,
                 "posts_status": "cancelled", "posts_error": "Search cancelled by user",
                 "updated_at": utcnow()}})
             return {"status": "cancelled", "message": "Search cancelled by user"}
+        apify_run_id = e.error.get("runId") if isinstance(e, ScrapeError) else None
+        err_msg = e.error["message"] if isinstance(e, ScrapeError) else str(e)
+        pipeline_audit("apify.job_failed", "apify", owner, success=False,
+                       resource_type="page", resource_id=page_id,
+                       details={"stage": "posts", "search_run_id": run_id,
+                                "apify_run_id": apify_run_id, "error": err_msg[:500]})
+        notify_apify_failure(owner, run_id, err_msg, apify_run_id)
         if isinstance(e, ScrapeError):
             logger.info(f"[Agent] Posts failed for page {page_id} errorType={e.error_type} "
                         f"runId={e.error.get('runId')} datasetId={e.error.get('datasetId')}")
@@ -623,12 +688,20 @@ def collect_page_posts(page_id: str, max_posts: int = 20,
             "posts_status": "error", "posts_error": str(e), "updated_at": utcnow()}})
         return {"status": "error", "error": str(e)}
 
+    last = getattr(connector, "last_call", None) or {}
+    pipeline_audit("apify.job_completed", "apify", owner,
+                   resource_type="page", resource_id=page_id,
+                   details={"stage": "posts", "search_run_id": run_id,
+                            "apify_run_id": last.get("runId"),
+                            "items": len(items)})
     received = len(items)
     stored = 0
     for item in items:
         doc = scraper.normalize_post(item, page) if scraper else map_post_item(item, page)
         if not doc:
             continue
+        # ownership is inherited from the parent page — never left unscoped
+        doc.update(owner)
         # per-run dedup: the same post on a page found again in a later run
         # belongs to THAT run's page doc, not the older one
         existing = db.facebook_posts.find_one({"post_url": doc["post_url"], "page_ref": page_id})
@@ -646,6 +719,10 @@ def collect_page_posts(page_id: str, max_posts: int = 20,
             "$set": {"posts_count": stored, "updated_at": utcnow()}})
 
     logger.info(f"[Agent] Posts received: {received} | stored: {stored}")
+    pipeline_audit("scrape.posts_saved", "scrape", owner,
+                   resource_type="page", resource_id=page_id,
+                   details={"count": stored, "received": received,
+                            "search_run_id": run_id, "platform": platform})
 
     # post statistics for this page — computed from the stored posts only
     posts = list(db.facebook_posts.find({"page_ref": page_id}))
@@ -705,7 +782,7 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
     # only posts with at least the min-comments threshold (Facebook-reported
     # total) are worth the expensive comment scrape — everything else is
     # skipped; the threshold is admin-configurable
-    min_comments = current_min_comments()
+    _min_comments = current_min_comments()
     total = post.get("total_comment_count")
     if total is None:
         total = post.get("comments_count")
@@ -714,8 +791,13 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
         "comments_status": "running", "comments_error": None,
         "comments_started_at": utcnow(), "updated_at": utcnow()}})
 
+    owner = ownership_from(post)
     connector = ApifyConnector()
     scraper = get_scraper(platform) if platform != "facebook" else None
+    pipeline_audit("apify.job_created", "apify", owner,
+                   resource_type="post", resource_id=post_id,
+                   details={"stage": "comments", "platform": platform,
+                            "search_run_id": run_id, "max_comments": max_comments})
     try:
         if scraper is None:
             items = connector.scrape_facebook_comments([post["post_url"]],
@@ -732,6 +814,13 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
                 "comments_status": "cancelled",
                 "comments_error": "Search cancelled by user", "updated_at": utcnow()}})
             return {"status": "cancelled", "message": "Search cancelled by user"}
+        apify_run_id = e.error.get("runId") if isinstance(e, ScrapeError) else None
+        err_msg = e.error["message"] if isinstance(e, ScrapeError) else str(e)
+        pipeline_audit("apify.job_failed", "apify", owner, success=False,
+                       resource_type="post", resource_id=post_id,
+                       details={"stage": "comments", "search_run_id": run_id,
+                                "apify_run_id": apify_run_id, "error": err_msg[:500]})
+        notify_apify_failure(owner, run_id, err_msg, apify_run_id)
         if isinstance(e, ScrapeError):
             logger.info(f"[Agent] Comments failed for post {post_id} errorType={e.error_type} "
                         f"runId={e.error.get('runId')} datasetId={e.error.get('datasetId')}")
@@ -744,6 +833,12 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
             "comments_status": "error", "comments_error": str(e), "updated_at": utcnow()}})
         return {"status": "error", "error": str(e)}
 
+    last = getattr(connector, "last_call", None) or {}
+    pipeline_audit("apify.job_completed", "apify", owner,
+                   resource_type="post", resource_id=post_id,
+                   details={"stage": "comments", "search_run_id": run_id,
+                            "apify_run_id": last.get("runId"),
+                            "items": len(items)})
     stored = 0
     contact_stored = 0
     from app.pipeline.comment_ai import has_contact_info
@@ -751,6 +846,8 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
         doc = scraper.normalize_comment(item, post) if scraper else map_comment_item(item, post)
         if not doc or not (doc.get("text") or doc.get("comment_id")):
             continue
+        # ownership is inherited from the parent post — never left unscoped
+        doc.update(owner)
         # every scraped comment is kept; comments carrying a phone number or
         # email are flagged (has_contact) so they surface at the top
         doc["has_contact"] = bool(has_contact_info(doc.get("text")))
@@ -776,6 +873,11 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
         db.facebook_posts.update_one({"_id": post["_id"]}, {
             "$set": {"scraped_comment_count": stored, "updated_at": utcnow()}})
 
+    pipeline_audit("scrape.comments_saved", "scrape", owner,
+                   resource_type="post", resource_id=post_id,
+                   details={"count": stored, "with_contact": contact_stored,
+                            "received": len(items), "search_run_id": run_id,
+                            "platform": platform})
     if stored == 0:
         status = "empty"
         message = "No comments were returned for this post"
@@ -822,7 +924,7 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
                         "not_matched": filter_summary.get("not_matched", 0),
                         "no_filter": filter_summary.get("no_filter", 0),
                     }, "updated_at": utcnow()}})
-            analysis = analyze_comments_for_post(
+            _analysis = analyze_comments_for_post(
                 str(post["_id"]), comment_refs=comment_refs,
                 filter_summary=filter_summary)
             if run_id:

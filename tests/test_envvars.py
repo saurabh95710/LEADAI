@@ -138,12 +138,31 @@ def test_restart_flags_are_explicit():
 
 # ── Guard password ───────────────────────────────────────────────────────────
 
-def test_guard_password_default_and_verify(monkeypatch):
-    monkeypatch.setattr(ev, "get_sync_db", lambda: None)  # no DB -> default hash
-    assert ev.verify_guard_password("Saurabh95710") is True
-    assert ev.verify_guard_password("wrong-password") is False
+def test_guard_password_no_default_when_no_db(monkeypatch):
+    """When no DB is available and no hash is set, guard password should fail."""
+    monkeypatch.setattr(ev, "get_sync_db", lambda: None)
+    assert ev.verify_guard_password("anything") is False
     assert ev.verify_guard_password("") is False
     assert ev.verify_guard_password(None) is False
+
+
+def test_guard_password_bcrypt_verify(monkeypatch):
+    """Guard password should work with bcrypt hashes."""
+    from app.auth.crypto import hash_password
+    stored_hash = hash_password("SecureGuard@2026")
+
+    class FakeColl:
+        def find_one(self, _id, projection=None):
+            return {"password_hash": stored_hash} if _id.get("_id") == ev.GUARD_DOC_ID else None
+
+    class FakeDb:
+        def __getitem__(self, name):
+            return FakeColl()
+
+    monkeypatch.setattr(ev, "get_sync_db", lambda: FakeDb())
+    assert ev.verify_guard_password("SecureGuard@2026") is True
+    assert ev.verify_guard_password("wrong-password") is False
+    assert ev.verify_guard_password("") is False
 
 
 def test_guard_password_change_roundtrip(monkeypatch):
@@ -172,7 +191,8 @@ def test_guard_hash_never_equals_plaintext(monkeypatch):
     monkeypatch.setattr(ev, "get_sync_db", lambda: None)
     hashed = ev._guard_hash()
     assert hashed != "Saurabh95710"
-    assert len(hashed) == 64
+    # With no DB and no default, hash should be empty string
+    assert len(hashed) == 0
 
 
 # ── Unlock cookie ────────────────────────────────────────────────────────────
@@ -217,18 +237,33 @@ def test_require_env_unlocked_allows_valid_cookie():
 def test_login_uses_admin_password_override(monkeypatch):
     _patch_overrides(monkeypatch, {"ADMIN_PASSWORD_HASH": "0" * 64})
     monkeypatch.setattr(auth_svc, "_admin_user_record", lambda email: None)
-    assert auth_svc.verify_admin_login("admin@gmail.com", "anything") is None
+    assert auth_svc.verify_site_login("Admin@gmail.com", "anything") is None
     _patch_overrides(monkeypatch, {})
-    assert auth_svc.verify_admin_login("admin@gmail.com", "wrong") is None
+    assert auth_svc.verify_site_login("Admin@gmail.com", "wrong") is None
 
 
-def test_login_with_override_password_succeeds(monkeypatch):
+def test_login_with_override_password_succeeds(monkeypatch, site_account):
     new_hash = hashlib.sha256(b"NewPass@2026").hexdigest()
-    _patch_overrides(monkeypatch, {"ADMIN_PASSWORD_HASH": new_hash})
+    _patch_overrides(monkeypatch, {"ADMIN_PASSWORD_HASH": new_hash,
+                                   "ADMIN_EMAIL": "Admin@gmail.com"})
     monkeypatch.setattr(auth_svc, "_admin_user_record", lambda email: None)
-    user = auth_svc.verify_admin_login("admin@gmail.com", "NewPass@2026")
-    assert user is not None and user["role"] == "super_admin"
-    assert auth_svc.verify_admin_login("admin@gmail.com", "Admin@2026") is None
+    # without a users record the env credentials fail closed
+    assert auth_svc.verify_site_login("Admin@gmail.com", "NewPass@2026") is None
+    # the env site login only succeeds for an existing active tenant account
+    site_account("admin@gmail.com")
+    user = auth_svc.verify_site_login("Admin@gmail.com", "NewPass@2026")
+    assert user is not None and user["scope"] == "site"
+    assert auth_svc.verify_site_login("Admin@gmail.com", "Admin@2026") is None
+
+
+def test_panel_login_uses_panel_password_override(monkeypatch):
+    new_hash = hashlib.sha256(b"PanelPass@2026").hexdigest()
+    _patch_overrides(monkeypatch, {"PANEL_ADMIN_PASSWORD_HASH": new_hash,
+                                   "PANEL_ADMIN_EMAIL": "Admin123@gmail.com"})
+    monkeypatch.setattr(auth_svc, "_admin_user_record", lambda email: None)
+    user = auth_svc.verify_admin_login("Admin123@gmail.com", "PanelPass@2026")
+    assert user is not None and user["scope"] == "admin" and user["role"] == "super_admin"
+    assert auth_svc.verify_admin_login("Admin123@gmail.com", "Admin@1234") is None
 
 
 def test_session_ttl_and_secure_cookie_are_dynamic(monkeypatch):

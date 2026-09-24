@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Checkout · LeadAI</title>
+  <meta name="robots" content="noindex,nofollow"/>
+  <meta name="referrer" content="no-referrer"/>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>"/>
+  <link rel="stylesheet" href="/static/design/tokens.css"/>
+  <link rel="stylesheet" href="/static/design/components.css"/>
+  <script src="/static/design/theme.js"></script>
+  <style>
+    .status-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .status-head .pill { margin-top:6px; }
+    .section-label { font-size:var(--text-xs); font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-secondary); margin:24px 0 12px; }
+    .mock-card { margin-top:24px; border:1px dashed var(--warning-border); background:var(--warning-soft); border-radius:var(--radius-lg); padding:18px; }
+    .mock-card h2 { font-size:var(--text-sm); font-weight:700; display:flex; align-items:center; gap:8px; color:var(--text-primary); }
+    .mock-card p { font-size:var(--text-sm); color:var(--text-secondary); margin-top:6px; }
+    .mock-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }
+    .mock-actions .btn { flex:1 1 180px; }
+    .poll-note { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:20px; font-size:var(--text-xs); color:var(--text-secondary); min-height:18px; }
+    .poll-note .live-dot { width:7px; height:7px; border-radius:50%; background:var(--success); animation:shimmer 1.4s ease-in-out infinite; }
+    .poll-note.is-off .live-dot { background:var(--text-muted); animation:none; }
+    .mono { font-family:var(--font-mono); font-size:var(--text-xs); }
+    .skeleton-stack { display:grid; gap:12px; }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="auth-shell">
+  <header class="brand-bar">
+    <a class="brand" href="/website">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.1 6.4 6.4 2.1-6.4 2.1L12 19.5l-2.1-6.4L3.5 11l6.4-2.1z"/></svg></span>
+      <span data-brand-name>LeadAI</span>
+    </a>
+    <div class="brand-actions">
+      <a class="btn btn-ghost btn-sm" href="/dashboard">Dashboard</a>
+      <button type="button" class="btn theme-toggle" data-theme-toggle aria-label="Switch theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="auth-main" id="main">
+    <section class="auth-card auth-card-wide" id="card" aria-busy="true">
+
+      <!-- ── Loading (skeleton, same footprint as the loaded view) ── -->
+      <div data-view="loading" role="status" aria-label="Loading checkout status">
+        <div class="skeleton-stack" aria-hidden="true">
+          <div class="skeleton" style="height:14px;width:30%"></div>
+          <div class="skeleton" style="height:28px;width:75%"></div>
+          <div class="skeleton" style="height:14px;width:90%"></div>
+          <div class="skeleton" style="height:120px;border-radius:var(--radius-md);margin-top:12px"></div>
+          <div class="skeleton" style="height:180px;border-radius:var(--radius-md)"></div>
+        </div>
+        <span class="sr-only">Loading checkout status…</span>
+      </div>
+
+      <!-- ── Error states (401 is redirected) ── -->
+      <div data-view="error" hidden>
+        <div class="auth-header text-center">
+          <div class="auth-icon tone-warning" id="errIcon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <h1 class="auth-title" id="errTitle" tabindex="-1">Something went wrong</h1>
+          <p class="auth-subtitle" id="errDesc"></p>
+        </div>
+        <div class="auth-actions" style="margin-top:0">
+          <button type="button" class="btn btn-primary btn-lg btn-block hidden" id="retryBtn">
+            <span class="spinner" aria-hidden="true"></span><span class="btn-label">Try again</span>
+          </button>
+          <a class="btn btn-secondary btn-lg btn-block" href="/dashboard#billing">Back to billing</a>
+          <a class="btn btn-ghost btn-block" href="/contact">Contact support</a>
+        </div>
+      </div>
+
+      <!-- ── Checkout status ── -->
+      <div data-view="status" hidden>
+        <div class="auth-header" style="margin-bottom:20px">
+          <p class="auth-eyebrow" id="eyebrow">Subscription checkout</p>
+          <div class="status-head">
+            <h1 class="auth-title" id="statusTitle" tabindex="-1">Checkout</h1>
+            <span class="pill" id="statusPill">—</span>
+          </div>
+          <p class="auth-subtitle" id="statusDesc" role="status" aria-live="polite"></p>
+        </div>
+
+        <div class="alert alert-danger hidden" id="declinedAlert" role="alert" style="margin-bottom:16px">
+          <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          <div class="alert-body"><p class="alert-title">Payment declined</p><p id="declinedText">The last payment attempt didn't go through. Your plan hasn't changed — you can try again.</p></div>
+        </div>
+        <div class="alert alert-danger hidden" id="actionAlert" role="alert" style="margin-bottom:16px">
+          <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div class="alert-body" id="actionAlertText"></div>
+        </div>
+
+        <dl class="kv" aria-label="Order summary">
+          <dt>Plan</dt><dd id="kvPlan">—</dd>
+          <dt>Price</dt><dd id="kvAmount">—</dd>
+          <dt>Billing</dt><dd id="kvCycle">—</dd>
+          <dt>Reference</dt><dd class="mono" id="kvRef">—</dd>
+        </dl>
+
+        <div id="timelineWrap">
+          <h2 class="section-label">Progress</h2>
+          <ol class="timeline" id="timeline" aria-label="Checkout progress"></ol>
+        </div>
+
+        <!-- Development-only mock provider -->
+        <div class="mock-card hidden" id="mockCard" role="region" aria-labelledby="mockTitle">
+          <h2 id="mockTitle">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--warning-text)"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+            Test payment (development mode)
+          </h2>
+          <p>This environment uses a simulated payment provider. No real card is charged. A successful test payment still needs confirmation from the LeadAI team before the plan becomes active.</p>
+          <div class="mock-actions">
+            <button type="button" class="btn btn-primary" id="mockPayBtn">
+              <span class="spinner" aria-hidden="true"></span><span class="btn-label" id="mockPayLabel">Pay</span>
+            </button>
+            <button type="button" class="btn btn-secondary" id="mockDeclineBtn">
+              <span class="spinner" aria-hidden="true"></span><span class="btn-label">Simulate declined card</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="auth-actions-row" id="doneActions">
+          <a class="btn btn-primary" href="/dashboard" id="primaryAction">Go to dashboard</a>
+          <a class="btn btn-ghost" href="/dashboard#billing">View billing</a>
+        </div>
+
+        <p class="poll-note" id="pollNote"><span class="live-dot" aria-hidden="true"></span><span id="pollText"></span></p>
+      </div>
+
+    </section>
+  </main>
+
+  <footer class="auth-footer">
+    <nav aria-label="Footer"><a href="/website">Home</a><a href="/contact">Contact</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+    <p style="margin-top:6px">© 2026 LeadAI</p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var UI = window.LeadAIUI;
+  var $ = function (id) { return document.getElementById(id); };
+  var card = $("card");
+
+  // ── Resolve the session id and page mode ──────────────────────────────
+  var params = new URLSearchParams(location.search);
+  var isCheckoutPath = location.pathname.indexOf("/billing/checkout/") === 0;
+  var sessionId = "";
+  if (isCheckoutPath) {
+    var seg = location.pathname.slice("/billing/checkout/".length).replace(/\/+$/, "");
+    try { sessionId = decodeURIComponent(seg); } catch (_) { sessionId = seg; }
+  } else {
+    sessionId = (params.get("session") || params.get("session_id") || "").trim();
+  }
+  var apiBase = "/api/billing/checkout/" + encodeURIComponent(sessionId);
+
+  var POLL_MS = 5000;
+  var PENDING = ["pending_payment", "payment_received", "pending_admin_confirmation"];
+  var pollTimer = null;
+  var lastStatus = null;
+  var lastCheckout = null;
+  var busy = false;
+  var failedPolls = 0;
+
+  var STEPS = [
+    { title: "Plan selected", desc: "You chose a plan and billing cycle." },
+    { title: "Payment", desc: "Complete payment with our payment provider." },
+    { title: "Payment verified", desc: "The payment provider confirms the charge." },
+    { title: "Awaiting LeadAI confirmation", desc: "Our team reviews and confirms your subscription." },
+    { title: "Active", desc: "Your plan and its limits are live for your workspace." }
+  ];
+  var CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+  var CROSS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+  function show(view, focus) {
+    document.querySelectorAll("[data-view]").forEach(function (el) {
+      el.hidden = el.getAttribute("data-view") !== view;
+    });
+    card.setAttribute("aria-busy", view === "loading" ? "true" : "false");
+    if (focus) {
+      var h = document.querySelector('[data-view="' + view + '"] .auth-title');
+      if (h) h.focus({ preventScroll: true });
+    }
+  }
+
+  function showError(kind, message) {
+    stopPolling();
+    var retry = $("retryBtn");
+    retry.classList.toggle("hidden", !(kind === "network" || kind === "server"));
+    var icon = $("errIcon");
+    icon.className = "auth-icon " + (kind === "forbidden" ? "tone-danger" : kind === "network" || kind === "server" ? "tone-danger" : "tone-warning");
+    var copy = {
+      forbidden: ["You don't have access to billing",
+        message || "Your role in this workspace can't view billing. Ask an owner or admin to check the payment status, or to give you billing access."],
+      notfound: ["We couldn't find this checkout",
+        "This checkout link doesn't match any payment for your workspace. It may belong to another workspace, or it may have been replaced by a newer checkout."],
+      missing: ["No checkout reference",
+        "This page needs a checkout reference. Start a plan change from Billing in your dashboard."],
+      network: ["We couldn't reach LeadAI",
+        "Check your connection and try again. If you already paid, your payment is safe — this page only shows its status."],
+      server: ["We couldn't load the payment status",
+        message || "Something went wrong on our side. Please try again in a moment."]
+    }[kind] || ["Something went wrong", message || "Please try again."];
+    $("errTitle").textContent = copy[0];
+    $("errDesc").textContent = copy[1];
+    document.title = "Checkout · LeadAI";
+    show("error", true);
+  }
+
+  function formatMoney(amount, currency) {
+    if (amount === null || amount === undefined || amount === "") return "";
+    var n = Number(amount);
+    if (!isFinite(n)) return String(amount);
+    var cur = String(currency || "USD").toUpperCase();
+    try { return new Intl.NumberFormat(undefined, { style: "currency", currency: cur }).format(n); }
+    catch (_) { return cur + " " + n.toFixed(2); }
+  }
+  function cycleLabel(c) {
+    c = String(c || "").toLowerCase();
+    if (c === "yearly" || c === "annual" || c === "annually") return { long: "Billed yearly", short: "/ year" };
+    if (c === "monthly") return { long: "Billed monthly", short: "/ month" };
+    return { long: c ? c.charAt(0).toUpperCase() + c.slice(1) : "—", short: "" };
+  }
+
+  // Status → presentation. Only "active" may ever say the plan is active.
+  function presentation(status, co) {
+    var activeTitle = (co.plan && co.plan.name) ? "Your " + co.plan.name + " plan is active" : "Your plan is active";
+    var planName = (co.plan && co.plan.name) ? co.plan.name + " plan" : "new plan";
+    switch (status) {
+      case "pending_payment":
+        return { pill: ["pill-pending", "Awaiting payment"], title: "Complete your payment", step: 1,
+          desc: isCheckoutPath && co.mock
+            ? "Your " + planName + " isn't active yet. Complete the payment below to continue."
+            : "We haven't received a payment for your " + planName + " yet. If you just paid, this page updates automatically — it can take a minute." };
+      case "payment_received":
+        return { pill: ["pill-payment_received", "Verifying payment"], title: "Payment received — verifying", step: 2,
+          desc: "We've received your payment and are verifying it with the payment provider. Your plan isn't active yet." };
+      case "pending_admin_confirmation":
+        return { pill: ["pill-pending", "Pending confirmation"], title: "Payment received", step: 3,
+          desc: "Payment received — our team is confirming your subscription. You'll get a notification and email when it's active." };
+      case "active":
+        return { pill: ["pill-active", "Active"], title: activeTitle, step: 5,
+          desc: "Your subscription is confirmed and your new plan limits are live for your workspace." };
+      case "cancelled":
+        return { pill: ["pill-expired", "Cancelled"], title: "This checkout was cancelled", step: -1, terminal: true,
+          desc: "No plan change was made. If you were charged, our team will refund you. You can choose a plan again from Billing." };
+      case "expired":
+        return { pill: ["pill-expired", "Expired"], title: "This checkout has expired", step: -1, terminal: true,
+          desc: "The checkout wasn't completed in time and no plan change was made. Start a new checkout from Billing." };
+      case "suspended":
+        return { pill: ["pill-suspended", "Suspended"], title: "This subscription is suspended", step: -1, terminal: true,
+          desc: "The subscription isn't active. Contact support and we'll help you sort it out." };
+      default:
+        return { pill: ["pill-pending", "In progress"], title: "Checking your subscription", step: 1,
+          desc: "We're processing this checkout. This page updates automatically." };
+    }
+  }
+
+  function renderTimeline(step, declined) {
+    var ol = $("timeline");
+    ol.innerHTML = "";
+    STEPS.forEach(function (s, i) {
+      var li = document.createElement("li");
+      var state;
+      if (step >= 5 || i < step) state = "is-done";
+      else if (i === step) state = declined && i === 1 ? "is-failed" : "is-current";
+      else state = "is-upcoming";
+      li.className = "timeline-item " + state;
+      if (state === "is-current") li.setAttribute("aria-current", "step");
+      var dot = document.createElement("span");
+      dot.className = "timeline-dot";
+      dot.setAttribute("aria-hidden", "true");
+      if (state === "is-done") dot.innerHTML = CHECK;
+      else if (state === "is-failed") dot.innerHTML = CROSS;
+      else if (state === "is-current") dot.innerHTML = '<span class="spinner" style="width:12px;height:12px"></span>';
+      else dot.textContent = String(i + 1);
+      var body = document.createElement("div");
+      var t = document.createElement("div");
+      t.className = "timeline-title";
+      t.textContent = s.title;
+      var sr = document.createElement("span");
+      sr.className = "sr-only";
+      sr.textContent = state === "is-done" ? " (complete)" : state === "is-current" ? " (in progress)" : state === "is-failed" ? " (declined)" : " (not started)";
+      t.appendChild(sr);
+      var d = document.createElement("div");
+      d.className = "timeline-desc";
+      d.textContent = (state === "is-failed") ? "The card was declined. Try again." : s.desc;
+      body.appendChild(t); body.appendChild(d);
+      li.appendChild(dot); li.appendChild(body);
+      ol.appendChild(li);
+    });
+  }
+
+  function render(co) {
+    lastCheckout = co;
+    var status = String(co.status || "");
+    var sub = co.subscription || {};
+    var p = presentation(status, co);
+    var declined = status === "pending_payment" && String(co.payment_status || "") === "failed";
+    var changed = status !== lastStatus;
+
+    // Header
+    $("statusTitle").textContent = p.title;
+    if ($("statusDesc").textContent !== p.desc) $("statusDesc").textContent = p.desc;
+    var pill = $("statusPill");
+    pill.className = "pill " + p.pill[0];
+    pill.textContent = p.pill[1];
+    document.title = (status === "active" ? "Plan active" : p.pill[1]) + " · LeadAI";
+    $("eyebrow").textContent = isCheckoutPath ? "Subscription checkout" : "Payment status";
+
+    // Summary
+    var money = formatMoney(sub.amount, sub.currency);
+    var cyc = cycleLabel(sub.billing_cycle);
+    $("kvPlan").textContent = (co.plan && co.plan.name) || (co.plan && co.plan.slug) || "—";
+    $("kvAmount").textContent = money ? money + (cyc.short ? " " + cyc.short : "") : "—";
+    $("kvCycle").textContent = cyc.long;
+    var ref = String(co.session_id || sessionId);
+    $("kvRef").textContent = ref.length > 22 ? ref.slice(0, 10) + "…" + ref.slice(-8) : ref;
+    $("kvRef").title = ref;
+
+    // Timeline
+    $("timelineWrap").hidden = !!p.terminal;
+    if (!p.terminal) renderTimeline(p.step, declined);
+    $("declinedAlert").classList.toggle("hidden", !declined);
+
+    // Mock provider card — only on the checkout page, only while unpaid, only when the API says mock.
+    var showMock = isCheckoutPath && co.mock === true && status === "pending_payment";
+    $("mockCard").classList.toggle("hidden", !showMock);
+    if (showMock) {
+      if (!busy) $("mockPayLabel").textContent = money ? "Pay " + money : "Pay now";
+    }
+
+    // Actions
+    var primary = $("primaryAction");
+    if (status === "active") { primary.textContent = "Go to dashboard"; primary.href = "/dashboard"; }
+    else if (status === "cancelled" || status === "expired") { primary.textContent = "Choose a plan"; primary.href = "/dashboard#billing"; }
+    else if (status === "suspended") { primary.textContent = "Contact support"; primary.href = "/contact"; }
+    else { primary.textContent = "Back to dashboard"; primary.href = "/dashboard"; }
+
+    if (changed) {
+      var first = lastStatus === null;
+      lastStatus = status;
+      show("status", first);
+    } else {
+      show("status", false);
+    }
+    updatePolling(status);
+  }
+
+  // ── Polling ───────────────────────────────────────────────────────────
+  function isPending(s) { return PENDING.indexOf(s) !== -1; }
+  function setPollNote(text, off) {
+    $("pollText").textContent = text;
+    $("pollNote").classList.toggle("is-off", !!off);
+    $("pollNote").hidden = !text;
+  }
+  function stopPolling() { if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; } }
+  function updatePolling(status) {
+    stopPolling();
+    if (!isPending(status)) { setPollNote("", true); return; }
+    var t = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    if (failedPolls === 0) setPollNote("Updating automatically · last checked " + t, false);
+    pollTimer = setTimeout(poll, POLL_MS);
+  }
+  async function poll() {
+    pollTimer = null;
+    if (document.hidden) { pollTimer = setTimeout(poll, POLL_MS); return; }
+    if (busy) { pollTimer = setTimeout(poll, POLL_MS); return; }
+    var res = await UI.api(apiBase);
+    if (res.ok && res.data.checkout) { failedPolls = 0; render(res.data.checkout); return; }
+    if (res.status === 401) { goLogin(); return; }
+    if (res.status === 403) { showError("forbidden", UI.errorMessage(res.data, "")); return; }
+    if (res.status === 404) { showError("notfound"); return; }
+    // Transient: keep what we have on screen and retry.
+    failedPolls++;
+    setPollNote(res.networkError ? "Connection lost — retrying…" : "Couldn't refresh — retrying…", true);
+    pollTimer = setTimeout(poll, Math.min(POLL_MS * Math.pow(2, failedPolls - 1), 30000));
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && lastStatus && isPending(lastStatus) && pollTimer) {
+      stopPolling();
+      poll();
+    }
+  });
+
+  function goLogin() {
+    stopPolling();
+    location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
+  }
+
+  async function load() {
+    if (!sessionId) { showError("missing"); return; }
+    var retry = $("retryBtn");
+    if (!retry.classList.contains("hidden")) UI.setBusy(retry, true, "Retrying…");
+    else show("loading", false);
+    var res = await UI.api(apiBase);
+    UI.setBusy(retry, false);
+    if (res.ok && res.data.checkout) { failedPolls = 0; render(res.data.checkout); return; }
+    if (res.networkError) { showError("network"); return; }
+    if (res.status === 401) { goLogin(); return; }
+    if (res.status === 403) { showError("forbidden", UI.errorMessage(res.data, "")); return; }
+    if (res.status === 404 || res.status === 400) { showError("notfound"); return; }
+    showError("server", UI.errorMessage(res.data, ""));
+  }
+
+  // ── Mock payment actions ──────────────────────────────────────────────
+  function actionAlert(msg) {
+    if (!msg) { $("actionAlert").classList.add("hidden"); return; }
+    $("actionAlertText").textContent = msg;
+    $("actionAlert").classList.remove("hidden");
+  }
+  async function mockPay(succeed, btn) {
+    if (busy) return;
+    busy = true;
+    actionAlert("");
+    stopPolling();
+    var other = succeed ? $("mockDeclineBtn") : $("mockPayBtn");
+    other.disabled = true;
+    UI.setBusy(btn, true, succeed ? "Processing payment…" : "Declining…");
+    var res = await UI.api(apiBase + "/mock-pay", { method: "POST", body: { succeed: succeed } });
+    busy = false;
+    UI.setBusy(btn, false);
+    other.disabled = false;
+    if (res.status === 401) { goLogin(); return; }
+    if (!res.ok) {
+      if (res.networkError) actionAlert("We couldn't reach LeadAI. No payment was recorded — try again.");
+      else if (res.status === 403) actionAlert("You need billing management permission to pay for this workspace. Ask an owner or admin.");
+      else if (res.status === 404) actionAlert("Test payments aren't available for this checkout.");
+      else actionAlert(UI.errorMessage(res.data, "The test payment didn't go through. Please try again."));
+      if (lastStatus) updatePolling(lastStatus);
+      return;
+    }
+    // Always re-read the real status from the server.
+    var fresh = await UI.api(apiBase);
+    if (fresh.ok && fresh.data.checkout) {
+      render(fresh.data.checkout);
+      var h = $("statusTitle"); if (h) h.focus({ preventScroll: true });
+    } else if (lastStatus) {
+      updatePolling(lastStatus);
+    }
+  }
+  $("mockPayBtn").addEventListener("click", function () { mockPay(true, this); });
+  $("mockDeclineBtn").addEventListener("click", function () { mockPay(false, this); });
+  $("retryBtn").addEventListener("click", load);
+
+  load();
+})();
+</script>
+</body>
+</html>

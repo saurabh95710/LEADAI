@@ -12,7 +12,6 @@ effect after the process restarts — the admin panel says so explicitly.
 
 Secrets are never returned by the API — only masked hints.
 """
-import hashlib
 import logging
 import os
 import time
@@ -20,6 +19,7 @@ from typing import Any, Dict, Optional
 
 from app.config import Settings, get_settings
 from app.db.mongo import get_async_db, get_sync_db
+from app.db.models import utcnow
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -81,15 +81,34 @@ ENVVAR_REGISTRY: list[EnvVarDef] = [
                                         "URL-search run."},
     # Security
     {"name": "ADMIN_EMAIL", "kind": "str", "secret": False, "restart": False,
-     "settings_attr": "admin_email", "default": "admin@gmail.com",
-     "group": "Security", "description": "Recovery super-admin account email. "
+     "settings_attr": "admin_email", "default": "",
+     "group": "Security", "description": "Main website login email (/). "
                                         "Read at login time — applies immediately."},
     {"name": "ADMIN_PASSWORD_HASH", "kind": "str", "secret": True, "restart": False,
      "settings_attr": "admin_password_hash", "default": "",
-     "group": "Security", "description": "sha256 hash of the recovery admin "
-                                        "password. Read at login time. Use "
-                                        "'Change admin password' instead of "
-                                        "pasting hashes."},
+     "group": "Security", "description": "Password hash for the main website "
+                                        "login. Managed automatically via "
+                                        "bcrypt. Read at login time."},
+    {"name": "PANEL_ADMIN_EMAIL", "kind": "str", "secret": False, "restart": False,
+     "settings_attr": "panel_admin_email", "default": "",
+     "group": "Security", "description": "Admin portal recovery super-admin "
+                                        "email (/admin). Read at login time — "
+                                        "applies immediately."},
+    {"name": "PANEL_ADMIN_PASSWORD_HASH", "kind": "str", "secret": True, "restart": False,
+     "settings_attr": "panel_admin_password_hash", "default": "",
+     "group": "Security", "description": "Password hash for the admin portal "
+                                        "recovery account. Managed automatically "
+                                        "via bcrypt. Use 'Change admin password' "
+                                        "instead of pasting hashes."},
+    {"name": "ADMIN_PANEL_EMAIL", "kind": "str", "secret": False, "restart": False,
+     "settings_attr": "admin_panel_email", "default": "",
+     "group": "Security", "description": "Deprecated and ignored: organization "
+                                        "admins are real users who sign in "
+                                        "through the site login."},
+    {"name": "ADMIN_PANEL_PASSWORD_HASH", "kind": "str", "secret": True, "restart": False,
+     "settings_attr": "admin_panel_password_hash", "default": "",
+     "group": "Security", "description": "Password hash for the admin portal "
+                                        "account. Managed via bcrypt."},
     {"name": "SESSION_SECRET", "kind": "str", "secret": True, "restart": False,
      "settings_attr": "session_secret", "default": "",
      "group": "Security", "description": "Secret signing session cookies. "
@@ -127,6 +146,61 @@ ENVVAR_REGISTRY: list[EnvVarDef] = [
      "settings_attr": None, "env_only": True, "default": "",
      "group": "Server", "description": "Your business domain, stored for "
                                       "reference (not consumed by the app)."},
+    # Security hardening
+    {"name": "ALLOWED_ORIGINS", "kind": "str", "secret": False, "restart": True,
+     "settings_attr": "allowed_origins", "default": "",
+     "group": "Security", "description": "Comma-separated allowed CORS origins "
+                                        "(empty = same-origin only). "
+                                        "Requires a restart."},
+    {"name": "ENABLE_API_DOCS", "kind": "bool", "secret": False, "restart": True,
+     "settings_attr": "enable_api_docs", "default": False,
+     "group": "Security", "description": "Enable /docs and /redoc endpoints. "
+                                        "Disable in production. Requires restart."},
+    # Stripe / Billing
+    {"name": "STRIPE_SECRET_KEY", "kind": "str", "secret": True, "restart": False,
+     "settings_attr": "stripe_secret_key", "default": "",
+     "group": "Billing", "description": "Stripe secret API key for billing."},
+    {"name": "STRIPE_PUBLISHABLE_KEY", "kind": "str", "secret": False, "restart": False,
+     "settings_attr": "stripe_publishable_key", "default": "",
+     "group": "Billing", "description": "Stripe publishable key for frontend checkout."},
+    {"name": "STRIPE_WEBHOOK_SECRET", "kind": "str", "secret": True, "restart": False,
+     "settings_attr": "stripe_webhook_secret", "default": "",
+     "group": "Billing", "description": "Stripe webhook signing secret."},
+    {"name": "BILLING_WEBHOOK_SECRET", "kind": "str", "secret": True, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "",
+     "group": "Billing", "description": "HMAC secret for the generic/mock billing "
+                                       "webhook (X-LeadAI-Signature). Webhooks are "
+                                       "rejected while it is empty."},
+    {"name": "MOCK_PAYMENTS_ENABLED", "kind": "bool", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": True,
+     "group": "Billing", "description": "Allow the development mock payment page "
+                                       "(only while no Stripe key is configured). "
+                                       "Payments still need Super Admin confirmation."},
+    # Networking / email
+    {"name": "TRUST_PROXY_HEADERS", "kind": "bool", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": False,
+     "group": "Security", "description": "Trust X-Forwarded-For / X-Real-IP (enable "
+                                        "only behind your own reverse proxy)."},
+    {"name": "PUBLIC_BASE_URL", "kind": "str", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "",
+     "group": "Server", "description": "Public origin used in emailed links, e.g. "
+                                      "https://app.example.com"},
+    {"name": "SMTP_HOST", "kind": "str", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "",
+     "group": "Email", "description": "SMTP server. Empty = emails stay in the "
+                                     "outbox (visible to Super Admin)."},
+    {"name": "SMTP_PORT", "kind": "int", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": 587,
+     "group": "Email", "description": "SMTP port (STARTTLS)."},
+    {"name": "SMTP_USER", "kind": "str", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "",
+     "group": "Email", "description": "SMTP username."},
+    {"name": "SMTP_PASSWORD", "kind": "str", "secret": True, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "",
+     "group": "Email", "description": "SMTP password."},
+    {"name": "SMTP_FROM", "kind": "str", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "",
+     "group": "Email", "description": "Sender address for transactional email."},
 ]
 
 _REGISTRY: Dict[str, EnvVarDef] = {e["name"]: e for e in ENVVAR_REGISTRY}
@@ -256,7 +330,7 @@ def set_envvar_override(name: str, value: Any, by: str = "admin") -> bool:
         db[COLLECTION].update_one(
             {"_id": name},
             {"$set": {"value": coerced,
-                      "updated_at": time.time(),
+                      "updated_at": utcnow(),
                       "updated_by": by}},
             upsert=True)
         _CACHE.pop(name, None)
@@ -277,7 +351,7 @@ async def aset_envvar_override(name: str, value: Any, by: str = "admin") -> bool
         await db[COLLECTION].update_one(
             {"_id": name},
             {"$set": {"value": coerced,
-                      "updated_at": time.time(),
+                      "updated_at": utcnow(),
                       "updated_by": by}},
             upsert=True)
         _CACHE.pop(name, None)
@@ -417,45 +491,56 @@ def clear_cache() -> None:
 # ── Environment panel guard ──────────────────────────────────────────────────
 # The Environment section is locked behind its own password (distinct from
 # the admin login). The hash lives in the env_overrides collection under
-# ``__guard__``; when no hash has been set yet, the built-in default
-# applies. All /api/admin/env* endpoints require a valid unlock.
+# ``__guard__``; when no hash has been set yet, the system requires the
+# admin to set one. All /api/admin/env* endpoints require a valid unlock.
+# Uses bcrypt for secure password storage with legacy SHA-256 migration.
 
 GUARD_DOC_ID = "__guard__"
-GUARD_DEFAULT_PASSWORD = "Saurabh95710"
 GUARD_UNLOCK_MINUTES = 15
 
 
 def _guard_hash() -> str:
-    """Current guard password hash (default when never set)."""
+    """Current guard password hash. Returns empty string if never set."""
     try:
         db = get_sync_db()
         if db is None:
-            return _default_guard_hash()
+            return ""
         doc = db[COLLECTION].find_one({"_id": GUARD_DOC_ID},
                                       {"password_hash": 1})
-        return (doc or {}).get("password_hash") or _default_guard_hash()
+        return (doc or {}).get("password_hash") or ""
     except Exception:
-        return _default_guard_hash()
-
-
-def _default_guard_hash() -> str:
-    return hashlib.sha256(GUARD_DEFAULT_PASSWORD.encode("utf-8")).hexdigest()
+        return ""
 
 
 def verify_guard_password(password: str) -> bool:
-    """Constant-time check of the Environment panel guard password."""
+    """Verify the Environment panel guard password. Supports bcrypt and
+    legacy SHA-256 with automatic migration to bcrypt."""
     if not password:
         return False
-    import hmac
-    guess = hashlib.sha256(str(password).encode("utf-8")).hexdigest().lower()
-    return hmac.compare_digest(guess, _guard_hash().lower())
-
-
-def set_guard_password(plain: str, by: str = "admin") -> bool:
-    """Change the guard password (store its sha256 hash)."""
-    if len(str(plain or "")) < 6:
+    stored = _guard_hash()
+    if not stored:
         return False
-    hashed = hashlib.sha256(str(plain).encode("utf-8")).hexdigest()
+    from app.auth.crypto import verify_password
+    valid, new_hash = verify_password(password, stored)
+    if not valid:
+        return False
+    # Migrate legacy SHA-256 to bcrypt
+    if new_hash:
+        set_guard_password(new_hash, by="system", pre_hashed=True)
+        logger.info("Migrated guard password hash to bcrypt")
+    return True
+
+
+def set_guard_password(plain: str, by: str = "admin", pre_hashed: bool = False) -> bool:
+    """Change the guard password. If pre_hashed is True, store the hash directly.
+    Otherwise, hash with bcrypt before storing."""
+    if pre_hashed:
+        hashed = plain
+    else:
+        from app.auth.crypto import hash_password
+        if len(str(plain or "")) < 8:
+            return False
+        hashed = hash_password(str(plain))
     try:
         db = get_sync_db()
         if db is None:
@@ -463,7 +548,7 @@ def set_guard_password(plain: str, by: str = "admin") -> bool:
         db[COLLECTION].update_one(
             {"_id": GUARD_DOC_ID},
             {"$set": {"password_hash": hashed,
-                      "updated_at": time.time(),
+                      "updated_at": utcnow(),
                       "updated_by": by}},
             upsert=True)
         return True

@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Invitation · LeadAI</title>
+  <meta name="robots" content="noindex,nofollow"/>
+  <meta name="referrer" content="no-referrer"/>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>"/>
+  <link rel="stylesheet" href="/static/design/tokens.css"/>
+  <link rel="stylesheet" href="/static/design/components.css"/>
+  <script src="/static/design/theme.js"></script>
+  <style>
+    .org-chip { display:inline-flex; align-items:center; justify-content:center; width:52px; height:52px; border-radius:16px; margin-bottom:18px;
+      background:linear-gradient(135deg,var(--primary-fill) 0%,var(--primary-dark) 100%); color:#fff; font-weight:800; font-size:1.25rem; letter-spacing:-0.02em;
+      box-shadow:0 6px 18px rgba(124,58,237,0.30); }
+    .signed-in-as { display:flex; align-items:center; gap:12px; padding:12px 14px; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface); font-size:var(--text-sm); margin-top:20px; }
+    .avatar { width:34px; height:34px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:var(--text-sm); color:#fff; background:linear-gradient(135deg,var(--primary-fill),var(--primary-dark)); }
+    .signed-in-as .who { min-width:0; }
+    .signed-in-as .who strong { display:block; color:var(--text-primary); overflow-wrap:anywhere; }
+    .signed-in-as .who span { color:var(--text-secondary); font-size:var(--text-xs); }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="auth-shell">
+  <header class="brand-bar">
+    <a class="brand" href="/website">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.1 6.4 6.4 2.1-6.4 2.1L12 19.5l-2.1-6.4L3.5 11l6.4-2.1z"/></svg></span>
+      <span data-brand-name>LeadAI</span>
+    </a>
+    <div class="brand-actions">
+      <button type="button" class="btn theme-toggle" data-theme-toggle aria-label="Switch theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="auth-main" id="main">
+    <section class="auth-card auth-card-wide" aria-busy="true" id="card">
+
+      <!-- ── Loading ── -->
+      <div data-view="loading">
+        <div class="loading-block" role="status">
+          <span class="spinner spinner-lg" aria-hidden="true"></span>
+          <span>Checking your invitation…</span>
+        </div>
+      </div>
+
+      <!-- ── Error ── -->
+      <div data-view="error" hidden>
+        <div class="auth-header text-center">
+          <div class="auth-icon tone-warning" id="errIcon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <h1 class="auth-title" id="errTitle" tabindex="-1">This invitation can't be used</h1>
+          <p class="auth-subtitle" id="errDesc"></p>
+        </div>
+        <div class="auth-actions" style="margin-top:0">
+          <button type="button" class="btn btn-primary btn-lg btn-block hidden" id="retryBtn">
+            <span class="spinner" aria-hidden="true"></span><span class="btn-label">Try again</span>
+          </button>
+          <a class="btn btn-secondary btn-lg btn-block" href="/login" id="errSignIn">Go to sign in</a>
+          <a class="btn btn-ghost btn-block" href="/contact">Contact support</a>
+        </div>
+        <p class="auth-alt text-muted" id="errHint">Ask the person who invited you to send a new invitation from their Team settings.</p>
+      </div>
+
+      <!-- ── Invitation loaded ── -->
+      <div data-view="invite" hidden>
+        <div class="auth-header">
+          <div class="org-chip" id="orgInitials" aria-hidden="true">L</div>
+          <p class="auth-eyebrow">You've been invited</p>
+          <h1 class="auth-title" tabindex="-1">Join <span id="orgName">your team</span> on LeadAI</h1>
+          <p class="auth-subtitle">Accept to start working with your team's leads, searches and reports.</p>
+        </div>
+
+        <dl class="kv" aria-label="Invitation details">
+          <dt>Workspace</dt><dd id="kvOrg">—</dd>
+          <dt>Your role</dt><dd id="kvRole">—</dd>
+          <dt>Invited email</dt><dd id="kvEmail">—</dd>
+          <dt>Expires</dt><dd id="kvExpires">—</dd>
+        </dl>
+
+        <div class="alert alert-danger hidden" id="actionAlert" role="alert" style="margin-top:20px">
+          <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div class="alert-body" id="actionAlertText"></div>
+        </div>
+
+        <!-- New account: create password -->
+        <div id="registerPanel" hidden>
+          <hr class="auth-divider"/>
+          <h2 style="font-size:var(--text-base);font-weight:600;margin-bottom:4px">Create your account</h2>
+          <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:18px">Set up your profile to join. You'll sign in with the invited email.</p>
+          <form class="auth-form" id="registerForm" novalidate>
+            <input type="email" name="username" id="regUsername" autocomplete="username" hidden aria-hidden="true" tabindex="-1" readonly/>
+            <div class="form-group">
+              <label class="form-label" for="regName">Full name</label>
+              <input class="form-input" type="text" id="regName" name="name" autocomplete="name" maxlength="120" required
+                     aria-describedby="regNameError" data-error="regNameError"/>
+              <div class="field-error" id="regNameError" aria-live="polite"></div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="regPassword">Password</label>
+              <div class="input-wrap">
+                <input class="form-input" type="password" id="regPassword" name="password" autocomplete="new-password" required
+                       aria-describedby="pwRules pwStrength regPasswordError" data-error="regPasswordError"/>
+                <button type="button" class="input-affix" data-toggle-password="regPassword" aria-label="Show password" aria-pressed="false">
+                  <svg class="icon-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <svg class="icon-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                </button>
+              </div>
+              <div class="pw-meter" id="pwMeter" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+              <div class="pw-meter-label"><span id="pwStrength" aria-live="polite"></span></div>
+              <ul class="pw-rules" id="pwRules" aria-label="Password requirements">
+                <li data-rule="length">8+ characters<span class="sr-only"></span></li>
+                <li data-rule="upper">An uppercase letter<span class="sr-only"></span></li>
+                <li data-rule="number">A number<span class="sr-only"></span></li>
+              </ul>
+              <div class="field-error" id="regPasswordError" aria-live="polite"></div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="regConfirm">Confirm password</label>
+              <input class="form-input" type="password" id="regConfirm" name="confirm_password" autocomplete="new-password" required
+                     aria-describedby="regConfirmError" data-error="regConfirmError"/>
+              <div class="field-error" id="regConfirmError" aria-live="polite"></div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-lg btn-block" id="registerBtn">
+              <span class="spinner" aria-hidden="true"></span><span class="btn-label">Create account &amp; join</span>
+            </button>
+          </form>
+          <p class="auth-alt" style="font-size:var(--text-xs)">By joining you agree to the <a class="link" href="/terms">Terms</a> and <a class="link" href="/privacy">Privacy Policy</a>.</p>
+        </div>
+
+        <!-- Existing account -->
+        <div id="existingPanel" hidden>
+          <div id="signedInMatch" hidden>
+            <div class="signed-in-as">
+              <span class="avatar" id="meInitial" aria-hidden="true">?</span>
+              <div class="who"><strong id="meEmail"></strong><span>Signed in — this invitation is for you</span></div>
+            </div>
+            <div class="auth-actions">
+              <button type="button" class="btn btn-primary btn-lg btn-block" id="acceptBtn">
+                <span class="spinner" aria-hidden="true"></span><span class="btn-label">Accept invitation</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="signedInOther" hidden>
+            <div class="alert alert-warning" style="margin-top:20px">
+              <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <div class="alert-body">
+                <p class="alert-title">You're signed in with a different account</p>
+                <p>You're signed in as <strong id="otherEmail"></strong>. This invitation was sent to <strong id="otherInvited"></strong>, so it must be accepted from that account.</p>
+              </div>
+            </div>
+            <div class="auth-actions">
+              <button type="button" class="btn btn-primary btn-lg btn-block" id="switchBtn">
+                <span class="spinner" aria-hidden="true"></span><span class="btn-label">Sign out and switch account</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="signedOut" hidden>
+            <div class="alert alert-info" style="margin-top:20px">
+              <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              <div class="alert-body">
+                <p class="alert-title">You already have a LeadAI account</p>
+                <p>Sign in with <strong id="soEmail"></strong> using your existing password, then accept the invitation.</p>
+              </div>
+            </div>
+            <div class="auth-actions">
+              <a class="btn btn-primary btn-lg btn-block" id="signInToAccept" href="/login">Sign in to accept</a>
+              <a class="btn btn-ghost btn-block" id="forgotLink" href="/forgot-password">Forgot your password?</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Joined ── -->
+      <div data-view="joined" hidden>
+        <div class="auth-header text-center">
+          <div class="auth-icon tone-success" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </div>
+          <h1 class="auth-title" tabindex="-1" id="joinedTitle">You're in!</h1>
+          <p class="auth-subtitle" id="joinedDesc" role="status">Taking you to your dashboard…</p>
+        </div>
+        <a class="btn btn-primary btn-lg btn-block" href="/dashboard" id="joinedBtn">Go to dashboard</a>
+      </div>
+
+    </section>
+  </main>
+
+  <footer class="auth-footer">
+    <nav aria-label="Footer"><a href="/website">Home</a><a href="/contact">Contact</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+    <p style="margin-top:6px">© 2026 LeadAI</p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var UI = window.LeadAIUI;
+  var $ = function (id) { return document.getElementById(id); };
+  var card = $("card");
+
+  var raw = location.pathname.split("/invite/")[1] || "";
+  var token = "";
+  try { token = decodeURIComponent(raw.replace(/\/+$/, "")); } catch (_) { token = raw; }
+  var tokenPath = encodeURIComponent(token);
+  var invitePath = "/invite/" + tokenPath;
+  var invitation = null;
+
+  function show(view, focus) {
+    document.querySelectorAll("[data-view]").forEach(function (el) {
+      el.hidden = el.getAttribute("data-view") !== view;
+    });
+    card.setAttribute("aria-busy", view === "loading" ? "true" : "false");
+    if (focus) {
+      var h = document.querySelector('[data-view="' + view + '"] .auth-title');
+      if (h) h.focus({ preventScroll: true });
+    }
+  }
+  function actionAlert(msg) {
+    if (!msg) { $("actionAlert").classList.add("hidden"); return; }
+    $("actionAlertText").textContent = msg;
+    $("actionAlert").classList.remove("hidden");
+  }
+  function showError(kind, message) {
+    var retry = $("retryBtn");
+    retry.classList.toggle("hidden", kind !== "network");
+    $("errSignIn").classList.toggle("hidden", kind === "network");
+    $("errHint").hidden = kind === "network";
+    var icon = $("errIcon");
+    icon.className = "auth-icon " + (kind === "network" ? "tone-danger" : "tone-warning");
+    if (kind === "invalid") {
+      $("errTitle").textContent = "This invitation link isn't valid";
+      $("errDesc").textContent = "The link may be incomplete, or the invitation may have been revoked. Check that you opened the full link from your email.";
+    } else if (kind === "network") {
+      $("errTitle").textContent = "We couldn't load your invitation";
+      $("errDesc").textContent = "LeadAI didn't respond. Check your connection and try again.";
+    } else {
+      $("errTitle").textContent = "This invitation can't be used";
+      $("errDesc").textContent = message || "This invitation is no longer valid.";
+    }
+    document.title = "Invitation unavailable · LeadAI";
+    show("error", true);
+  }
+
+  function roleLabel(r) {
+    r = String(r || "member");
+    return r.charAt(0).toUpperCase() + r.slice(1).replace(/_/g, " ");
+  }
+  function parseDate(v) {
+    if (!v) return null;
+    var s = String(v);
+    if (/^\d{4}-\d{2}-\d{2}T[\d:.]+$/.test(s)) s += "Z"; // naive UTC from the API
+    var d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  function expiryText(v) {
+    var d = parseDate(v);
+    if (!d) return "—";
+    var days = Math.round((d.getTime() - Date.now()) / 86400000);
+    var when = d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    if (days <= 0) return when + " (today)";
+    return when + " (in " + days + " day" + (days === 1 ? "" : "s") + ")";
+  }
+  function initials(name) {
+    var parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "L";
+    return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+  }
+
+  async function load() {
+    show("loading", false);
+    if (!token) { showError("invalid"); return; }
+    var res = await UI.api("/api/invitations/" + tokenPath);
+    if (res.networkError) { showError("network"); return; }
+    if (res.status === 404) { showError("invalid"); return; }
+    if (!res.ok || !res.data.invitation) {
+      showError("unusable", UI.errorMessage(res.data, "This invitation is no longer valid."));
+      return;
+    }
+    invitation = res.data.invitation;
+    var org = invitation.organization_name || "your team";
+    document.title = "Join " + org + " · LeadAI";
+    $("orgName").textContent = org;
+    $("orgInitials").textContent = initials(org);
+    $("kvOrg").textContent = org;
+    $("kvRole").textContent = roleLabel(invitation.role);
+    $("kvEmail").textContent = invitation.email || "—";
+    $("kvExpires").textContent = expiryText(invitation.expires_at);
+
+    if (invitation.account_exists) {
+      await setupExisting();
+    } else {
+      $("regUsername").value = invitation.email || "";
+      $("registerPanel").hidden = false;
+      $("existingPanel").hidden = true;
+    }
+    show("invite", true);
+  }
+
+  async function setupExisting() {
+    $("registerPanel").hidden = true;
+    $("existingPanel").hidden = false;
+    var invited = String(invitation.email || "").toLowerCase();
+    var me = await UI.api("/api/auth/me");
+    var user = me.ok && me.data && me.data.user ? me.data.user : null;
+    var myEmail = user ? String(user.email || "").toLowerCase() : "";
+    $("signedInMatch").hidden = !(user && myEmail === invited);
+    $("signedInOther").hidden = !(user && myEmail && myEmail !== invited);
+    $("signedOut").hidden = !!user;
+    if (user && myEmail === invited) {
+      $("meEmail").textContent = user.email;
+      $("meInitial").textContent = initials(user.name || user.email);
+    } else if (user) {
+      $("otherEmail").textContent = user.email;
+      $("otherInvited").textContent = invitation.email;
+    } else {
+      $("soEmail").textContent = invitation.email;
+      $("signInToAccept").href = "/login?next=" + encodeURIComponent(invitePath);
+      $("forgotLink").href = "/forgot-password?email=" + encodeURIComponent(invitation.email || "");
+    }
+  }
+
+  function joined(res) {
+    var org = (res && res.organization_name) || (invitation && invitation.organization_name) || "your team";
+    $("joinedTitle").textContent = "You've joined " + org;
+    $("joinedDesc").textContent = "Taking you to your dashboard…";
+    document.title = "Welcome · LeadAI";
+    show("joined", true);
+    setTimeout(function () { location.href = "/dashboard"; }, 1200);
+  }
+
+  function handleActionError(res, fallback) {
+    if (res.networkError) {
+      actionAlert("We couldn't reach LeadAI. Nothing was changed — check your connection and try again.");
+      return;
+    }
+    if (res.status === 404) { showError("invalid"); return; }
+    if (res.status === 400 && !Array.isArray(res.data.detail)) {
+      showError("unusable", UI.errorMessage(res.data, "This invitation is no longer valid."));
+      return;
+    }
+    actionAlert(UI.errorMessage(res.data, fallback));
+  }
+
+  // ── Accept with the signed-in account ─────────────────────────────────
+  $("acceptBtn").addEventListener("click", async function () {
+    actionAlert("");
+    var btn = this;
+    UI.setBusy(btn, true, "Joining…");
+    var res = await UI.api("/api/invitations/" + tokenPath + "/accept", { method: "POST" });
+    if (res.ok) { joined(res.data); return; }
+    UI.setBusy(btn, false);
+    if (res.status === 401) { location.href = "/login?next=" + encodeURIComponent(invitePath); return; }
+    handleActionError(res, "We couldn't accept the invitation. Please try again.");
+  });
+
+  // ── Signed in as someone else: sign out, then sign in with the invited email ──
+  $("switchBtn").addEventListener("click", async function () {
+    actionAlert("");
+    var btn = this;
+    UI.setBusy(btn, true, "Signing out…");
+    var res = await UI.api("/api/auth/logout", { method: "POST" });
+    if (res.ok || res.status === 401) {
+      location.href = "/login?next=" + encodeURIComponent(invitePath);
+      return;
+    }
+    UI.setBusy(btn, false);
+    actionAlert(res.networkError ? "We couldn't reach LeadAI to sign you out. Please try again." : UI.errorMessage(res.data, "We couldn't sign you out. Please try again."));
+  });
+
+  // ── Register a new account from the invitation ────────────────────────
+  var nameI = $("regName"), pwI = $("regPassword"), cfI = $("regConfirm");
+  UI.bindPasswordMeter(pwI, $("pwMeter"), $("pwStrength"), $("pwRules"));
+  UI.bindPasswordToggles(document);
+  nameI.addEventListener("input", function () { if (nameI.value.trim()) UI.fieldError(nameI, ""); });
+  pwI.addEventListener("input", function () { if (pwI.getAttribute("aria-invalid") && !UI.passwordProblem(pwI.value)) UI.fieldError(pwI, ""); });
+  pwI.addEventListener("blur", function () { if (pwI.value) UI.fieldError(pwI, UI.passwordProblem(pwI.value)); });
+  cfI.addEventListener("input", function () { if (cfI.getAttribute("aria-invalid") && cfI.value === pwI.value) UI.fieldError(cfI, ""); });
+  cfI.addEventListener("blur", function () { if (cfI.value && cfI.value !== pwI.value) UI.fieldError(cfI, "Passwords don't match."); });
+
+  $("registerForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    actionAlert("");
+    var name = nameI.value.trim();
+    var nameErr = name ? "" : "Enter your name.";
+    var pwErr = UI.passwordProblem(pwI.value);
+    var cfErr = !cfI.value ? "Re-enter your password." : (cfI.value !== pwI.value ? "Passwords don't match." : "");
+    UI.fieldError(nameI, nameErr); UI.fieldError(pwI, pwErr); UI.fieldError(cfI, cfErr);
+    if (nameErr) { nameI.focus(); return; }
+    if (pwErr) { pwI.focus(); return; }
+    if (cfErr) { cfI.focus(); return; }
+
+    var btn = $("registerBtn");
+    UI.setBusy(btn, true, "Creating account…");
+    var res = await UI.api("/api/invitations/" + tokenPath + "/register", { method: "POST", body: { name: name, password: pwI.value } });
+    if (res.ok) {
+      if (res.data && res.data.user) { joined(res.data); return; }
+      // Account created but no session could be started — ask them to sign in.
+      UI.setBusy(btn, false);
+      $("joinedTitle").textContent = "Your account is ready";
+      $("joinedDesc").textContent = (res.data && res.data.message) || "Sign in with your new password to continue.";
+      $("joinedBtn").textContent = "Sign in";
+      $("joinedBtn").href = "/login";
+      show("joined", true);
+      return;
+    }
+    UI.setBusy(btn, false);
+    if (res.status === 409) {
+      invitation.account_exists = true;
+      await setupExisting();
+      actionAlert(UI.errorMessage(res.data, "An account already exists for this email — sign in to accept the invitation."));
+      return;
+    }
+    if (res.status === 422) {
+      var msg = UI.errorMessage(res.data, "Please check your details.");
+      if (/name/i.test(msg) && !/password/i.test(msg)) { UI.fieldError(nameI, msg); nameI.focus(); }
+      else { UI.fieldError(pwI, msg); pwI.focus(); }
+      return;
+    }
+    handleActionError(res, "We couldn't create your account. Please try again.");
+  });
+
+  $("retryBtn").addEventListener("click", load);
+  load();
+})();
+</script>
+</body>
+</html>

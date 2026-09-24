@@ -137,20 +137,22 @@ def test_role_rank():
 
 
 def test_effective_role(monkeypatch):
-    monkeypatch.setattr(roles.settings, "admin_email", "admin@gmail.com")
+    monkeypatch.setattr(roles.settings, "panel_admin_email", "Admin123@gmail.com")
     monkeypatch.setattr(roles, "get_admin_record",
                         lambda email: {"email": email, "role": "manager"})
     # the env account is always the recovery super-admin
-    assert roles.effective_role("ADMIN@GMAIL.COM") == "super_admin"
+    assert roles.effective_role("ADMIN123@GMAIL.COM") == "super_admin"
     # other accounts take the role stored in admin_users
     assert roles.effective_role("jane@example.com") == "manager"
 
 
 def test_effective_role_fallback(monkeypatch):
-    monkeypatch.setattr(roles.settings, "admin_email", "admin@gmail.com")
+    monkeypatch.setattr(roles.settings, "panel_admin_email", "Admin123@gmail.com")
     monkeypatch.setattr(roles, "get_admin_record",
                         lambda email: {"email": email, "role": "ghost"})
-    assert roles.effective_role("jane@example.com") == "viewer"
+    # No fallback any more: an unknown account (or an admin record with an
+    # unrecognised role) is not platform staff and gets no role at all.
+    assert roles.effective_role("jane@example.com") == ""
 
 
 # ── Lead scoring defaults reproduce the original behavior ───────────────────

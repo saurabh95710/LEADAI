@@ -184,3 +184,253 @@ if __name__ == "__main__":
             print(f"ERROR {fn.__name__}: {e!r}")
     print(f"\n{passed}/{len(fns)} passed")
     sys.exit(0 if passed == len(fns) else 1)
+
+
+# ── Comprehensive URL validation: YouTube ────────────────────────────────────
+def test_youtube_shorts_rejected():
+    try:
+        detect_social_url("https://www.youtube.com/shorts/dQw4w9WgXcQ")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+def test_youtube_watch_rejected():
+    try:
+        detect_social_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+def test_youtube_live_rejected():
+    try:
+        detect_social_url("https://www.youtube.com/live/abc123")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+def test_youtube_user_channel():
+    platform, url = detect_social_url("https://www.youtube.com/user/Google")
+    assert platform == "youtube"
+    assert url == "https://www.youtube.com/user/Google"
+
+
+def test_youtube_custom_channel():
+    platform, url = detect_social_url("https://www.youtube.com/c/Netflix")
+    assert platform == "youtube"
+    assert url == "https://www.youtube.com/c/Netflix"
+
+
+def test_youtube_handle_with_videos_path():
+    platform, url = detect_social_url("https://www.youtube.com/@acme/videos")
+    assert platform == "youtube"
+    assert url == "https://www.youtube.com/@acme"
+
+
+def test_youtube_mobile_host():
+    platform, url = detect_social_url("https://m.youtube.com/@acme")
+    assert platform == "youtube"
+    assert url == "https://www.youtube.com/@acme"
+
+
+def test_youtube_channel_requires_id():
+    try:
+        detect_social_url("https://www.youtube.com/channel/")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+def test_youtube_feed_rejected():
+    try:
+        detect_social_url("https://www.youtube.com/feed/subscriptions")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+# ── Comprehensive URL validation: Instagram ──────────────────────────────────
+def test_instagram_reel_rejected():
+    try:
+        detect_social_url("https://www.instagram.com/reel/ABC123/")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+def test_instagram_story_rejected():
+    try:
+        detect_social_url("https://www.instagram.com/stories/username/12345/")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+def test_instagram_explore_rejected():
+    try:
+        detect_social_url("https://www.instagram.com/explore/")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+def test_instagram_tv_rejected():
+    try:
+        detect_social_url("https://www.instagram.com/tv/ABC123/")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+def test_instagram_username_with_underscore():
+    platform, url = detect_social_url("https://www.instagram.com/user_name_123")
+    assert platform == "instagram"
+    assert url == "https://www.instagram.com/user_name_123"
+
+
+def test_instagram_username_with_dot():
+    platform, url = detect_social_url("https://www.instagram.com/user.name")
+    assert platform == "instagram"
+    assert url == "https://www.instagram.com/user.name"
+
+
+# ── Comprehensive URL validation: Facebook ───────────────────────────────────
+def test_facebook_group_rejected():
+    try:
+        detect_social_url("https://www.facebook.com/groups/mygroup")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+def test_facebook_events_rejected():
+    try:
+        detect_social_url("https://www.facebook.com/events/123456")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+def test_facebook_login_rejected():
+    try:
+        detect_social_url("https://www.facebook.com/login")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+def test_facebook_share_rejected():
+    try:
+        detect_social_url("https://www.facebook.com/sharer/sharer.php?u=example.com")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+def test_facebook_watch_rejected():
+    try:
+        detect_social_url("https://www.facebook.com/watch/?v=12345")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+def test_facebook_fb_com():
+    platform, url = detect_social_url("https://fb.com/acmeindia")
+    assert platform == "facebook"
+    assert url == "https://www.facebook.com/acmeindia"
+
+
+def test_facebook_web_facebook():
+    platform, url = detect_social_url("https://web.facebook.com/acmeindia")
+    assert platform == "facebook"
+    assert url == "https://www.facebook.com/acmeindia"
+
+
+# ── Comprehensive URL validation: LinkedIn ───────────────────────────────────
+def test_linkedin_school():
+    platform, url = detect_social_url("https://www.linkedin.com/school/acme-university")
+    assert platform == "linkedin"
+    assert url == "https://www.linkedin.com/school/acme-university"
+
+
+def test_linkedin_showcase():
+    platform, url = detect_social_url("https://www.linkedin.com/showcase/acme-products")
+    assert platform == "linkedin"
+    assert url == "https://www.linkedin.com/showcase/acme-products"
+
+
+def test_linkedin_personal_rejected():
+    try:
+        detect_social_url("https://www.linkedin.com/in/john-doe/")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+def test_linkedin_feed_rejected():
+    try:
+        detect_social_url("https://www.linkedin.com/feed/")
+        assert False, "expected UrlError"
+    except UrlError as e:
+        assert e.kind == "invalid"
+
+
+def test_linkedin_in_subdomain():
+    platform, url = detect_social_url("https://in.linkedin.com/company/acme-corp")
+    assert platform == "linkedin"
+    assert url == "https://www.linkedin.com/company/acme-corp"
+
+
+# ── Platform detection edge cases ────────────────────────────────────────────
+def test_platform_from_url_empty():
+    from app.social.url_detector import platform_from_url
+    assert platform_from_url("") is None
+    assert platform_from_url(None) is None
+
+
+def test_platform_from_url_garbage():
+    from app.social.url_detector import platform_from_url
+    assert platform_from_url("not-a-url") is None
+    assert platform_from_url("ftp://example.com") is None
+
+
+def test_platform_from_url_instagram():
+    from app.social.url_detector import platform_from_url
+    assert platform_from_url("https://www.instagram.com/user") == "instagram"
+    assert platform_from_url("instagram.com/user") == "instagram"
+
+
+def test_platform_from_url_youtube():
+    from app.social.url_detector import platform_from_url
+    assert platform_from_url("https://www.youtube.com/@handle") == "youtube"
+    assert platform_from_url("youtube.com/@handle") == "youtube"
+
+
+# ── Normalization edge cases ─────────────────────────────────────────────────
+def test_facebook_page_name_extraction():
+    platform, url = detect_social_url("https://www.facebook.com/acmeindia")
+    assert url == "https://www.facebook.com/acmeindia"
+    # The last path segment is the page name
+    page_name = url.rstrip("/").split("/")[-1]
+    assert page_name == "acmeindia"
+
+
+def test_instagram_username_extraction():
+    platform, url = detect_social_url("https://www.instagram.com/shyam.dealer")
+    username = url.rstrip("/").split("/")[-1]
+    assert username == "shyam.dealer"
+
+
+def test_youtube_handle_extraction():
+    platform, url = detect_social_url("https://www.youtube.com/@acme")
+    handle = url.rstrip("/").split("/")[-1]
+    assert handle == "@acme"
+
+
+def test_linkedin_company_slug_extraction():
+    platform, url = detect_social_url("https://www.linkedin.com/company/acme-corp")
+    slug = url.rstrip("/").split("/")[-1]
+    assert slug == "acme-corp"
