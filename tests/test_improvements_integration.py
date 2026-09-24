@@ -69,3 +69,22 @@ def test_crashed_search_worker_emits_job_failed():
         url_search.UrlSearchThread("URL_x", "https://facebook.com/x", 5,
                                    organization_id="org1", user_id="u1").run()
     assert calls and calls[0][1]["success"] is False and calls[0][0][1] == "URL_x"
+
+
+def test_client_ip_behind_proxy_uses_proxy_appended_address(monkeypatch):
+    """Behind Render's proxy every request arrives from the proxy; with
+    TRUST_PROXY_HEADERS the per-IP limits must key on the real client, and a
+    caller-supplied X-Forwarded-For prefix must not change it."""
+    from starlette.requests import Request
+    from app.auth import service
+
+    def req(xff):
+        headers = [(b"x-forwarded-for", xff.encode())] if xff else []
+        return Request({"type": "http", "headers": headers, "client": ("10.0.0.9", 1234)})
+
+    monkeypatch.setattr(service, "get_envvar_bool", lambda name, default=False: False)
+    assert service._get_client_ip(req("1.2.3.4")) == "10.0.0.9"  # not trusted: proxy address
+    monkeypatch.setattr(service, "get_envvar_bool", lambda name, default=False: True)
+    assert service._get_client_ip(req("203.0.113.7")) == "203.0.113.7"
+    assert service._get_client_ip(req("6.6.6.6, 203.0.113.7")) == "203.0.113.7"  # spoof ignored
+    assert service._get_client_ip(req("")) == "10.0.0.9"

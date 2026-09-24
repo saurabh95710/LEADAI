@@ -47,12 +47,12 @@ def _get_client_ip(request: Request) -> str:
         return request.client.host if request.client else "unknown"
     forwarded_for = request.headers.get("x-forwarded-for")
     if forwarded_for:
-        # X-Forwarded-For format: "client, proxy1, proxy2"
-        # Take the first (leftmost) entry which is the original client
-        # But only if we trust at least one proxy in the chain
+        # "client-supplied…, client, proxy-appended": the leftmost entries are
+        # whatever the caller sent (spoofable); the rightmost one is the
+        # address our proxy (e.g. Render's load balancer) actually saw.
         ips = [ip.strip() for ip in forwarded_for.split(",") if ip.strip()]
         if ips:
-            return ips[0]
+            return ips[-1]
     real_ip = request.headers.get("x-real-ip")
     if real_ip:
         return real_ip.strip()
