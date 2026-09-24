@@ -80,26 +80,34 @@ ENVVAR_REGISTRY: list[EnvVarDef] = [
      "group": "Scraping", "description": "Per-platform cap on comments per "
                                         "URL-search run."},
     # Security
+    {"name": "SUPERADMIN_EMAIL", "kind": "str", "secret": False, "restart": True,
+     "settings_attr": "superadmin_email", "default": "", "locked": True,
+     "group": "Security", "description": "Permanent Super Admin email. Set in the "
+                                        "hosting environment (e.g. Render); cannot "
+                                        "be changed from the app."},
+    {"name": "SUPERADMIN_PASSWORD", "kind": "str", "secret": True, "restart": True,
+     "settings_attr": "superadmin_password", "default": "", "locked": True,
+     "group": "Security", "description": "Permanent Super Admin password (plain or "
+                                        "a bcrypt hash). Set in the hosting "
+                                        "environment; never stored in the database."},
     {"name": "ADMIN_EMAIL", "kind": "str", "secret": False, "restart": False,
      "settings_attr": "admin_email", "default": "",
-     "group": "Security", "description": "Main website login email (/). "
-                                        "Read at login time — applies immediately."},
+     "group": "Security", "description": "Deprecated, optional. Legacy site login; "
+                                        "only used once at startup to copy its "
+                                        "password onto the database account."},
     {"name": "ADMIN_PASSWORD_HASH", "kind": "str", "secret": True, "restart": False,
      "settings_attr": "admin_password_hash", "default": "",
-     "group": "Security", "description": "Password hash for the main website "
-                                        "login. Managed automatically via "
-                                        "bcrypt. Read at login time."},
+     "group": "Security", "description": "Deprecated, optional. Hash copied onto the "
+                                        "ADMIN_EMAIL database account at startup."},
     {"name": "PANEL_ADMIN_EMAIL", "kind": "str", "secret": False, "restart": False,
      "settings_attr": "panel_admin_email", "default": "",
-     "group": "Security", "description": "Admin portal recovery super-admin "
-                                        "email (/admin). Read at login time — "
-                                        "applies immediately."},
+     "group": "Security", "description": "Deprecated: use SUPERADMIN_EMAIL. Legacy "
+                                        "Super Admin, only used when "
+                                        "SUPERADMIN_EMAIL is not set."},
     {"name": "PANEL_ADMIN_PASSWORD_HASH", "kind": "str", "secret": True, "restart": False,
      "settings_attr": "panel_admin_password_hash", "default": "",
-     "group": "Security", "description": "Password hash for the admin portal "
-                                        "recovery account. Managed automatically "
-                                        "via bcrypt. Use 'Change admin password' "
-                                        "instead of pasting hashes."},
+     "group": "Security", "description": "Deprecated: use SUPERADMIN_PASSWORD. "
+                                        "Legacy Super Admin password hash."},
     {"name": "ADMIN_PANEL_EMAIL", "kind": "str", "secret": False, "restart": False,
      "settings_attr": "admin_panel_email", "default": "",
      "group": "Security", "description": "Deprecated and ignored: organization "
@@ -107,8 +115,7 @@ ENVVAR_REGISTRY: list[EnvVarDef] = [
                                         "through the site login."},
     {"name": "ADMIN_PANEL_PASSWORD_HASH", "kind": "str", "secret": True, "restart": False,
      "settings_attr": "admin_panel_password_hash", "default": "",
-     "group": "Security", "description": "Password hash for the admin portal "
-                                        "account. Managed via bcrypt."},
+     "group": "Security", "description": "Deprecated and ignored."},
     {"name": "SESSION_SECRET", "kind": "str", "secret": True, "restart": False,
      "settings_attr": "session_secret", "default": "",
      "group": "Security", "description": "Secret signing session cookies. "
@@ -207,6 +214,10 @@ _REGISTRY: Dict[str, EnvVarDef] = {e["name"]: e for e in ENVVAR_REGISTRY}
 
 _SECRET_NAMES = {e["name"] for e in ENVVAR_REGISTRY if e.get("secret")}
 
+# Environment-only values (the permanent Super Admin): readable from the
+# process environment / .env alone — no DB override may set or shadow them.
+_LOCKED_NAMES = {e["name"] for e in ENVVAR_REGISTRY if e.get("locked")}
+
 # APIFY_API_TOKEN is stored under the settings key the scrapers already read,
 # so the Environment view and the Apify view stay one source of truth.
 _APIFY_TOKEN_KEY = "apify.token"
@@ -287,7 +298,7 @@ def get_envvar(name: str) -> Any:
     hit = _CACHE.get(name)
     if hit is not None and now - hit[0] < _CACHE_TTL:
         return hit[1]
-    doc = _sync_override(name)
+    doc = None if name in _LOCKED_NAMES else _sync_override(name)
     if doc is not None and doc.get("value") is not None:
         value = _coerce(name, doc["value"])
     else:
@@ -318,7 +329,7 @@ def get_envvar_bool(name: str, fallback: bool = False) -> bool:
 
 def set_envvar_override(name: str, value: Any, by: str = "admin") -> bool:
     """Persist a coerced override. Returns False when Mongo is down."""
-    if name not in _REGISTRY:
+    if name not in _REGISTRY or name in _LOCKED_NAMES:
         return False
     if name == "APIFY_API_TOKEN":
         return s_set_apify_token(value, by)
@@ -341,6 +352,8 @@ def set_envvar_override(name: str, value: Any, by: str = "admin") -> bool:
 
 
 async def aset_envvar_override(name: str, value: Any, by: str = "admin") -> bool:
+    if name in _LOCKED_NAMES:
+        return False
     if name == "APIFY_API_TOKEN":
         return s_set_apify_token(value, by)
     coerced = _coerce(name, value)
@@ -362,6 +375,8 @@ async def aset_envvar_override(name: str, value: Any, by: str = "admin") -> bool
 
 
 def delete_envvar_override(name: str) -> bool:
+    if name in _LOCKED_NAMES:
+        return False
     if name == "APIFY_API_TOKEN":
         try:
             from app.admin.settings import delete_setting
@@ -451,9 +466,27 @@ def envvar_info(name: str) -> Dict[str, Any]:
             "set": bool(value),
             "masked": _mask(value),
         }
-    doc = _sync_override(name)
+    locked = name in _LOCKED_NAMES
+    doc = None if locked else _sync_override(name)
     source = _source(name, doc)
     value = get_envvar(name)
+    if locked and definition.get("secret"):
+        return {
+            "name": name,
+            "group": definition.get("group", ""),
+            "description": definition.get("description", ""),
+            "kind": definition.get("kind", "str"),
+            "secret": True,
+            "restart": True,
+            "managed_elsewhere": True,
+            "source": source,
+            "overridden": False,
+            "updated_at": None,
+            "updated_by": None,
+            "value": "",
+            "set": bool(value),
+            "masked": "••••••••" if value else "",
+        }
     return {
         "name": name,
         "group": definition.get("group", ""),
@@ -461,7 +494,7 @@ def envvar_info(name: str) -> Dict[str, Any]:
         "kind": definition.get("kind", "str"),
         "secret": bool(definition.get("secret")),
         "restart": bool(definition.get("restart")),
-        "managed_elsewhere": False,
+        "managed_elsewhere": locked,
         "source": source,
         "overridden": doc is not None,
         "updated_at": (doc or {}).get("updated_at"),
@@ -482,6 +515,11 @@ def is_secret(name: str) -> bool:
 
 def known_name(name: str) -> bool:
     return name in _REGISTRY
+
+
+def is_locked(name: str) -> bool:
+    """Environment-only variable (cannot be set or reset from the app)."""
+    return name in _LOCKED_NAMES
 
 
 def clear_cache() -> None:

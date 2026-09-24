@@ -83,6 +83,10 @@ def _setup_logging():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _setup_logging()
+    # The permanent Super Admin (SUPERADMIN_EMAIL / SUPERADMIN_PASSWORD) is the
+    # only credential the deployment needs; report its state (never the value).
+    from app.auth.superadmin import validate_superadmin_config
+    validate_superadmin_config()
     if not settings.apify_api_token:
         logger.warning(
             "APIFY_API_TOKEN is not set in .env — searches will fail with an error. "
@@ -422,9 +426,9 @@ async def auth_gate(request: Request, call_next):
     the session themselves where needed).
 
     Sessions are scoped: the main website (``/``, ``/api/*``) needs a
-    ``site`` session (ADMIN_EMAIL login); the admin portal (``/admin``,
-    ``/api/admin/*``) needs an ``admin`` session (PANEL_ADMIN_EMAIL or
-    admin_users login). The super admin portal (``/superadmin``,
+    ``site`` session (a database user); the admin portal (``/admin``,
+    ``/api/admin/*``) needs an ``admin`` session (SUPERADMIN_EMAIL from the
+    environment, or an admin_users / platform-staff database account). The super admin portal (``/superadmin``,
     ``/api/super-admin/*``) also needs an ``admin`` session with
     super_admin role.
 

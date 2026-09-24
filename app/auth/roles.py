@@ -8,8 +8,8 @@ Three roles, enforced server-side on every /api/admin endpoint:
   * ``super_admin`` — manager + user management, security, destructive ops
 
 Accounts live in the ``admin_users`` collection (managed from the Security
-page). The .env ``admin_email`` account always exists as a recovery
-super-admin, so the panel can never be locked out entirely.
+page). The environment's SUPERADMIN_EMAIL account always exists as the
+permanent super-admin, so the panel can never be locked out entirely.
 
 The session cookie is signed, so a forged role in the cookie is impossible;
 role changes are re-read from the DB on every request.
@@ -43,9 +43,10 @@ def role_rank(role: str) -> int:
 
 
 def is_env_admin_email(email: str) -> bool:
-    from app.admin.envvars import get_envvar_str
-    expected = get_envvar_str("PANEL_ADMIN_EMAIL", settings.panel_admin_email)
-    return email.strip().lower() == expected.strip().lower()
+    """The environment-defined Super Admin (SUPERADMIN_EMAIL, or the legacy
+    PANEL_ADMIN_EMAIL when SUPERADMIN_EMAIL is not set)."""
+    from app.auth.superadmin import is_superadmin_email
+    return is_superadmin_email(email)
 
 
 def get_admin_record(email: str) -> Optional[Dict[str, Any]]:

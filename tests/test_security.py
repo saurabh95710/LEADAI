@@ -151,58 +151,34 @@ class TestAuthenticationFlow:
     """Test login, logout, and credential verification."""
 
     def test_site_login_correct_credentials(self, site_account):
+        """Site sign-in is database-only: an account without its own password
+        fails closed; with one, it signs in to its tenant."""
         from app.auth import service
-        from app.config import get_settings
-        from app.admin.envvars import clear_cache
-        clear_cache()
-        settings = get_settings()
-        settings.admin_email = "test@example.com"
-        settings.admin_password_hash = "a36aef5a11c4073fbe60314fc9df530a9d5f986533594d1f5190742ff9e0e408"
-        import app.admin.envvars as ev
-        ev.get_sync_db = lambda: None
-        try:
-            # no users record -> fail closed even with the right env password
-            assert service.verify_site_login("test@example.com", "Admin@2026") is None
-            site_account("test@example.com")
-            user = service.verify_site_login("test@example.com", "Admin@2026")
-            assert user is not None
-            assert user["email"] == "test@example.com"
-            assert user["scope"] == "site"
-            assert user["organization_id"]
-        finally:
-            ev.get_sync_db = _original_get_sync_db
+        from app.auth.crypto import hash_password
+        from app.db.mongo import get_sync_db
+        assert service.verify_saas_user_login("test@example.com", "Admin@2026")[0] is None
+        site_account("test@example.com")
+        assert service.verify_saas_user_login("test@example.com", "Admin@2026")[0] is None
+        get_sync_db().users.update_one({"email": "test@example.com"},
+                                       {"$set": {"password_hash": hash_password("Admin@2026")}})
+        user, err = service.verify_saas_user_login("test@example.com", "Admin@2026")
+        assert err is None and user is not None
+        assert user["email"] == "test@example.com"
+        assert user["scope"] == "site"
+        assert user["organization_id"]
 
-    def test_site_login_wrong_password(self):
+    def test_site_login_wrong_password(self, site_account):
         from app.auth import service
-        from app.config import get_settings
-        from app.admin.envvars import clear_cache
-        clear_cache()
-        settings = get_settings()
-        settings.admin_email = "test@example.com"
-        settings.admin_password_hash = "a36aef5a11c4073fbe60314fc9df530a9d5f986533594d1f5190742ff9e0e408"
-        import app.admin.envvars as ev
-        ev.get_sync_db = lambda: None
-        try:
-            user = service.verify_site_login("test@example.com", "wrong_password")
-            assert user is None
-        finally:
-            ev.get_sync_db = _original_get_sync_db
+        from app.auth.crypto import hash_password
+        from app.db.mongo import get_sync_db
+        site_account("test@example.com")
+        get_sync_db().users.update_one({"email": "test@example.com"},
+                                       {"$set": {"password_hash": hash_password("Admin@2026")}})
+        assert service.verify_saas_user_login("test@example.com", "wrong_password")[0] is None
 
     def test_site_login_wrong_email(self):
         from app.auth import service
-        from app.config import get_settings
-        from app.admin.envvars import clear_cache
-        clear_cache()
-        settings = get_settings()
-        settings.admin_email = "test@example.com"
-        settings.admin_password_hash = "a36aef5a11c4073fbe60314fc9df530a9d5f986533594d1f5190742ff9e0e408"
-        import app.admin.envvars as ev
-        ev.get_sync_db = lambda: None
-        try:
-            user = service.verify_site_login("other@example.com", "Admin@2026")
-            assert user is None
-        finally:
-            ev.get_sync_db = _original_get_sync_db
+        assert service.verify_saas_user_login("other@example.com", "Admin@2026")[0] is None
 
 
 # ── Rate Limiting Tests ─────────────────────────────────────────────────────

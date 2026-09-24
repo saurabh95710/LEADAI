@@ -83,6 +83,20 @@ def migrate_to_multi_tenant(db) -> Dict[str, Any]:
                 }
                 owner_user_id = str(db.users.insert_one(owner_user_doc).inserted_id)
                 logger.info("[Migration] Seeded default owner user '%s' (_id: %s)", admin_email, owner_user_id)
+        elif owner_user and not (owner_user.get("password_hash") or "").strip() \
+                and (settings.admin_password_hash or "").strip():
+            # Sign-in is database-only now: give the legacy ADMIN_EMAIL account
+            # its env password as its own hash (only when it has none), so it
+            # keeps working without ADMIN_* variables in the environment.
+            db.users.update_one(
+                {"_id": owner_user["_id"],
+                 "$or": [{"password_hash": {"$exists": False}},
+                         {"password_hash": None}, {"password_hash": ""}]},
+                {"$set": {"password_hash": settings.admin_password_hash.strip(),
+                          "updated_at": utcnow()}})
+            logger.info("[Migration] Copied ADMIN_PASSWORD_HASH onto the database "
+                        "account '%s' (sign-in is database-only).", admin_email)
+            report["owner_password_migrated"] = True
         if not owner_user_id:
             report["owner"] = "skipped"
 

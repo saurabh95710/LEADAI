@@ -1729,10 +1729,11 @@ All settings defined in `app/config.py` (`pydantic-settings`, `.env` file). Temp
 | `LINKEDIN_ACTOR_ID` | No | `harvestapi/linkedin-company` | LinkedIn company actor |
 | `LINKEDIN_POSTS_ACTOR_ID` | No | `harvestapi/linkedin-company-posts` | LinkedIn posts actor |
 | `MAX_COMMENTS_TO_COLLECT` | No | `100` | Global comment cap per run |
-| `ADMIN_EMAIL` | Yes | — | Site login email |
-| `ADMIN_PASSWORD_HASH` | Yes | — | bcrypt hash of site login password |
-| `PANEL_ADMIN_EMAIL` | Yes | — | Admin portal login email |
-| `PANEL_ADMIN_PASSWORD_HASH` | Yes | — | bcrypt hash of admin portal password |
+| `SUPERADMIN_EMAIL` | **Yes** | — | Permanent Super Admin email (environment only; not editable in the app) |
+| `SUPERADMIN_PASSWORD` | **Yes** | — | Permanent Super Admin password — plain (12+ chars) or a bcrypt hash |
+| `TRUST_PROXY_HEADERS` | No | `false` | Set `true` behind Render / a load balancer (real client IP for login limits) |
+| `PANEL_ADMIN_EMAIL` / `PANEL_ADMIN_PASSWORD_HASH` | No | — | Deprecated Super Admin names, used only when `SUPERADMIN_EMAIL` is unset |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD_HASH` | No | — | Deprecated site login; copied onto the database account at startup, then unused |
 | `SESSION_SECRET` | Yes³ | — | Secret for session cookie signing |
 | `SESSION_TTL_DAYS` | No | `7` | Session lifetime |
 | `SESSION_COOKIE_SECURE` | No | `false` | Set `true` for HTTPS |
@@ -1848,7 +1849,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` with your real values. At minimum: `APIFY_API_TOKEN`, `MONGO_URI`, `ADMIN_EMAIL`, `ADMIN_PASSWORD_HASH`, `PANEL_ADMIN_EMAIL`, `PANEL_ADMIN_PASSWORD_HASH`, `SESSION_SECRET`.
+Edit `.env` with your real values. At minimum: `MONGO_URI`, `SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD`, `SESSION_SECRET` (and `APIFY_API_TOKEN` to run searches). Admins and users are never configured here — they are database accounts created through demo signup and invitations.
 
 ```bash
 # Generate bcrypt password hash
@@ -1907,8 +1908,9 @@ URLs:
 
 | Scope | Login URL | Credential Source | Access |
 | --- | --- | --- | --- |
-| **Site** | `/login` | `ADMIN_EMAIL` + `ADMIN_PASSWORD_HASH` in `.env`, or `admin_users` collection | Main dashboard (`/`, `/api/*`) |
-| **Admin** | `/login?admin=1` | `PANEL_ADMIN_EMAIL` + `PANEL_ADMIN_PASSWORD_HASH` in `.env`, or `admin_users` collection | Admin panel (`/admin`, `/api/admin/*`) |
+| **Site** (org admins, managers, users, viewers) | `/login` | Database accounts (`users` + `organization_members`), created by signup / invitation | User portal (`/`, `/api/*`) and Org Admin portal (`/org-admin`) |
+| **Super Admin** | `/login?superadmin=1` | `SUPERADMIN_EMAIL` + `SUPERADMIN_PASSWORD` environment variables (permanent) | Super Admin portal (`/superadmin`) and platform console (`/admin`) |
+| **Platform staff** | `/login?admin=1` | `admin_users` collection / `users.platform_role` (created by the Super Admin) | Platform console (`/admin`) by role |
 
 ### Public Pages (No Auth Required)
 

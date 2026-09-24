@@ -22,6 +22,7 @@ _SECRET_PATTERNS = [
     (re.compile(r'(SESSION_SECRET["\s:=]+)\S+', re.I), r'\1********'),
     (re.compile(r'(ADMIN_PASSWORD_HASH["\s:=]+)\S+', re.I), r'\1********'),
     (re.compile(r'(PANEL_ADMIN_PASSWORD_HASH["\s:=]+)\S+', re.I), r'\1********'),
+    (re.compile(r'(SUPERADMIN_PASSWORD["\s:=]+)\S+', re.I), r'\1********'),
     (re.compile(r'(Authorization["\s:=]+Bearer\s+)\S+', re.I), r'\1********'),
     (re.compile(r'(password["\s:=]+)\S+', re.I), r'\1********'),
     (re.compile(r'(token["\s:=]+)\S+', re.I), r'\1********'),
@@ -30,7 +31,7 @@ _SECRET_PATTERNS = [
 
 _SECRET_KEYS = {
     'token', 'password', 'password_hash', 'session_secret',
-    'admin_password_hash', 'panel_admin_password_hash',
+    'admin_password_hash', 'panel_admin_password_hash', 'superadmin_password',
     'apify_api_token', 'gemini_api_key', 'new_password', 'old_password',
     'secret', 'authorization', 'cookie',
 }

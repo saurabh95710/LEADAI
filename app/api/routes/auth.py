@@ -46,7 +46,6 @@ from app.auth.service import (
     set_session_cookie,
     verify_admin_login,
     verify_saas_user_login,
-    verify_site_login,
 )
 from app.auth.rate_limit import RateLimiter
 from app.db.models import utcnow
@@ -172,13 +171,12 @@ async def login(body: LoginRequest, request: Request, response: Response):
             if saas_user and saas_user.get("is_platform_admin"):
                 user = saas_user
     else:
+        # Admins and users are database accounts only (RBAC + invitations).
         saas_user, err = verify_saas_user_login(email, body.password, scope="site")
         if saas_user:
             user = saas_user
         elif err and err != "Invalid email or password":
             auth_error = err
-        else:
-            user = verify_site_login(email, body.password)
 
     blocking = {
         "Demo pending approval": (403, "demo_pending",

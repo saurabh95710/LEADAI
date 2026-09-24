@@ -1,8 +1,9 @@
 """
 Environment variable management tests: the registry (defaults, coercion,
 override precedence over .env, source reporting, masking) and the dynamic
-wiring (login reads the ADMIN_PASSWORD_HASH override, session TTL/cookie
-flags are dynamic, the Gemini key is read at call time).
+wiring (the legacy PANEL_ADMIN_PASSWORD_HASH override, SUPERADMIN_* being
+environment-only, session TTL/cookie flags are dynamic, the Gemini key is
+read at call time).
 """
 import hashlib
 import os
@@ -234,26 +235,40 @@ def test_require_env_unlocked_allows_valid_cookie():
 
 # ── Dynamic wiring ──────────────────────────────────────────────────────────
 
-def test_login_uses_admin_password_override(monkeypatch):
-    _patch_overrides(monkeypatch, {"ADMIN_PASSWORD_HASH": "0" * 64})
-    monkeypatch.setattr(auth_svc, "_admin_user_record", lambda email: None)
-    assert auth_svc.verify_site_login("Admin@gmail.com", "anything") is None
-    _patch_overrides(monkeypatch, {})
-    assert auth_svc.verify_site_login("Admin@gmail.com", "wrong") is None
-
-
-def test_login_with_override_password_succeeds(monkeypatch, site_account):
+def test_admin_password_override_grants_no_site_login(monkeypatch, site_account):
+    """ADMIN_EMAIL / ADMIN_PASSWORD_HASH (env or override) are not a login
+    path any more: site sign-in is database accounts only."""
     new_hash = hashlib.sha256(b"NewPass@2026").hexdigest()
     _patch_overrides(monkeypatch, {"ADMIN_PASSWORD_HASH": new_hash,
                                    "ADMIN_EMAIL": "Admin@gmail.com"})
-    monkeypatch.setattr(auth_svc, "_admin_user_record", lambda email: None)
-    # without a users record the env credentials fail closed
-    assert auth_svc.verify_site_login("Admin@gmail.com", "NewPass@2026") is None
-    # the env site login only succeeds for an existing active tenant account
     site_account("admin@gmail.com")
-    user = auth_svc.verify_site_login("Admin@gmail.com", "NewPass@2026")
-    assert user is not None and user["scope"] == "site"
-    assert auth_svc.verify_site_login("Admin@gmail.com", "Admin@2026") is None
+    user, _err = auth_svc.verify_saas_user_login("Admin@gmail.com", "NewPass@2026")
+    assert user is None
+
+
+def test_superadmin_vars_are_environment_only(monkeypatch):
+    """SUPERADMIN_* can't be set, reset or shadowed from the app, and the
+    password is never exposed (not even its last characters)."""
+    from app.config import get_settings
+    s = get_settings()
+    saved = (s.superadmin_email, s.superadmin_password)
+    s.superadmin_email, s.superadmin_password = "owner@leadai.example", "Perm@nent-Pass-2026"
+    try:
+        _patch_overrides(monkeypatch, {"SUPERADMIN_EMAIL": "evil@example.com",
+                                       "SUPERADMIN_PASSWORD": "evil-password"})
+        assert ev.is_locked("SUPERADMIN_EMAIL") and ev.is_locked("SUPERADMIN_PASSWORD")
+        assert ev.get_envvar_str("SUPERADMIN_EMAIL") == "owner@leadai.example"
+        assert ev.set_envvar_override("SUPERADMIN_PASSWORD", "x") is False
+        assert ev.delete_envvar_override("SUPERADMIN_EMAIL") is False
+        info = ev.envvar_info("SUPERADMIN_PASSWORD")
+        assert info["managed_elsewhere"] and info["set"] and not info["overridden"]
+        assert "2026" not in str(info) and info["value"] == ""
+        assert ev.envvar_info("SUPERADMIN_EMAIL")["managed_elsewhere"] is True
+        user = auth_svc.verify_admin_login("owner@leadai.example", "Perm@nent-Pass-2026")
+        assert user is not None and user["role"] == "super_admin"
+        assert auth_svc.verify_admin_login("evil@example.com", "evil-password") is None
+    finally:
+        s.superadmin_email, s.superadmin_password = saved
 
 
 def test_panel_login_uses_panel_password_override(monkeypatch):

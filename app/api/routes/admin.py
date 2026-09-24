@@ -45,6 +45,12 @@ from app.db.mongo import get_async_db
 from app.db.models import utcnow
 
 logger = logging.getLogger(__name__)
+
+
+def _env_superadmin_email() -> str:
+    from app.auth.superadmin import superadmin_email
+    return superadmin_email()
+
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 settings = get_settings()
 _APP_START_TIME = time.time()
@@ -1425,6 +1431,10 @@ async def env_set(name: str, body: EnvVarUpdateRequest,
                   admin: dict = Depends(require_viewer)):
     if not ev.known_name(name):
         raise HTTPException(status_code=404, detail=f"Unknown env var: {name}")
+    if ev.is_locked(name):
+        raise HTTPException(status_code=409, detail=(
+            f"{name} is set in the hosting environment (e.g. Render → Environment) "
+            "and cannot be changed from the app."))
     # Secrets are editable like everything else here: the guard password on
     # the whole section is the protection, so no extra role gate.
     value = body.value
@@ -1442,6 +1452,10 @@ async def env_set(name: str, body: EnvVarUpdateRequest,
 async def env_delete(name: str, admin: dict = Depends(require_viewer)):
     if not ev.known_name(name):
         raise HTTPException(status_code=404, detail=f"Unknown env var: {name}")
+    if ev.is_locked(name):
+        raise HTTPException(status_code=409, detail=(
+            f"{name} is set in the hosting environment (e.g. Render → Environment) "
+            "and cannot be changed from the app."))
     if not ev.envvar_info(name)["overridden"]:
         return {"success": True, "message": "No override to remove"}
     ok = ev.delete_envvar_override(name)
@@ -1456,8 +1470,14 @@ async def env_delete(name: str, admin: dict = Depends(require_viewer)):
 async def env_change_password(body: EnvPasswordRequest):
     """Change the admin portal's recovery password: hash it server-side,
     store as an override of PANEL_ADMIN_PASSWORD_HASH. Takes effect on the
-    next admin login."""
+    next admin login. Refused while SUPERADMIN_PASSWORD defines the Super
+    Admin (that password is permanent and lives in the environment)."""
     from app.auth.crypto import hash_password
+    from app.auth.superadmin import managed_by_env
+    if managed_by_env():
+        raise HTTPException(status_code=409, detail=(
+            "The Super Admin password is set by SUPERADMIN_PASSWORD in the hosting "
+            "environment (e.g. Render → Environment). Change it there."))
     hashed = hash_password(body.new_password)
     ok = await ev.aset_envvar_override("PANEL_ADMIN_PASSWORD_HASH", hashed, by="admin")
     if not ok:
@@ -2275,7 +2295,7 @@ async def list_users():
         rows.append(d)
 
     env_admin = {
-        "email": ev.get_envvar_str("PANEL_ADMIN_EMAIL", settings.panel_admin_email),
+        "email": _env_superadmin_email(),
         "name": "Admin",
         "role": "super_admin",
         "env_account": True,
@@ -2355,7 +2375,7 @@ async def delete_user(user_id: str):
     user = await db["admin_users"].find_one({"_id": oid})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    if user["email"] == ev.get_envvar_str("PANEL_ADMIN_EMAIL", settings.panel_admin_email):
+    if user["email"] == _env_superadmin_email():
         raise HTTPException(status_code=400, detail="The environment admin account cannot be deleted")
     await db["admin_users"].delete_one({"_id": oid})
     await a.aaudit("user.delete", "users", details={"email": user["email"]})

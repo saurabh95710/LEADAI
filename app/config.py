@@ -25,20 +25,26 @@ class Settings(BaseSettings):
     # Apify — the Facebook data source
     apify_api_token: str = ""
 
-    # ── Site sign-in (locks the user app) ──────────────────────────────
-    # Email + password hash for the main website login page.
-    # Password hashes are stored as bcrypt hashes (migrated from SHA-256).
-    # Set these in .env — no default credentials are embedded in source.
+    # ── Super Admin (permanent platform owner) ─────────────────────────
+    # The ONLY credentials configured through the environment (Render env
+    # vars / .env). Read from the environment alone — never from the admin
+    # panel's DB overrides. SUPERADMIN_PASSWORD may be the plain password or a
+    # bcrypt hash ($2b$...). Admins and users are database accounts created
+    # through signup / invitations, never environment variables.
+    superadmin_email: str = ""
+    superadmin_password: str = ""
+
+    # ── Deprecated (optional, never required) ──────────────────────────
+    # ADMIN_EMAIL / ADMIN_PASSWORD_HASH: legacy single site login. Only read
+    # by the startup migration, which copies the hash onto that user's own
+    # database record; sign-in itself is database-only.
     admin_email: str = ""
     admin_password_hash: str = ""
-    # ── Admin portal sign-in (locks /admin and /api/admin/*) ───────────
-    # Customer organization admin. Managed accounts live in
-    # the admin_users collection (Security page); a DB record with the same
-    # email takes precedence over this env account.
+    # ADMIN_PANEL_*: ignored (organization admins are database users).
     admin_panel_email: str = ""
     admin_panel_password_hash: str = ""
-    # ── Super Admin portal sign-in (locks /super-admin) ────────────────
-    # Platform owner / recovery super-admin for the admin panel.
+    # PANEL_ADMIN_*: legacy name of the Super Admin recovery account, used
+    # only when SUPERADMIN_EMAIL is not set.
     panel_admin_email: str = ""
     panel_admin_password_hash: str = ""
     # Secret signing the session cookie (any long random string; without it a

@@ -188,12 +188,6 @@ def _migrate_password_hash(email: str, new_hash: str, scope: str) -> None:
                     {"_id": record["_id"]},
                     {"$set": {"password_hash": new_hash, "updated_at": utcnow()}})
                 logger.info("Migrated admin password hash to bcrypt for %s", email)
-        elif scope == "site":
-            # Site admin hash is stored in env_overrides or config
-            # We update the env_overrides so it takes precedence
-            from app.admin.envvars import set_envvar_override
-            set_envvar_override("ADMIN_PASSWORD_HASH", new_hash, by="system")
-            logger.info("Migrated site admin password hash to bcrypt")
         elif scope == "panel":
             from app.admin.envvars import set_envvar_override
             set_envvar_override("PANEL_ADMIN_PASSWORD_HASH", new_hash, by="system")
@@ -203,10 +197,6 @@ def _migrate_password_hash(email: str, new_hash: str, scope: str) -> None:
 
 
 # ── Credential verification (two scopes) ─────────────────────────────────
-
-def _site_scope_user(email: str) -> Dict[str, Any]:
-    return {"email": email, "name": "User", "role": "user", "scope": "site"}
-
 
 def _panel_scope_user(email: str, name: str, role: str) -> Dict[str, Any]:
     is_super = role == "super_admin"
@@ -218,37 +208,6 @@ def _panel_scope_user(email: str, name: str, role: str) -> Dict[str, Any]:
         "is_platform_admin": is_super,
         "platform_role": role if is_super else None,
     }
-
-
-def verify_site_login(email: str, password: str) -> Optional[Dict[str, Any]]:
-    """Constant-time check for the MAIN WEBSITE login (scope "site").
-
-    The .env ``admin_email`` + ``admin_password_hash`` pair locks the user
-    app at /. Supports automatic migration from legacy SHA-256 to bcrypt.
-    """
-    email_clean = email.strip().lower()
-    expected_email = get_envvar_str("ADMIN_EMAIL",
-                                    settings.admin_email).strip().lower()
-    if not expected_email or email_clean != expected_email:
-        return None
-    expected_hash = (get_envvar_str("ADMIN_PASSWORD_HASH",
-                                    settings.admin_password_hash)
-                     or "").strip()
-    if not expected_hash or not password:
-        return None
-    valid, new_hash = _verify_and_migrate_password(password, expected_hash)
-    if not valid:
-        return None
-    # Transparent migration: upgrade legacy hash to bcrypt
-    if new_hash:
-        _migrate_password_hash(email_clean, new_hash, "site")
-    db = get_sync_db()
-    record = db["users"].find_one({"email": email_clean}) if db is not None else None
-    if record is None or record.get("status", "active") != "active":
-        # no tenant to attach the session to -> no site session (fail closed)
-        return None
-    claims, _err = build_user_claims(db, record)
-    return claims
 
 
 def verify_admin_login(email: str, password: str) -> Optional[Dict[str, Any]]:
@@ -265,6 +224,16 @@ def verify_admin_login(email: str, password: str) -> Optional[Dict[str, Any]]:
     """
     email_clean = email.strip().lower()
     now = time.time()
+
+    # 0) The permanent Super Admin (SUPERADMIN_EMAIL / SUPERADMIN_PASSWORD):
+    #    for that email the environment is the only source of truth.
+    from app.auth.superadmin import managed_by_env, verify_env_superadmin
+    env_result = verify_env_superadmin(email_clean, password)
+    if env_result is not None:
+        if not env_result:
+            return None
+        _touch_last_login(email_clean, now)
+        return _panel_scope_user(email_clean, "Super Admin", "super_admin")
 
     # 1) Managed account (admin_users) — takes precedence for the env email
     record = _admin_user_record(email_clean)
@@ -293,9 +262,9 @@ def verify_admin_login(email: str, password: str) -> Optional[Dict[str, Any]]:
             record.get("role") or "viewer",
         )
 
-    # 2) Env super admin (platform owner)
-    expected_email = get_envvar_str("PANEL_ADMIN_EMAIL",
-                                    settings.panel_admin_email).strip().lower()
+    # 2) Legacy env super admin (PANEL_ADMIN_*), only without SUPERADMIN_*
+    expected_email = "" if managed_by_env() else get_envvar_str(
+        "PANEL_ADMIN_EMAIL", settings.panel_admin_email).strip().lower()
     if expected_email and email_clean == expected_email:
         expected_hash = (get_envvar_str("PANEL_ADMIN_PASSWORD_HASH",
                                         settings.panel_admin_password_hash)

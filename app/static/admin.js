@@ -2642,12 +2642,13 @@ async function viewEnvironment() {
                   ${v.overridden ? `<span class="adm-badge amber">override</span>` : `<span class="adm-badge gray plain">${esc(v.source || "default")}</span>`}
                   ${v.restart ? `<span class="adm-badge gold">restart needed</span>` : ""}
                 </div>
-                <span class="adm-code">${v.secret ? `••••${(v.masked && v.masked.length > 4 ? esc(v.masked.slice(-4)) : "")}` : esc(String(v.value ?? "—").slice(0, 60))}</span>
+                <span class="adm-code">${v.secret ? (v.managed_elsewhere ? (v.set ? "••••••••" : "not set") : `••••${(v.masked && v.masked.length > 4 ? esc(v.masked.slice(-4)) : "")}`) : esc(String(v.value ?? "—").slice(0, 60))}</span>
                 <div class="adm-cell-sub">${esc(v.description || "")}</div>
                 <div class="adm-env-actions">
+                  ${v.managed_elsewhere ? `<span class="adm-hint">set in the hosting environment (e.g. Render) — read-only here</span>` : `
                   ${v.secret ? `<span class="adm-hint">value never exposed</span>` : ""}
                   <button class="adm-btn small" data-edit data-key="${esc(v.name)}" data-secret="${v.secret}" ${role === "viewer" ? "disabled" : ""}>${icon("edit", 12)} Edit</button>
-                  <button class="adm-btn small danger" data-reset data-key="${esc(v.name)}" ${v.overridden && role !== "viewer" ? "" : "disabled"}>Reset</button>
+                  <button class="adm-btn small danger" data-reset data-key="${esc(v.name)}" ${v.overridden && role !== "viewer" ? "" : "disabled"}>Reset</button>`}
                 </div>
               </div>`).join("")}
           </div>
