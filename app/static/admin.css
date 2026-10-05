@@ -2356,3 +2356,20 @@ button.adm-card.adm-stat-link:hover { transform: translateY(-2px); box-shadow: v
   .adm-stat-link:hover .adm-stat-go,
   .adm-stat-link:focus-visible .adm-stat-go { transform: none; }
 }
+
+/* ── Phone widths: page/card header actions, pill bars and banners wrap ── */
+.adm-grid-4.adm-kr-kpis { gap: 14px; }
+/* banner messages wrap instead of being cut off at the table-cell width */
+.adm-banner > div { min-width: 0; flex: 1 1 auto; }
+.adm-banner .adm-cell-main { white-space: normal; max-width: none; }
+@media (max-width: 900px) {
+  .adm-kr-kpis { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 640px) {
+  .adm-head-actions { flex-wrap: wrap; }
+  .adm-pills { flex-wrap: wrap; max-width: 100%; }
+  .adm-card-head-row { flex-wrap: wrap; }
+  .adm-banner { flex-wrap: wrap; }
+  .adm-grid-4.adm-kr-kpis { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .adm-kr-kpis .adm-kpi { min-width: 0; }
+}

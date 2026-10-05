@@ -286,9 +286,14 @@ class TestAuthGate:
         assert "unauthorized" in resp.json().get("error", "")
 
     def test_html_without_session_redirects(self, client):
+        for path in ("/user", "/dashboard"):
+            resp = client.get(path, follow_redirects=False)
+            assert resp.status_code == 303
+            assert "/login" in resp.headers.get("location", "")
+
+    def test_root_is_the_public_website(self, client):
         resp = client.get("/", follow_redirects=False)
-        assert resp.status_code == 303
-        assert "/login" in resp.headers.get("location", "")
+        assert resp.status_code == 200 and "website.js" in resp.text
 
     def test_admin_html_without_session_redirects(self, client):
         resp = client.get("/admin", follow_redirects=False)
@@ -539,3 +544,11 @@ class TestErrorHandling:
     def test_method_not_allowed(self, client):
         resp = client.put("/health")
         assert resp.status_code in (405, 404)
+
+
+def test_session_status_is_public_and_carries_no_personal_data():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    with TestClient(app) as c:
+        r = c.get("/api/auth/status")
+        assert r.status_code == 200 and r.json() == {"signed_in": False, "scope": None, "home": None}

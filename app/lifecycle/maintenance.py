@@ -190,17 +190,17 @@ def run_lifecycle_sweep(db=None, *, dry_run: bool = False, planned: Optional[lis
             continue
         if exp <= now and not demo.get("expired_notified"):
             db.organizations.update_one({"_id": org["_id"]}, {"$set": {"demo.expired_notified": True}})
-            notify_org_admins(org_id, "demo_expired", "Your LeadAI demo has ended",
+            notify_org_admins(org_id, "demo_expired", "Your LeadAI free trial has ended",
                               "Choose a plan to keep using LeadAI — your searches and leads are kept.",
-                              severity="warning", email=True, link="/dashboard#billing")
-            notify_super_admins("demo_expired", "Demo expired", f"{org.get('name') or org_id}",
+                              severity="warning", email=True, link="/user#billing")
+            notify_super_admins("demo_expired", "Free trial ended", f"{org.get('name') or org_id}",
                                 link="/superadmin#/organizations/" + org_id)
             out["demo_expired"] += 1
         elif now < exp <= now + timedelta(days=DEMO_WARN_DAYS) and not demo.get("expiring_notified"):
             db.organizations.update_one({"_id": org["_id"]}, {"$set": {"demo.expiring_notified": True}})
-            notify_org_admins(org_id, "demo_expiring", "Your LeadAI demo ends soon",
-                              f"Your demo ends on {exp:%d %b %Y %H:%M} UTC. Choose a plan to continue without interruption.",
-                              severity="info", email=True, link="/dashboard#billing")
+            notify_org_admins(org_id, "demo_expiring", "Your LeadAI free trial ends soon",
+                              f"Your free trial ends on {exp:%d %b %Y %H:%M} UTC. Choose a plan to continue without interruption.",
+                              severity="info", email=True, link="/user#billing")
             out["demo_expiring"] += 1
     if any(out.values()):
         logger.info("[lifecycle] sweep%s: %s", " (preview)" if dry_run else "", out)

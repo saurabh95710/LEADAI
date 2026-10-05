@@ -505,3 +505,49 @@ def _async(value):
     async def _f():
         return value
     return _f()
+
+
+# ── audit fixes: comment qualification, API key scopes, seat alert ───────────
+
+def test_admin_comment_list_shows_and_filters_qualification(env):
+    client, db = env
+    org = _org(db, "Qual Org")
+    uid = _user(db, "qa@qual.test", org, "owner")
+    common = {"organization_id": org, "user_id": uid, "created_by": "qa@qual.test"}
+    db.facebook_comments.insert_many([
+        {**common, "text": "price?", "post_ref": "p1", "keyword_filter_status": "MATCHED"},
+        {**common, "text": "nice", "post_ref": "p1", "keyword_filter_status": "NOT_MATCHED"}])
+    cookies = _cookie(uid, "qa@qual.test", org, "owner")
+    items = client.get("/api/org-admin/data/comments", cookies=cookies).json()["items"]
+    assert {i["text"]: i["qualification"] for i in items} == {"price?": "qualified", "nice": "not_qualified"}
+    nq = client.get("/api/org-admin/data/comments?qualification=not_qualified", cookies=cookies).json()["items"]
+    assert [i["text"] for i in nq] == ["nice"]
+    q = client.get("/api/org-admin/data/comments?qualification=qualified", cookies=cookies).json()["items"]
+    assert [i["text"] for i in q] == ["price?"]
+
+
+def test_admin_api_keys_only_grant_documented_scopes(env):
+    client, db = env
+    org = _org(db, "Key Org")
+    uid = _user(db, "own@key.test", org, "owner")
+    cookies = _cookie(uid, "own@key.test", org, "owner")
+    r = client.post("/api/org-admin/api-keys", json={"name": "all", "scopes": ["*"]}, cookies=cookies)
+    assert r.status_code == 422
+    r = client.post("/api/org-admin/api-keys", json={"name": "read", "scopes": ["leads:read"]}, cookies=cookies)
+    assert r.status_code == 200 and r.json()["scopes"] == ["leads:read"]
+
+
+def test_full_seats_are_a_note_not_an_alarm(env):
+    client, db = env
+    org = _org(db, "Seat Org")
+    uid = _user(db, "own@seat.test", org, "owner")
+    cookies = _cookie(uid, "own@seat.test", org, "owner")
+    fake = {"metrics": {"team_members": {"used": 1, "limit": 1, "percentage": 100.0},
+                        "monthly_searches": {"used": 9, "limit": 10, "percentage": 90.0},
+                        "monthly_leads": {"used": 5, "limit": 1_000_000_000, "percentage": 0.0}}}
+    with patch("app.billing.entitlements.EntitlementService.get_usage_summary", new=lambda *a, **k: _async(fake)):
+        r = client.get("/api/org-admin/overview", cookies=cookies)
+    alerts = {a["metric"]: a for a in r.json().get("alerts", [])}
+    assert alerts["team_members"]["severity"] == "info"
+    assert alerts["monthly_searches"]["severity"] == "warning"
+    assert "monthly_leads" not in alerts

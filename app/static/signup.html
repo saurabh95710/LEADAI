@@ -83,14 +83,14 @@
         </ul>
         <p class="aside-note">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          <span>Every demo request is reviewed by our team. Once approved, you'll get an email and can sign in with the password you choose here.</span>
+          <span id="asideNote">Every demo request is reviewed by our team. Once approved, you'll get an email and can sign in with the password you choose here.</span>
         </p>
       </aside>
 
       <section class="signup-main" aria-labelledby="title">
         <div class="auth-header" style="margin-bottom:24px">
           <h1 class="auth-title" id="title" tabindex="-1">Request a demo</h1>
-          <p class="auth-subtitle">Tell us a little about you. It takes under a minute.</p>
+          <p class="auth-subtitle" id="subtitle">Tell us a little about you. It takes under a minute.</p>
         </div>
 
         <div class="alert alert-danger hidden" id="formAlert" role="alert" style="margin-bottom:18px">
@@ -150,7 +150,7 @@
               </button>
             </div>
             <div class="pw-meter" id="pwMeter" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
-            <div class="pw-meter-label"><span id="pwStrength" aria-live="polite"></span><span class="text-muted">You'll use this to sign in once approved</span></div>
+            <div class="pw-meter-label"><span id="pwStrength" aria-live="polite"></span><span class="text-muted" id="pwHint">You'll use this to sign in once approved</span></div>
             <ul class="pw-rules" id="pwRules" aria-label="Password requirements">
               <li data-rule="length">8+ characters<span class="sr-only"></span></li>
               <li data-rule="upper">An uppercase letter<span class="sr-only"></span></li>
@@ -176,7 +176,7 @@
             <span class="spinner" aria-hidden="true"></span><span class="btn-label">Request demo</span>
           </button>
         </form>
-        <p class="auth-alt">Already approved? <a class="link" href="/login">Sign in</a></p>
+        <p class="auth-alt"><span id="altText">Already approved?</span> <a class="link" href="/login">Sign in</a></p>
       </section>
     </div>
   </main>
@@ -221,6 +221,26 @@
     else refCode = (sessionStorage.getItem("leadai_ref_code") || "").replace(/[^a-z0-9_-]/gi, "").slice(0, 40);
   } catch (_) {}
   if (chosenPlan) { var pn = $("planNote"); pn.textContent = "Interested in the " + chosenPlan + " plan — you start with a free demo, and choose your plan after approval."; pn.hidden = false; }
+
+  // Self-serve free trial (Super Admin → demo settings → auto-approve): the
+  // account works the moment it's created, so the page says so.
+  var trialMode = false;
+  fetch("/api/public/config").then(function (r) { return r.ok ? r.json() : {}; }).then(function (d) {
+    var t = (d && (d.trial || (d.config && d.config.trial))) || {};
+    if (!t.self_serve) return;
+    trialMode = true;
+    var days = t.days > 0 ? t.days + "-day " : "";
+    document.title = "Start your free trial · LeadAI";
+    $("title").textContent = "Start your free " + days + "trial";
+    $("subtitle").textContent = "Create your account and start finding leads right away — no approval, no card.";
+    $("submitBtn").querySelector(".btn-label").textContent = "Start free trial";
+    $("pwHint").textContent = "You'll use this to sign in";
+    $("altText").textContent = "Already have an account?";
+    $("asideNote").textContent = "Your " + days + "free trial starts the moment you sign up" +
+      (t.credits > 0 ? ", with " + t.credits + " tokens to try LeadAI" : "") +
+      ". Choose a plan any time from Billing in your dashboard.";
+    if (chosenPlan) $("planNote").textContent = "Interested in the " + chosenPlan + " plan — start with the free trial, then choose your plan from Billing.";
+  }).catch(function () {});
 
   function validators() {
     return {
@@ -277,7 +297,7 @@
     if (firstInvalid) { firstInvalid.focus(); return; }
 
     var btn = $("submitBtn");
-    UI.setBusy(btn, true, "Sending request…");
+    UI.setBusy(btn, true, trialMode ? "Creating your account…" : "Sending request…");
     var email = f.email.value.trim();
     var res = await UI.api("/api/auth/signup", {
       method: "POST",
@@ -296,6 +316,12 @@
     });
 
     if (res.ok && res.data && res.data.success !== false) {
+      if (res.data.signed_in) {
+        // free trial started and signed in: straight to the user panel
+        $("submitBtn").querySelector(".btn-label").textContent = "Trial started — opening your dashboard…";
+        location.href = res.data.redirect || "/dashboard";
+        return;
+      }
       $("submitBtn").querySelector(".btn-label").textContent = "Request sent — redirecting…";
       if (res.data.status === "approved") {
         location.href = "/login?approved=1";
@@ -308,7 +334,8 @@
     UI.setBusy(btn, false);
 
     if (res.networkError) {
-      formAlert("We couldn't reach LeadAI. Check your connection and press “Request demo” again — your details are still here.");
+      formAlert("We couldn't reach LeadAI. Check your connection and press “" +
+        (trialMode ? "Start free trial" : "Request demo") + "” again — your details are still here.");
       return;
     }
     var msg = UI.errorMessage(res.data, "We couldn't send your request. Please try again.");

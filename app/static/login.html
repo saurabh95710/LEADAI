@@ -618,6 +618,12 @@
     $("loginEmail").placeholder = (isSuperAdminLogin || isAdminLogin) ? "admin@company.com" : "you@company.com";
     // "Request a demo" is for new customers — not shown on the admin portals.
     if (isAdminLogin || isSuperAdminLogin || isPartnerLogin) $("demoRow").hidden = true;
+    else fetch("/api/public/config").then(function (r) { return r.ok ? r.json() : {}; }).then(function (d) {
+      // self-serve free trial: sign-up starts it at once
+      var t = (d && d.trial) || {};
+      if (t.self_serve) $("demoRow").querySelector("a").textContent =
+        "Start a free " + (t.days > 0 ? t.days + "-day " : "") + "trial";
+    }).catch(function () {});
     if (isPartnerLogin) $("partnerRow").hidden = false;
 
     // ── Safe post-login redirect: only same-site relative paths ──
@@ -763,8 +769,12 @@
 
     // Where to go after sign-in: ?next= wins, then by account type.
     function destinationFor(user) {
-      const isPlatformAdmin = !!(user.is_platform_admin || user.platform_role);
-      const isOrgAdmin = user.org_role === "owner" || user.org_role === "admin";
+      // platform-console staff (managers / viewers from the admin Security page)
+      // sign in with scope "admin" and belong to no organization
+      const isConsoleStaff = user.scope === "admin" && !user.organization_id &&
+        (user.role === "manager" || user.role === "viewer");
+      const isPlatformAdmin = !!(user.is_platform_admin || user.platform_role) || isConsoleStaff;
+      const isOrgAdmin = !isConsoleStaff && (user.org_role === "owner" || user.org_role === "admin");
 
       if (nextPath) {
         // If a non-platform customer had ?next=/admin, redirect to /org-admin
@@ -783,7 +793,7 @@
         return "/org-admin";
       }
 
-      return "/dashboard";
+      return "/user";
     }
 
     // ── Sign in (POST /api/auth/login) ──

@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="/static/design/tokens.css?v=r1005">
   <!-- shared components in a cascade layer: the portal's own (unlayered) rules always win -->
   <style id="dsLayer">@layer ds, ds-reset; @import url("/static/design/components.css?v=step4") layer(ds);</style>
-  <link rel="stylesheet" href="/static/styles.css?v=step7">
+  <link rel="stylesheet" href="/static/styles.css?v=audit1">
   <link rel="stylesheet" href="/static/design/domain-keywords.css?v=1">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
 </head>
@@ -684,7 +684,7 @@
               </div>
 
               <div class="recent-table glass-card">
-                <div class="empty-state" id="recentSearchesEmpty">
+                <div class="empty-state hidden" id="recentSearchesEmpty">
                   <div class="empty-icon" aria-hidden="true">✦</div>
                   <div class="empty-title">No searches yet</div>
                   <div class="empty-sub">Paste a social URL above to start discovering high-intent leads.</div>
@@ -1181,6 +1181,11 @@
                 </div>
               </form>
 
+              <section class="panel form-panel" aria-labelledby="twofaTitle">
+                <div class="panel-head"><h2 class="panel-title" id="twofaTitle">Two-factor authentication</h2></div>
+                <div class="panel-body" id="twofaBody" aria-live="polite"></div>
+              </section>
+
               <section class="panel" aria-labelledby="sessionsTitle">
                 <div class="panel-head">
                   <h2 class="panel-title" id="sessionsTitle">Active sessions</h2>
@@ -1362,6 +1367,6 @@
   <script src="/static/config.js?v=r1005" defer></script>
   <script src="/static/design/theme.js?v=r1005" defer></script>
   <script src="/static/design/ui.js?v=step4" defer></script>
-  <script src="/static/app.js?v=step7" defer></script>
+  <script src="/static/app.js?v=audit1" defer></script>
 </body>
 </html>

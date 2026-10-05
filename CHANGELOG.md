@@ -25,6 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Marketing center with private file uploads, categories, per-partner visibility, email templates and download tracking.
   - Coupon and fraud notifications.
   - Partner API: an index endpoint, notifications readable with an API key, and key usage tracking.
+- **Addresses:** `/` is now the public website (same as `/website`); the customer user panel is at **`/user`** (`/dashboard` still works); `/login` signs in to `/user`. Signed-in customers see "Open your dashboard" on the website. New `GET /api/auth/status` (always 200, no personal data).
+- **All-portal audit** (every page of every portal opened in a real browser, light/dark and phone width):
+  - Super Admin: "Free trials" (was "Demo Management") with a "Trial settings (days & tokens)" tab; new Subscriptions → Lifecycle automation, Payments → Invoices & refunds, Record renewal; drawers close on navigation; trial wording throughout.
+  - Org Admin: keyword library tabs and duplicates fixed; Developer API keys screen (create / revoke); trial banners and dates; "Unlimited" limits; leads priority filter; comment qualification.
+  - Customer app: open search no longer lost on reload; free-trial wording and expired-trial states; no made-up AI scores on unanalysed comments; viewers no longer hit forbidden calls; two-factor sign-in setup under Settings → Security.
+  - Partner Portal & website: trial wording, notification links, coupon editing, theme switch on phones, pricing no longer shows a conflicting per-plan trial, contact topic preselect.
+  - Platform console (/admin): global search, audit log, organization counts, subscription actions, trial organizations kept as trials when edited, Environment guard password can be set (Super Admin), staff sign-in goes to /admin, links to Super Admin → API keys, phone layout.
+  - Backend: invoice / receipt downloads (`/api/billing/invoices/{number}/download|receipt`, own organization only); comment qualification in the Admin portal data API; developer API keys limited to documented scopes; full trial seats are a note, not an alarm; partner-onboarded customers get a correct set-your-password email; customer-facing "demo" wording is now "free trial"; shipped website copy updated once (admin edits kept).
+- **Self-serve 3-day free trial** instead of demo requests waiting for approval:
+  - Signing up on the website starts a free trial at once (3 days, the tokens set in Super Admin → demo settings, 500 by default) and signs the new owner straight in to their dashboard. The Super Admin gets an informational "New free trial" notice instead of an approval task.
+  - The website, sign-up and login pages say "Start free 3-day trial" (CMS buttons labelled "Request a demo" are relabelled at runtime), and the dashboard counts down the free trial.
+  - Super Admin → demo settings → "Self-serve free trial" (the old auto-approve switch) turns approval back on. Existing installs are switched to the 3-day self-serve trial once on startup; later changes there are kept.
 - **Super Admin → API keys: change LeadAI's keys and customers' keys in one place**:
   - Keys LeadAI provides (Apify, Gemini): replace (tested first, refused if the provider rejects it unless forced), test, or go back to the server environment's key (refused when there is none). Saved keys are now stored encrypted; the old Environment panel writes them encrypted too.
   - Customers' own keys: every organization on its own keys, with a "Needs attention" filter. Set or replace a key for an organization (its admins are notified), test, remove, or switch each API between LeadAI and its own key.

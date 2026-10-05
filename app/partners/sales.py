@@ -104,7 +104,7 @@ def catalog(db, partner: Dict[str, Any]) -> Dict[str, Any]:
                 "LeadAI finds buyers in the comments of Facebook, Instagram, YouTube and LinkedIn pages.",
                 "AI reads every comment, picks out real purchase and pricing inquiries, and extracts phone, email and WhatsApp.",
                 "Leads are scored, de-duplicated across runs and routed to the sales team with SLA timers.",
-                "Export to Excel / CSV or push to HubSpot, Zoho and webhooks; every customer gets a free demo first.",
+                "Export to Excel / CSV or push to HubSpot, Zoho and webhooks; every customer starts with a free trial.",
             ]}
 
 

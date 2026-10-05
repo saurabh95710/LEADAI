@@ -347,8 +347,10 @@ def create_customer(body: CustomerCreate, request: Request,
     partner = load_partner_doc(ctx)
     res = R.create_reseller_customer(partner, body.model_dump(), ip=_ip(request))
     return {"success": True, "customer": res,
-            "message": "Customer created. They'll get an email to set their password; "
-                       "the workspace opens once LeadAI approves the demo."}
+            "message": ("Customer created and their free trial has started. They'll get an email to set "
+                        "their password and sign in." if res.get("status") == "approved" else
+                        "Customer created. They'll get an email to set their password; "
+                        "the workspace opens once LeadAI approves the demo.")}
 
 
 @router.get("/customers/{organization_id}")

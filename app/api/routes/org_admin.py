@@ -479,7 +479,16 @@ async def overview(ctx: TenantContext = Depends(require_portal())):
     warn_at = int(settings.get("usage_warning_percent") or 80)
     alerts: list[dict[str, Any]] = []
     for metric, m in (usage.get("metrics") or {}).items():
-        if m.get("limit") and m.get("percentage", 0) >= warn_at:
+        if not m.get("limit") or m["limit"] >= 1_000_000_000:   # no limit / "unlimited"
+            continue
+        if ("member" in metric or "user" in metric or "seat" in metric) and m.get("used", 0) <= m["limit"]:
+            # every seat taken is normal (a trial has one): a note, not an alarm
+            if m.get("used", 0) >= m["limit"]:
+                alerts.append({"severity": "info", "metric": metric,
+                               "message": f"Team seats: {m['used']} of {m['limit']} in use — "
+                                          "upgrade your plan to invite more people."})
+            continue
+        if m.get("percentage", 0) >= warn_at:
             alerts.append({"severity": "danger" if m["percentage"] >= 100 else "warning",
                            "metric": metric,
                            "message": f"{metric.replace('_', ' ').title()}: {m['used']} of {m['limit']} used ({m['percentage']}%)."})
@@ -1576,9 +1585,11 @@ async def browse_data(
     kind: str, q: str | None = None, platform: str | None = None,
     run_id: str | None = None, page_id: str | None = None, post_id: str | None = None,
     user_id: str | None = None, sort: str = "newest",
+    qualification: str | None = Query(None, description="comments: qualified | not_qualified"),
     page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=MAX_LIMIT),
     ctx: TenantContext = Depends(require_portal(P.SEARCH_VIEW)),
 ):
+    from app.pipeline import comment_filter as cfilter
     if kind not in _DATA:
         raise HTTPException(status_code=404, detail="Unknown data type")
     coll, text_fields, sorts = _DATA[kind]
@@ -1597,6 +1608,10 @@ async def browse_data(
         clauses.append({"post_ref": post_id})
     if user_id:
         clauses.append({"user_id": str(user_id)})
+    if kind == "comments" and qualification == "not_qualified":
+        clauses.append({"keyword_filter_status": cfilter.STATUS_NOT_MATCHED})
+    elif kind == "comments" and qualification == "qualified":
+        clauses.append({"keyword_filter_status": {"$ne": cfilter.STATUS_NOT_MATCHED}})
     query = _and(*clauses)
     total = await db[coll].count_documents(query)
     docs = [d async for d in db[coll].find(query).sort(sorts.get(sort, sorts["newest"]))
@@ -1637,7 +1652,8 @@ async def browse_data(
                           "url": d.get("comment_url"), "is_lead": bool(a.get("is_lead")),
                           "lead_id": str(a["_id"]) if a.get("_id") else None,
                           "lead_score": a.get("lead_score"), "quality": a.get("lead_quality"),
-                          "analysed": bool(a)})
+                          "analysed": bool(a),
+                          "qualification": cfilter.qualification_of(d.get("keyword_filter_status"), bool(a))})
     return _paged(items, total, page, limit)
 
 
@@ -2468,6 +2484,11 @@ async def create_key(
     ctx: TenantContext = Depends(require_portal(P.SETTINGS_MANAGE)),
 ):
     """Generate a new Public REST API key for the tenant."""
+    allowed = {"leads:read", "leads:write", "search:create", "webhooks:manage"}
+    bad = sorted({str(s) for s in (body.scopes or [])} - allowed)
+    if bad:  # e.g. "*": an organization can only grant the documented scopes
+        raise HTTPException(status_code=422, detail=f"Unknown scope(s): {', '.join(bad)}. "
+                                                    f"Choose from: {', '.join(sorted(allowed))}")
     db = _db()
     from app.services.api_keys import create_api_key
     raw_key, doc = create_api_key(

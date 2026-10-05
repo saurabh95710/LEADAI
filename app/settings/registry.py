@@ -635,6 +635,20 @@ _PUBLIC_CONFIG_CACHE: Optional[Tuple[float, Dict[str, Any]]] = None
 _PUBLIC_CONFIG_TTL: float = 60.0
 
 
+def _trial_summary() -> Dict[str, Any]:
+    """What signing up on the website gives: a self-serve free trial (starts at
+    once) or a demo request that waits for approval."""
+    try:
+        from app.lifecycle.config import get_demo_config
+        cfg = get_demo_config()
+        # "credits" = the trial's token allowance (named so the public config
+        # never carries a key that looks like a secret)
+        return {"self_serve": bool(cfg.get("auto_approve")), "days": int(cfg.get("duration_days") or 0),
+                "credits": int(cfg.get("tokens") or 0)}
+    except Exception:
+        return {"self_serve": False, "days": 0, "credits": 0}
+
+
 def invalidate_public_config_cache() -> None:
     global _PUBLIC_CONFIG_CACHE
     _PUBLIC_CONFIG_CACHE = None
@@ -754,6 +768,7 @@ async def build_public_config(get: Optional[Callable[[str], Any]] = None,
             "demo_registration": bool(g("features.demo_registration.enabled", True)),
             "ai_analysis": bool(g("features.ai_analysis.enabled", True)),
         },
+        "trial": _trial_summary(),
         "maintenance": {
             "enabled": bool(g("maintenance.enabled", False)),
             "message": s("maintenance.message"),

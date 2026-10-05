@@ -15,6 +15,26 @@ def pytest_configure(config):
         "markers", "own_db: module wires its own in-memory MongoDB (skip the autouse one)")
 
 
+# Website sign-up defaults to the self-serve free trial (demo settings →
+# auto_approve). Most lifecycle tests exercise the approval workflow, which
+# stays available when that setting is off, so tests start in approval mode;
+# tests of the self-serve trial switch it on explicitly
+# (update_demo_config({"auto_approve": True}, ...)).
+from app.lifecycle import config as _lifecycle_config  # noqa: E402
+
+REAL_MIGRATE_SELF_SERVE_TRIAL = _lifecycle_config.migrate_self_serve_trial
+SEED_AUTO_APPROVE = _lifecycle_config.DEMO_CONFIG_SEED["auto_approve"]
+SEED_DURATION_DAYS = _lifecycle_config.DEMO_CONFIG_SEED["duration_days"]
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _demo_approval_mode():
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setitem(_lifecycle_config.DEMO_CONFIG_SEED, "auto_approve", False)
+        mp.setattr(_lifecycle_config, "migrate_self_serve_trial", lambda db: False)
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _in_memory_mongo(request, monkeypatch):
     if request.node.get_closest_marker("own_db"):

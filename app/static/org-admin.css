@@ -576,3 +576,13 @@ a.oa-biz-stat:hover .oa-biz-stat-label, a.oa-biz-stat:focus-visible .oa-biz-stat
   .oa-pipeline { grid-template-columns:minmax(0,1fr); }
   .oa-stat-value { font-size:1.6rem; }
 }
+
+/* Keyword library: the list switcher scrolls sideways instead of widening the page (phones) */
+.oa-kw-lib-head { min-width:0; }
+.oa-kw-lib .oa-kw-tabs { max-width:100%; overflow-x:auto; scrollbar-width:thin; }
+.oa-kw-lib .oa-kw-tab { flex:0 0 auto; white-space:nowrap; }
+.oa-kw-lib .oa-kw-tab:focus-visible { outline:none; box-shadow:var(--focus-ring); }
+/* Long URLs / endpoint paths wrap instead of overflowing */
+.oa-break { overflow-wrap:anywhere; word-break:break-word; }
+/* Business profile: keyboard focus on the target-customer toggles */
+.target-cust-chip[role="button"]:focus-visible { outline:none; box-shadow:var(--focus-ring); }

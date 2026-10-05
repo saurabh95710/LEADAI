@@ -322,6 +322,7 @@
   .sa-ok-line{display:flex;align-items:center;gap:8px;color:var(--success-text);font-size:13px;padding:8px 0}
   a.sa-chip{text-decoration:none}
   .sa-span2{grid-column:span 2}
+  .sa-2.sa-ticket{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
   /* API coverage price grid (all included / own Apify / own Gemini / both) */
   .sa-pgrid tbody th{text-transform:none;letter-spacing:0;font-size:13px;font-weight:600;color:var(--text-primary);background:none;border-bottom:1px solid var(--border-subtle);white-space:normal}
   .sa-pgrid tbody tr:last-child th{border-bottom:0}
@@ -361,6 +362,7 @@
     #saCollapse{display:none}
     .sa-2,.sa-3{grid-template-columns:minmax(0,1fr)}
     .sa-span2{grid-column:auto}
+    .sa-2.sa-ticket{grid-template-columns:minmax(0,1fr)}
     .sa-health .lbl{display:none}
   }
   @media (max-width:640px){
@@ -442,8 +444,8 @@
 </div>
 <div id="saLayer"></div>
 <div id="toast-container" aria-live="polite"></div>
-<script src="/static/super-admin.js?v=keys1" defer></script>
-<script src="/static/super-admin-partners.js?v=apicov1" defer></script>
-<script src="/static/super-admin-access.js?v=r1005" defer></script>
+<script src="/static/super-admin.js?v=audit1" defer></script>
+<script src="/static/super-admin-partners.js?v=audit1" defer></script>
+<script src="/static/super-admin-access.js?v=audit1" defer></script>
 </body>
 </html>

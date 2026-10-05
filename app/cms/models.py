@@ -130,7 +130,7 @@ def _item(**kw) -> Dict[str, str]:
     return base
 
 
-_DEMO = _cta("Request a demo", "/request-demo")
+_DEMO = _cta("Start free trial", "/request-demo")
 _SIGNIN = _cta("Sign in", "/login")
 
 HOME_SECTIONS = [
@@ -192,17 +192,17 @@ HOME_SECTIONS = [
          ]),
     _sec("pricing", "pricing",
          eyebrow="Pricing", title="Simple, transparent pricing", highlight="transparent",
-         subtitle="Pick the plan that fits your team. Every account starts with a short demo so we can set you up properly.",
+         subtitle="Pick the plan that fits your team. Every account starts with a free trial — no card needed.",
          card_title="How to get started",
          items=[
-             _item(title="Request a demo", description="Tell us about your team and create your login.",
-                   label="Request a demo", url="/request-demo"),
-             _item(title="Get approved", description="We review your request and open your workspace — you'll get an email.",
-                   label="What happens after you request a demo", url="/demo-pending"),
+             _item(title="Start free trial", description="Create your login — your free trial starts right away.",
+                   label="Start free trial", url="/request-demo"),
+             _item(title="Start finding leads", description="Your workspace opens immediately, with free trial tokens for your first searches.",
+                   label="How the free trial works", url="/demo-pending"),
              _item(title="Choose your plan", description="Sign in and pick a plan in your workspace billing page.",
                    label="Sign in", url="/login"),
          ],
-         cta_primary=_DEMO, cta_secondary=_cta("Already approved? Sign in", "/login"),
+         cta_primary=_DEMO, cta_secondary=_cta("Already have an account? Sign in", "/login"),
          note="Prices shown exclude applicable taxes."),
     _sec("testimonials", "testimonials",
          eyebrow="Customers", title="Trusted by lead generation teams", highlight="lead generation teams"),
@@ -211,7 +211,7 @@ HOME_SECTIONS = [
          cta_primary=_cta("Contact us", "/contact")),
     _sec("cta", "cta", eyebrow="Ready when you are",
          title="Start discovering high-intent leads today",
-         subtitle="Request a demo and we'll get your workspace ready.",
+         subtitle="Start your free trial — your workspace is ready in a minute.",
          cta_primary=_DEMO, cta_secondary=_cta("Talk to us", "/contact")),
 ]
 
@@ -236,7 +236,7 @@ ABOUT_SECTIONS = [
         _item(icon="zap", title="Fast to value", description="From a social link to qualified leads in minutes."),
     ]),
     _sec("cta", "cta", title="See LeadAI on your own market",
-         subtitle="Request a demo and we'll walk you through it.",
+         subtitle="Start your free trial — we're happy to walk you through it.",
          cta_primary=_DEMO, cta_secondary=_cta("Contact us", "/contact")),
 ]
 
@@ -264,12 +264,12 @@ PRIVACY_BODY = (
     "personal information when you visit our website or use the LeadAI service.\n\n"
     "## Information we collect\n"
     "- Account information you give us, such as your name, work email, company and password (stored only as a secure hash).\n"
-    "- Messages and demo requests you send us through our forms.\n"
+    "- Messages and sign-ups you send us through our forms.\n"
     "- Usage information such as log data, device and browser type, and pages visited.\n"
     "- Content your workspace processes, such as public social media posts and comments collected at your request.\n\n"
     "## How we use information\n"
     "- To provide, secure and improve the service.\n"
-    "- To review demo requests, open accounts and provide support.\n"
+    "- To open accounts, run free trials and provide support.\n"
     "- To send service and account notifications.\n"
     "- To comply with legal obligations.\n\n"
     "## Sharing\n"
@@ -291,7 +291,7 @@ TERMS_BODY = (
     "These Terms of Service govern your access to and use of the LeadAI website and service. "
     "By creating an account or using the service you agree to these terms.\n\n"
     "## Accounts\n"
-    "- Accounts are opened after a demo request has been reviewed and approved.\n"
+    "- Accounts are opened when you sign up; a free trial starts right away.\n"
     "- You are responsible for keeping your login credentials confidential and for activity in your workspace.\n"
     "- You must provide accurate information and keep it up to date.\n\n"
     "## Subscriptions and payment\n"
@@ -349,14 +349,14 @@ DEFAULT_PAGES = [
     _page("how-it-works", "How it works", "How LeadAI Works — From Social Link to Qualified Lead",
           "See how LeadAI turns a social media link into scored, contactable leads in minutes."),
     _page("pricing", "Pricing", "LeadAI Pricing — Choose Your Plan",
-          "Simple, transparent pricing for teams of every size. Request a demo to get started."),
+          "Simple, transparent pricing for teams of every size. Start a free trial to get started."),
     _page("faq", "FAQ", "LeadAI FAQ — Frequently Asked Questions",
           "Answers to common questions about LeadAI, supported platforms, data security and pricing."),
     _page("about", "About", "About LeadAI",
           "Learn about LeadAI, the AI-powered social intelligence platform for discovering high-intent leads.",
           ABOUT_SECTIONS),
     _page("contact", "Contact", "Contact LeadAI",
-          "Get in touch with the LeadAI team. Ask a question, talk about pricing or request a demo.",
+          "Get in touch with the LeadAI team. Ask a question, talk about pricing or start a free trial.",
           CONTACT_SECTIONS),
     _page("privacy", "Privacy Policy", "Privacy Policy — LeadAI",
           "How LeadAI collects, uses and protects personal information.",
@@ -378,7 +378,7 @@ DEFAULT_FAQ = [
     {"question": "What is LeadAI?", "answer": "LeadAI is an AI-powered social intelligence platform that analyses posts and comments across Facebook, Instagram, YouTube and LinkedIn to identify people with genuine buying intent.", "category": "general", "order": 1, "enabled": True},
     {"question": "Which social platforms are supported?", "answer": "Facebook, Instagram, YouTube and LinkedIn. Which platforms are included depends on your plan.", "category": "general", "order": 2, "enabled": True},
     {"question": "How does AI lead scoring work?", "answer": "LeadAI analyses each comment's text, intent signals, urgency and whether contact details were shared, then assigns a 0–100 score with a recommended next action.", "category": "features", "order": 3, "enabled": True},
-    {"question": "How do I buy a subscription?", "answer": "Request a demo and create your login. Once our team approves your request you can sign in and choose a plan from the billing page in your workspace.", "category": "billing", "order": 4, "enabled": True},
+    {"question": "How do I buy a subscription?", "answer": "Sign up for a free trial — your workspace opens right away. When you're ready, choose a plan under Plans & billing in your workspace.", "category": "billing", "order": 4, "enabled": True},
     {"question": "Is my data secure?", "answer": "Yes. Your data is stored in your private workspace with strict tenant isolation and role-based access — it is never shared with other organisations.", "category": "security", "order": 5, "enabled": True},
     {"question": "Can I export leads?", "answer": "Yes. You can export leads, pages, posts and comments as CSV files from your workspace.", "category": "features", "order": 6, "enabled": True},
 ]
@@ -440,8 +440,8 @@ DEFAULT_NAVIGATION = {
         {"label": "About", "url": "/about", "group": "Company"},
         {"label": "Contact", "url": "/contact", "group": "Company"},
         {"label": "Sign in", "url": "/login", "group": "Account"},
-        {"label": "Request a demo", "url": "/request-demo", "group": "Account"},
-        {"label": "After your demo request", "url": "/demo-pending", "group": "Account"},
+        {"label": "Start free trial", "url": "/request-demo", "group": "Account"},
+        {"label": "How the free trial works", "url": "/demo-pending", "group": "Account"},
         {"label": "Forgot password", "url": "/forgot-password", "group": "Account"},
         {"label": "Privacy Policy", "url": "/privacy", "group": "Legal"},
         {"label": "Terms of Service", "url": "/terms", "group": "Legal"},
@@ -587,3 +587,50 @@ async def seed_cms_defaults(db) -> None:
             )
         except Exception as e:
             log.warning("CMS: settings seed failed for %s: %s", setting["key"], e)
+
+
+# ── one-time copy update: website sign-up is a self-serve free trial ─────────
+
+_TRIAL_COPY_EXACT = [('Request a demo', 'Start free trial'), ('Tell us about your team and create your login.', 'Create your login — your free trial starts right away.'), ('Get approved', 'Start finding leads'), ("We review your request and open your workspace — you'll get an email.", 'Your workspace opens immediately, with free trial tokens for your first searches.'), ('What happens after you request a demo', 'How the free trial works'), ('Already approved? Sign in', 'Already have an account? Sign in'), ('After your demo request', 'How the free trial works')]
+_TRIAL_COPY_INSIDE = [('Pick the plan that fits your team. Every account starts with a short demo so we can set you up properly.', 'Pick the plan that fits your team. Every account starts with a free trial — no card needed.'), ("Request a demo and we'll get your workspace ready.", 'Start your free trial — your workspace is ready in a minute.'), ("Request a demo and we'll walk you through it.", "Start your free trial — we're happy to walk you through it."), ('- Messages and demo requests you send us through our forms.\n', '- Messages and sign-ups you send us through our forms.\n'), ('- To review demo requests, open accounts and provide support.\n', '- To open accounts, run free trials and provide support.\n'), ('- Accounts are opened after a demo request has been reviewed and approved.\n', '- Accounts are opened when you sign up; a free trial starts right away.\n'), ('Simple, transparent pricing for teams of every size. Request a demo to get started.', 'Simple, transparent pricing for teams of every size. Start a free trial to get started.'), ('Ask a question, talk about pricing or request a demo.', 'Ask a question, talk about pricing or start a free trial.'), ('Request a demo and create your login. Once our team approves your request you can sign in and choose a plan from the billing page in your workspace.', "Sign up for a free trial — your workspace opens right away. When you're ready, choose a plan under Plans & billing in your workspace.")]
+_TRIAL_COPY_MARK = "trial_copy_v1"
+
+
+def _retext(value, changed):
+    """Old default wording -> trial wording. Only text still exactly as it was
+    seeded is changed; anything an admin rewrote is left alone."""
+    if isinstance(value, str):
+        for old, new in _TRIAL_COPY_EXACT:
+            if value == old:
+                changed[0] = True
+                return new
+        out = value
+        for old, new in _TRIAL_COPY_INSIDE:
+            if old in out:
+                out = out.replace(old, new)
+        if out != value:
+            changed[0] = True
+        return out
+    if isinstance(value, list):
+        return [_retext(v, changed) for v in value]
+    if isinstance(value, dict):
+        return {k: (v if k in ("_id", "url", "slug", "key") else _retext(v, changed)) for k, v in value.items()}
+    return value
+
+
+async def migrate_trial_copy(db) -> int:
+    """Once per database: rewrite the shipped "request a demo / get approved"
+    copy in stored website pages, navigation and FAQ. Returns docs changed."""
+    if db is None or await db[COLL_SEED_STATE].find_one({"_id": _TRIAL_COPY_MARK}):
+        return 0
+    n = 0
+    for coll in (COLL_PAGES, COLL_NAVIGATION, COLL_FAQ, COLL_SETTINGS):
+        async for doc in db[coll].find({}):
+            changed = [False]
+            new = _retext({k: v for k, v in doc.items() if k != "_id"}, changed)
+            if changed[0]:
+                await db[coll].replace_one({"_id": doc["_id"]}, {"_id": doc["_id"], **new})
+                n += 1
+    await db[COLL_SEED_STATE].update_one({"_id": _TRIAL_COPY_MARK}, {"$set": {"done_at": utcnow(), "changed": n}},
+                                         upsert=True)
+    return n

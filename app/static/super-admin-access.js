@@ -47,7 +47,7 @@
   }
 
   async function viewAccess(root, q) {
-    root.innerHTML = K.header('API keys & webhooks', 'Every API key and outbound webhook on the platform — organizations\' and partners\'. Revoking or disabling takes effect immediately and notifies the owner.') + '<div id="acTabs"></div>';
+    root.innerHTML = K.header('Developer API & webhooks', 'Keys for LeadAI\'s own APIs (Customer API /api/v1, Partner API) and every outbound webhook — organizations\' and partners\'. Revoking or disabling takes effect immediately and notifies the owner. The Apify and Gemini keys are on the API keys page.', '<a class="btn btn-secondary btn-sm" href="#/provider-keys">Apify &amp; Gemini keys</a>') + '<div id="acTabs"></div>';
     K.tabs($('#acTabs', root), [['keys', 'API keys'], ['webhooks', 'Webhooks']], q.tab || 'keys', function (key, el) {
       if (key === 'keys') {
         el.innerHTML = '<div class="sa-row" style="justify-content:flex-end"><button type="button" class="btn btn-primary btn-sm" id="issueKey">+ Issue API key</button></div><div id="keyList"></div>';
@@ -87,5 +87,5 @@
         empty: { title: 'No webhooks', desc: 'Outbound webhooks organizations register appear here.' } });
     });
   }
-  K.register('Access', 'Partners', [['access', 'API keys & webhooks', 'key']], { access: [viewAccess, 'API keys & webhooks'] });
+  K.register('Access', 'Partners', [['access', 'Developer API & webhooks', 'plug']], { access: [viewAccess, 'Developer API & webhooks'] });
 })();

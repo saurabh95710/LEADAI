@@ -727,7 +727,8 @@ async def get_org_keyword_library(org: Dict[str, Any], db=None) -> Dict[str, Any
                 "status": "suggested"
             })
 
-    all_keywords = active_items + suggested_items + custom_items + excluded_items
+    # custom_items are a subset of active_items: listing both showed them twice
+    all_keywords = active_items + suggested_items + excluded_items
     summary = {
         "active_count": len(active_items),
         "suggested_count": len(suggested_items),

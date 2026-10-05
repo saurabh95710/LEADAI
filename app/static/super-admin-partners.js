@@ -22,7 +22,7 @@
     subscription: 'Checkout started', payment: 'Payment received', partially_refunded: 'Partially refunded' });
   var COMMISSION_FILTER = [['', 'All statuses'], ['pending', 'Pending (qualifying)'], ['qualified', 'Qualified'], ['approved', 'Approved'],
     ['payable', 'Payable'], ['processing', 'Processing'], ['paid', 'Paid'], ['reversed', 'Reversed']];
-  var STAGE_FILTER = [['', 'All stages'], ['signed_up', 'Signed up'], ['demo', 'Demo'], ['subscription', 'Checkout started'],
+  var STAGE_FILTER = [['', 'All stages'], ['signed_up', 'Signed up'], ['demo', 'Free trial'], ['subscription', 'Checkout started'],
     ['payment', 'Payment received'], ['customer', 'Customer']];
 
   async function meta() { if (!META) META = await api(B + '/meta'); return META; }

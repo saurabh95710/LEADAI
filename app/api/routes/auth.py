@@ -120,12 +120,14 @@ def _feature_enabled(key: str) -> bool:
         return True
 
 
-# ── Signup = demo request ───────────────────────────────────────────────────
+# ── Signup = free trial (or a demo request) ────────────────────────────────
 
 @router.post("/signup")
-async def signup(body: SignupRequest, request: Request):
-    """Register for LeadAI. Creates a PENDING demo request — the visitor gets
-    no session and no product access until a Super Admin approves it."""
+async def signup(body: SignupRequest, request: Request, response: Response):
+    """Register for LeadAI. With the self-serve free trial on (demo settings →
+    auto-approve, the default) the trial starts at once and the visitor is
+    signed in to the user panel. Off: a PENDING demo request — no session and no
+    product access until a Super Admin approves it."""
     ip = _get_client_ip(request)
     if not _feature_enabled("features.demo_registration.enabled"):
         raise HTTPException(status_code=403, detail="New registrations are currently closed")
@@ -171,12 +173,32 @@ async def signup(body: SignupRequest, request: Request):
             kind="email_verification",
         )
 
+    if res.get("status") == "approved":
+        # free trial started: sign the new owner straight in to the user panel
+        user, _err = verify_saas_user_login(body.email.strip().lower(), body.password, scope="site")
+        if user:
+            meta = request_meta(request)
+            tracked = create_tracked_session(user, ip=ip, user_agent=meta.get("user_agent"))
+            set_session_cookie(response, tracked)
+            await aaudit("auth.login", "auth", user=tracked, ip=ip, user_agent=meta.get("user_agent"),
+                         details={"scope": "site", "via": "signup"})
+            from app.lifecycle.config import get_demo_config
+            cfg = get_demo_config()
+            return {
+                "success": True, "status": "approved", "demo_request_id": res["id"],
+                "signed_in": True, "redirect": "/user",
+                "trial": {"days": int(cfg.get("duration_days") or 0), "tokens": int(cfg.get("tokens") or 0)},
+                "message": (f"Your {cfg.get('duration_days')}-day free trial has started with "
+                            f"{cfg.get('tokens')} tokens."),
+            }
     return {
         "success": True,
         "status": res["status"],
         "demo_request_id": res["id"],
+        "signed_in": False,
         "message": ("Your demo request was received and is awaiting approval. "
-                    "We'll email you as soon as your account is ready."),
+                    "We'll email you as soon as your account is ready."
+                    if res.get("status") == "pending" else "Your account is ready. Sign in to start."),
     }
 
 
@@ -402,6 +424,18 @@ async def switch_organization(body: SwitchOrgRequest, request: Request, response
 
 
 # ── Me / logout ─────────────────────────────────────────────────────────────
+
+@router.get("/status")
+async def session_status(request: Request):
+    """Signed in, and to which portal? Always 200 (the public website asks, so
+    signed-out visitors don't get an error). Carries no personal data."""
+    user = await asyncio.to_thread(session_user, request)
+    scope = (user or {}).get("scope")
+    home = {"site": "/user", "admin": "/admin", "partner": "/partner"}.get(scope or "")
+    if scope == "admin" and (user or {}).get("platform_role") == "super_admin":
+        home = "/superadmin"
+    return {"signed_in": bool(user), "scope": scope, "home": home}
+
 
 @router.get("/me")
 def me(request: Request):

@@ -38,6 +38,13 @@
         <p class="auth-subtitle" id="lead">Thanks for your interest in LeadAI. Our team reviews every request before opening an account, so you can't sign in just yet.</p>
       </div>
 
+      <div class="alert alert-success" id="trialNote" role="status" style="margin-bottom:20px" hidden>
+        <div class="alert-body">
+          <p><strong>New sign-ups start a free trial at once.</strong> <span id="trialNoteText">No approval needed: create your account and start finding leads right away.</span> If you requested a demo earlier, it is still being reviewed as described below.</p>
+          <p style="margin-top:8px"><a class="link" href="/signup" id="trialNoteLink">Start a free trial</a></p>
+        </div>
+      </div>
+
       <h2 class="label-sm" style="margin-bottom:14px;color:var(--text-secondary)">What happens next</h2>
       <ol class="timeline" aria-label="Next steps">
         <li class="timeline-item is-done">
@@ -95,6 +102,17 @@
     step.appendChild(strong);
     step.appendChild(document.createTextNode(" as soon as your account is approved."));
   }
+  // Self-serve free trial on: sign-up no longer waits for approval — say so
+  // (this page is still linked from older emails and the website footer).
+  fetch("/api/public/config").then(function (r) { return r.ok ? r.json() : {}; }).then(function (d) {
+    var t = (d && d.trial) || {};
+    if (!t.self_serve) return;
+    var days = t.days > 0 ? t.days + "-day " : "";
+    document.getElementById("trialNoteText").textContent = "No approval needed: your " + days + "free trial starts the moment you sign up" +
+      (t.credits > 0 ? ", with " + t.credits + " tokens" : "") + ".";
+    document.getElementById("trialNoteLink").textContent = "Start your free " + days + "trial";
+    document.getElementById("trialNote").hidden = false;
+  }).catch(function () {});
 })();
 </script>
 </body>

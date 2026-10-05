@@ -94,6 +94,42 @@ async def create_invoice_record(
     return _clean_doc(inv_doc)
 
 
+def render_invoice_html(inv: Dict[str, Any], org: Dict[str, Any], *, receipt: bool = False) -> str:
+    """A printable invoice / receipt page (the browser's Print → Save as PDF)."""
+    from html import escape
+
+    def money(v: Any) -> str:
+        try:
+            return f"{float(v or 0):,.2f} {escape(str(inv.get('currency') or 'USD'))}"
+        except (TypeError, ValueError):
+            return escape(str(v))
+
+    def day(v: Any) -> str:
+        return v.strftime("%d %b %Y") if hasattr(v, "strftime") else escape(str(v or "—"))[:10]
+
+    title = "Receipt" if receipt else "Invoice"
+    rows = "".join(f"<tr><th>{k}</th><td>{v}</td></tr>" for k, v in (
+        ("Subtotal", money(inv.get("subtotal", inv.get("total")))),
+        ("Discount", money(inv.get("discount"))),
+        ("Tax", money(inv.get("tax"))),
+        ("Total" if not receipt else "Amount paid", f"<b>{money(inv.get('total'))}</b>")))
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title} {escape(str(inv.get('number') or ''))} · LeadAI</title>
+<style>body{{font:15px/1.5 system-ui,sans-serif;color:#1f2a24;background:#fff;max-width:720px;margin:32px auto;padding:0 16px}}
+h1{{font-size:24px;margin:0 0 4px}}.muted{{color:#5d6b63}}table{{width:100%;border-collapse:collapse;margin-top:24px}}
+th,td{{text-align:left;padding:8px 0;border-bottom:1px solid #e3e8e4}}td{{text-align:right}}
+.head{{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}}
+.print{{margin-top:24px}}@media print{{.print{{display:none}}}}</style></head><body>
+<div class="head"><div><h1>{title}</h1><div class="muted">{escape(str(inv.get('number') or ''))}</div></div>
+<div><b>LeadAI</b><div class="muted">{day(inv.get('paid_at') if receipt else inv.get('invoice_date'))}</div></div></div>
+<p><b>Billed to:</b> {escape(str(org.get('name') or ''))}</p>
+<p>{escape(str(inv.get('description') or 'LeadAI subscription'))} · Status: {escape(str(inv.get('status') or ''))}</p>
+<table>{rows}</table>
+<button class="print" onclick="window.print()">Print / save as PDF</button>
+</body></html>"""
+
+
 async def list_organization_invoices(
     organization_id: str,
     limit: int = 50,

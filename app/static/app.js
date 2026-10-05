@@ -9,17 +9,27 @@
 "use strict";
 
 // ── Agent memory (workflow state survives refreshes) ─────────────────────
+// storage keys: run/page/post ids live under leadai_run_id / leadai_page_id / leadai_post_id
+// (older builds wrote leadai_runId / leadai_pageId / leadai_postId — still read as a fallback)
+const MEMORY_KEYS = { runId: "leadai_run_id", pageId: "leadai_page_id", postId: "leadai_post_id",
+                      commentsPerPost: "leadai_commentsPerPost" };
+function readMemory(key) {
+  try { return localStorage.getItem(MEMORY_KEYS[key]) || localStorage.getItem("leadai_" + key) || ""; }
+  catch (_) { return ""; }
+}
 const memory = {
-  runId: localStorage.getItem("leadai_run_id") || "",
-  pageId: localStorage.getItem("leadai_page_id") || "",
-  postId: localStorage.getItem("leadai_post_id") || "",
-  commentsPerPost: parseInt(localStorage.getItem("leadai_commentsPerPost") || "20", 10) || 20,
+  runId: readMemory("runId"),
+  pageId: readMemory("pageId"),
+  postId: readMemory("postId"),
+  commentsPerPost: parseInt(readMemory("commentsPerPost") || "20", 10) || 20,
 };
 const saveMemory = (key, value) => {
   memory[key] = value;
   try {
-    if (value) localStorage.setItem("leadai_" + key, value);
-    else localStorage.removeItem("leadai_" + key);
+    const k = MEMORY_KEYS[key] || "leadai_" + key;
+    if (value) localStorage.setItem(k, value);
+    else localStorage.removeItem(k);
+    if (k !== "leadai_" + key) localStorage.removeItem("leadai_" + key);  // drop the legacy copy
   } catch (_) { /* storage unavailable — memory still works for this tab */ }
 };
 
@@ -50,6 +60,25 @@ const portal = {
 
 function can(perm) { return portal.permissions.has(perm); }
 function canManageBilling() { return can("org_billing.manage"); }
+
+// The self-serve trial runs on the plan system's "demo" plan; customers see it as the free trial.
+const TRIAL_LABEL = "Free trial";
+function planLabel(plan, fallback) {
+  if (plan && plan.is_demo) return TRIAL_LABEL;
+  return (plan && plan.name) || fallback || "";
+}
+/** Older server copy still says "demo" for the free trial. */
+function trialWording(text) {
+  return String(text || "").replace(/\byour demo\b/gi, "your free trial").replace(/\bdemo\b/gi, "free trial")
+    .replace(/(^|[.!?]\s+)free trial/g, (_m, p) => p + "Free trial");
+}
+/** "used / limit" for a plan meter: ∞ for unlimited, "not in plan" when the limit is 0. */
+function meterText(m) {
+  const used = fmt(m.used || 0);
+  if (m.limit >= 1e9) return `${used} / ∞`;
+  if (!m.limit) return m.used ? `${used} · not in plan` : "Not in plan";
+  return `${used} / ${fmt(m.limit)}`;
+}
 
 // fetch with same-origin credentials (every call in this file goes through it)
 function apiFetch(url, init = {}) {
@@ -702,7 +731,7 @@ const STATUS_PILL = {
   suspended: ["suspended", "Suspended"], cancelled: ["cancelled", "Cancelled"], expired: ["expired", "Expired"],
   archived: ["cancelled", "Archived"], deactivated: ["cancelled", "Deactivated"], revoked: ["cancelled", "Revoked"],
   void: ["cancelled", "Void"],
-  demo: ["demo", "Demo"], trial: ["demo", "Trial"], trialing: ["demo", "Trial"],
+  demo: ["demo", TRIAL_LABEL], trial: ["demo", "Trial"], trialing: ["demo", "Trial"],
 };
 function statusPill(status, labelOverride) {
   const [cls, label] = STATUS_PILL[status] || ["neutral", String(status || "—").replace(/_/g, " ")];
@@ -787,7 +816,10 @@ async function recentViewAll() { navigateToView("history", { userInitiated: true
 
 async function renderRecentSearches() {
   const list = $("recentSearchesList");
-  if (list && !recentData.length) list.innerHTML = skeletonRows(3);
+  if (list && !recentData.length) {
+    list.innerHTML = skeletonRows(3);
+    if ($("recentSearchesEmpty")) $("recentSearchesEmpty").classList.add("hidden");  // not "No searches yet" while loading
+  }
   const ok = await fetchRecentSearches();
   if (!ok && list) {
     $("recentSearchesEmpty").classList.add("hidden");
@@ -869,13 +901,16 @@ function applySearchState() {
     permBox.classList.toggle("hidden", canSearch);
     permBox.innerHTML = canSearch ? "" : deniedState("You have view-only access, so you can't start searches. Ask your workspace admin for search access.");
   }
+  // the search wizard (and its saved searches) is no use without search access — recent searches stay
+  const card = $("searchCard");
+  if (card) card.classList.toggle("hidden", !canSearch);
   const blockers = searchBlockers();
   if (blockBox) {
     if (blockers.length && canSearch) {
       const b = blockers[0];
       const copy = ENTITLEMENT_COPY[b.code] || {};
       blockBox.className = "inline-alert alert-danger";
-      blockBox.innerHTML = `<div><strong>${esc(copy.title || "Searching is paused")}</strong><div>${esc(b.message)}</div></div>${upgradeButtonHtml(b.code)}`;
+      blockBox.innerHTML = `<div><strong>${esc(copy.title || "Searching is paused")}</strong><div>${esc(alertText(b))}</div></div>${upgradeButtonHtml(b.code)}`;
     } else {
       blockBox.className = "hidden";
       blockBox.innerHTML = "";
@@ -1605,6 +1640,8 @@ const GuidedSearch = {
   },
 
   async loadPresets() {
+    // saved searches belong to the search form, which needs search.create (the API refuses others)
+    if (portal.user && !can("search.create")) return;
     try {
       const res = await api("/api/search-presets");
       if (!res.ok) return;
@@ -1790,8 +1827,9 @@ async function loadUrlFilterCatalog() {
     presetSel.innerHTML = `<option value="">Default (admin rule or all)</option>` + opts.join("");
   }
   const cats = [...(cat.categories || []), ...(cat.custom_categories || [])];
+  // kept hidden: the guided search (industry → keywords) replaced the category tick list;
+  // the inputs stay only so the older filter code path keeps working
   if (cats.length && catsWrap && catsBox) {
-    catsWrap.classList.remove("hidden");
     catsBox.innerHTML = cats.map((c) =>
       `<label class="filter-cat"><input type="checkbox" value="${esc(c.key || c.id || c._id)}"><span>${esc(c.icon || "")} ${esc(c.name)}</span></label>`).join("");
   }
@@ -2351,6 +2389,8 @@ async function renderCommentsScreen() {
     if (c.sentiment && c.sentiment !== "neutral") contactChips.push(`<span class="lc-chip" style="opacity:0.85">${ico("message")} ${esc(c.sentiment)}</span>`);
     const cUrl = safeUrl(c.comment_url);
     const score = Number(c.lead_score) || 0;
+    // skipped by the comment filter = never sent to the AI: no score to show (the API fills a placeholder)
+    const unscored = c.qualification === "not_qualified" && !c.analyzed_by;
 
     return `<article class="lead-card clickable-card${c.has_contact ? " lead-card-highlight" : ""}" data-open-lead="${cid}" tabindex="0">
       <div class="lc-head">
@@ -2371,11 +2411,13 @@ async function renderCommentsScreen() {
         </div>
 
         <div class="lc-score-wrap">
-          <div class="score-pill" title="AI lead score: ${score}/100">${score}</div>
-          ${c.priority ? `<span class="badge ${priorityClass}">${esc(String(c.priority).toUpperCase())}</span>` : ""}
+          ${unscored
+            ? `<div class="score-pill score-pill-none" title="Not scored — the comment filter skipped it, so it wasn't sent to the AI">—</div>`
+            : `<div class="score-pill" title="AI lead score: ${score}/100">${score}</div>
+          ${c.priority ? `<span class="badge ${priorityClass}">${esc(String(c.priority).toUpperCase())}</span>` : ""}`}
         </div>
       </div>
-      ${scoreBar(score)}
+      ${unscored ? "" : scoreBar(score)}
 
       <div class="lc-text-box">
         <p class="lc-full-text">${esc(c.comment_text || "No comment text")}</p>
@@ -2650,7 +2692,11 @@ async function openLeadDetail(commentId, event) {
   const score = Math.max(0, Math.min(100, Number(d.lead_score) || 0));
   const conf = d.confidence != null ? Math.round(Number(d.confidence) * 100) : null;
   const tier = score >= 80 ? "hot" : score >= 50 ? "warm" : "cold";
-  const scoreHtml = `<div class="score-visual">
+  // a raw comment the AI never analysed has no real score (the API only fills a placeholder)
+  const unscored = isRawComment && !d.analyzed_by;
+  const scoreHtml = unscored
+    ? `<div class="detail-value muted-line">Not scored — the comment filter skipped this comment, so it wasn't sent to the AI.</div>`
+    : `<div class="score-visual">
       <div class="score-ring score-${tier}" style="--p:${score}" role="img" aria-label="Lead score ${score} out of 100"><span>${score}</span></div>
       <div class="score-facts">
         <div><span class="detail-label">Quality</span> ${quality}</div>
@@ -2838,8 +2884,8 @@ const FEATURE_NAMES = {
 };
 const ENTITLEMENT_COPY = {
   DEMO_EXPIRED: {
-    icon: "clock", title: "Your demo has ended",
-    msg: () => "Your free demo period is over. Choose a plan to keep finding leads — your searches and leads are kept safe.",
+    icon: "clock", title: "Your free trial has ended",
+    msg: () => "Your free trial is over. Choose a plan to keep finding leads — your searches and leads are kept safe.",
   },
   TOKENS_EXHAUSTED: {
     icon: "coins", title: "You're out of tokens",
@@ -2863,13 +2909,23 @@ const ENTITLEMENT_COPY = {
   },
   FEATURE_NOT_AVAILABLE: {
     icon: "lock", title: "Not included in your plan",
-    msg: (d) => `${FEATURE_NAMES[d.feature] || String(d.feature || "This feature").replace(/_/g, " ")} isn't included in ${d.plan || "your current plan"}.`,
+    msg: (d) => `${FEATURE_NAMES[d.feature] || String(d.feature || "This feature").replace(/_/g, " ")} isn't included in ${!d.plan ? "your current plan" : /^(demo|free trial)$/i.test(String(d.plan)) ? "your free trial" : d.plan}.`,
   },
   ORGANIZATION_INACTIVE: {
     icon: "pause", title: "Your workspace is inactive",
     msg: (d) => (d.message ? d.message + " " : "") + "Reactivate a plan or contact support to continue.",
   },
 };
+
+/** Body text for a blocker/alert {code, message}: never just a repeat of its title, and
+    "free trial" instead of the server's older "demo" wording. */
+function alertText(a) {
+  const copy = ENTITLEMENT_COPY[a.code] || {};
+  const msg = trialWording(a.message);
+  const same = (x, y) => String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, "") === String(y || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (copy.title && copy.msg && (!msg || same(msg, copy.title))) return copy.msg(a);
+  return msg;
+}
 
 function upgradeButtonHtml(code) {
   if (canManageBilling()) return `<button type="button" class="btn-primary btn-sm" data-action="upgrade">Upgrade plan</button>`;
@@ -3138,7 +3194,7 @@ function openBillingModal() { navigateToView("billing", { userInitiated: true })
 function closeBillingModal() { navigateToView("dashboard"); }
 
 const SUB_STATUS_LABELS = {
-  demo: "Demo",
+  demo: TRIAL_LABEL,
   active: "Active",
   trialing: "Trial",
   pending_payment: "Awaiting payment",
@@ -3166,7 +3222,7 @@ function setMeter(valId, fillId, m) {
   const used = m.used || 0;
   const limit = m.limit || 0;
   const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
-  if ($(valId)) $(valId).textContent = `${fmt(used)} / ${limit >= 1e9 ? "∞" : limit ? fmt(limit) : "—"}`;
+  if ($(valId)) $(valId).textContent = meterText({ used, limit });
   if ($(fillId)) {
     $(fillId).style.width = `${pct}%`; $(fillId).className = "quota-fill " + meterClass(pct);
     if ($(fillId).parentElement) $(fillId).parentElement.setAttribute("aria-valuenow", String(pct));
@@ -3211,13 +3267,14 @@ async function loadBillingData() {
 
     // Plan identity (plan data comes only from the plan system)
     const plan = (sub && sub.plan) || (usage && usage.plan) || {};
-    const status = sub ? (sub.is_demo ? "demo" : sub.status) : (summarySub ? (summarySub.is_demo ? "demo" : summarySub.status) : (plan.is_demo ? "demo" : ""));
+    let status = sub ? (sub.is_demo ? "demo" : sub.status) : (summarySub ? (summarySub.is_demo ? "demo" : summarySub.status) : (plan.is_demo ? "demo" : ""));
+    if (status === "demo" && usage && usage.demo && usage.demo.expired) status = "expired";  // the trial ran out
     const isActive = status === "active";
-    const planName = plan.name || (summarySub && summarySub.plan_name) || "No plan";
+    const planName = planLabel(plan, (summarySub && summarySub.plan_name) || "No plan");
     const badge = $("topbarPlanBadge");
     if (badge) { badge.textContent = planName; badge.className = `plan-badge-pill ${esc(String(plan.slug || "").toLowerCase())}`; }
 
-    $("billingPlanName").textContent = plan.is_demo ? "Demo" : planName;
+    $("billingPlanName").textContent = planName;
     const statusEl = $("billingStatusBadge");
     const [pillCls, pillLabel] = STATUS_PILL[status] || ["neutral", SUB_STATUS_LABELS[status] || (status ? String(status).replace(/_/g, " ") : "No active plan")];
     statusEl.className = "status-pill sp-" + pillCls;
@@ -3225,7 +3282,7 @@ async function loadBillingData() {
 
     const cycle = sub && sub.billing_cycle === "yearly" ? "year" : "month";
     const amount = sub && sub.amount != null ? sub.amount : plan.price_monthly;
-    const price = plan.is_demo ? "Free demo" : (amount ? formatMoney(amount, (sub && sub.currency) || plan.currency) : "Free");
+    const price = plan.is_demo ? "Free" : (amount ? formatMoney(amount, (sub && sub.currency) || plan.currency) : "Free");
     // who provides Apify / Gemini for this organization right now
     const orgCov = (currentTenantOrg && currentTenantOrg.api_keys && currentTenantOrg.api_keys.coverage) || (sub && sub.api_coverage) || null;
     const ownNow = ownApis(normCoverage(orgCov));
@@ -3240,7 +3297,7 @@ async function loadBillingData() {
       if (!isActive && status !== "demo") details = "This plan is not active.";
     }
     const demo = usage && usage.demo;
-    if (demo) details = demo.expired ? "Your demo has ended." : `Demo ends ${new Date(demo.expires_at).toLocaleString()}`;
+    if (demo) details = demo.expired ? "Your free trial has ended." : `Free trial ends ${new Date(demo.expires_at).toLocaleString()}`;
     if (!canView) details = (details ? details + " · " : "") + "Billing details are visible to your workspace admins.";
     $("billingSubDetails").textContent = details;
 
@@ -3336,16 +3393,18 @@ function renderTokenMeter(usage) {
   box.classList.remove("hidden");
   const pct = t.allocated > 0 ? Math.min(100, Math.round((t.used / t.allocated) * 100)) : 100;
   const valEl = $("tokenMeterVal");
-  if (valEl) valEl.textContent = `${fmt(t.remaining)} left of ${fmt(t.allocated)}`;
+  const ended = Boolean(t.expired || (demo && demo.expired));
+  if (valEl) valEl.textContent = ended ? `Expired · ${fmt(t.remaining)} unused` : `${fmt(t.remaining)} left of ${fmt(t.allocated)}`;
   const fill = $("tokenMeterFill");
   if (fill) {
-    fill.style.width = `${pct}%`; fill.className = "quota-fill " + meterClass(pct);
-    if (fill.parentElement) fill.parentElement.setAttribute("aria-valuenow", String(pct));
+    const shown = ended ? 100 : pct;
+    fill.style.width = `${shown}%`; fill.className = "quota-fill " + meterClass(shown);
+    if (fill.parentElement) fill.parentElement.setAttribute("aria-valuenow", String(shown));
   }
   const note = $("tokenMeterNote");
   if (note) {
-    if (t.expired || (demo && demo.expired)) note.textContent = "Your demo has ended — choose a plan to continue.";
-    else if (demo) note.textContent = `Demo ends in ${countdownText(demo.expires_at)}.`;
+    if (ended) note.textContent = demo ? "Your free trial has ended — choose a plan to continue." : "Your tokens have expired — choose a plan to get a fresh allowance.";
+    else if (demo) note.textContent = `Free trial ends in ${countdownText(demo.expires_at)}.`;
     else note.textContent = t.expires_at ? `Renews ${new Date(t.expires_at).toLocaleDateString()}` : "";
   }
 }
@@ -3515,7 +3574,7 @@ function renderPlansCatalogGrid() {
       { name: `${fmt(lim.posts_per_search || 0)} posts per search`, active: Boolean(lim.posts_per_search) },
       { name: `${fmt(lim.comments_per_post || 0)} comments per post`, active: Boolean(lim.comments_per_post) },
       { name: `${fmt(lim.monthly_ai_analyses || 0)} AI analyses`, active: has("ai_analysis") },
-      { name: `Up to ${fmt(lim.team_members || 0)} team members`, active: Boolean(lim.team_members) },
+      { name: Number(lim.team_members) === 1 ? "1 team member" : `Up to ${fmt(lim.team_members || 0)} team members`, active: Boolean(lim.team_members) },
       { name: "CSV & report exports", active: has("csv_export") },
     ];
     let action;
@@ -3640,7 +3699,7 @@ function refreshSummary() {
       if (badge) { badge.textContent = String(n); badge.classList.toggle("hidden", !n); }
       const planBadge = $("topbarPlanBadge");
       const plan = ((res.data.usage || {}).plan) || {};
-      if (planBadge && plan.name) { planBadge.textContent = plan.name; planBadge.className = `plan-badge-pill ${esc(String(plan.slug || "").toLowerCase())}`; }
+      if (planBadge && plan.name) { planBadge.textContent = planLabel(plan); planBadge.className = `plan-badge-pill ${esc(String(plan.slug || "").toLowerCase())}`; }
     }
     return res;
   })().finally(() => { setTimeout(() => { _summaryPromise = null; }, 0); });
@@ -3667,7 +3726,7 @@ function renderTokenWidgets() {
       const f = $("tokenChipFill");
       f.style.width = remainingPct + "%";
       chip.className = "token-chip " + (lvl ? "tc-" + lvl : "");
-      chip.title = `${fmt(t.remaining)} of ${fmt(t.allocated)} tokens left${demo && !demo.expired ? " · demo ends in " + countdownText(demo.expires_at) : ""}`;
+      chip.title = `${fmt(t.remaining)} of ${fmt(t.allocated)} tokens left${demo && !demo.expired ? " · free trial ends in " + countdownText(demo.expires_at) : ""}`;
     } else {
       chip.classList.add("hidden");
     }
@@ -3681,16 +3740,23 @@ function renderTokenWidgets() {
       val.textContent = "Not metered";
       fill.style.width = "0%";
       bar.setAttribute("aria-valuenow", "0");
-      const planName = (((portal.summary || {}).usage || {}).plan || {}).name;
-      note.textContent = planName ? `${planName} plan` : "";
+      const planName = planLabel((((portal.summary || {}).usage || {}).plan || {}));
+      note.textContent = planName ? (planName === TRIAL_LABEL ? planName : `${planName} plan`) : "";
+    } else if (t.expired || (demo && demo.expired)) {
+      // expired tokens can't be spent: say so instead of "500 / 500"
+      val.textContent = "Expired";
+      fill.style.width = "100%";
+      fill.className = "quota-fill danger";
+      bar.setAttribute("aria-valuenow", "100");
+      bar.setAttribute("aria-valuetext", "Tokens expired");
+      note.textContent = demo ? "Free trial ended — choose a plan" : "Tokens expired — choose a plan";
     } else {
       val.textContent = `${fmt(t.remaining)} / ${fmt(t.allocated)}`;
       fill.style.width = pct + "%";
       fill.className = "quota-fill " + meterClass(pct);
       bar.setAttribute("aria-valuenow", String(pct));
       bar.setAttribute("aria-valuetext", `${t.used} of ${t.allocated} tokens used`);
-      if (t.expired || (demo && demo.expired)) note.textContent = demo ? "Demo ended — choose a plan" : "Tokens expired";
-      else if (demo) note.innerHTML = `Demo ends in <b data-countdown="${esc(demo.expires_at)}">${esc(countdownText(demo.expires_at))}</b>`;
+      if (demo) note.innerHTML = `Free trial ends in <b data-countdown="${esc(demo.expires_at)}">${esc(countdownText(demo.expires_at))}</b>`;
       else note.textContent = t.expires_at ? `Resets ${new Date(t.expires_at).toLocaleDateString()}` : `${fmt(t.used)} used`;
     }
     const showUpgrade = Boolean(demo) || lvl !== "";
@@ -3711,11 +3777,11 @@ function renderPortalBanner() {
   let item = null;
   if ((s.blockers || []).length) {
     const b = s.blockers[0];
-    item = { level: "danger", code: b.code, title: (ENTITLEMENT_COPY[b.code] || {}).title || "Action needed", msg: b.message, action: "upgrade" };
+    item = { level: "danger", code: b.code, title: (ENTITLEMENT_COPY[b.code] || {}).title || "Action needed", msg: alertText(b), action: "upgrade" };
   } else if (s.subscription && s.subscription.pending) {
     item = { level: "info", code: "PENDING", title: "Pending confirmation", msg: `${s.subscription.pending.plan_name || "Your new plan"} is awaiting confirmation by our team. Your current plan stays in effect until then.`, action: "billing" };
   } else if (s.usage && s.usage.demo && !s.usage.demo.expired && (s.usage.demo.days_remaining || 0) <= 2) {
-    item = { level: "warning", code: "DEMO_ENDING", title: "Your demo ends soon", msg: `Demo ends in ${countdownText(s.usage.demo.expires_at)}. Choose a plan to keep your workspace running.`, action: "upgrade" };
+    item = { level: "warning", code: "DEMO_ENDING", title: "Your free trial ends soon", msg: `Free trial ends in ${countdownText(s.usage.demo.expires_at)}. Choose a plan to keep your workspace running.`, action: "upgrade" };
   }
   // the dashboard shows the same information as alerts — no duplicate banner there
   if (!item || dismissed === item.code || currentView === "dashboard") { box.classList.add("hidden"); box.innerHTML = ""; return; }
@@ -3802,18 +3868,28 @@ function renderDashboard(s) {
     const lvl = a.level === "danger" ? "alert-danger" : a.level === "warning" ? "alert-warning" : "alert-info";
     const title = (ENTITLEMENT_COPY[a.code] || {}).title || "";
     const actionHtml = a.action === "upgrade" ? upgradeButtonHtml(a.code) : (ALERT_ACTIONS[a.action] ? ALERT_ACTIONS[a.action]() : "");
-    return `<div class="inline-alert ${lvl}"><div>${title ? `<strong>${esc(title)}</strong> ` : ""}<span>${esc(a.message)}</span>${a.code === "DEMO_ACTIVE" && a.expires_at ? ` <span class="countdown" data-countdown="${esc(a.expires_at)}">(${esc(countdownText(a.expires_at))} left)</span>` : ""}</div>${actionHtml}</div>`;
+    // the running free trial: one live countdown instead of the server's "Demo ends in N days."
+    const body = a.code === "DEMO_ACTIVE" && a.expires_at
+      ? `<span>Your free trial ends in <b data-countdown="${esc(a.expires_at)}">${esc(countdownText(a.expires_at))}</b>.</span>`
+      : `<span>${esc(alertText(a))}</span>`;
+    return `<div class="inline-alert ${lvl}"><div>${title ? `<strong>${esc(title)}</strong> ` : ""}${body}</div>${actionHtml}</div>`;
   }).join("");
 
   const c = s.counts || {};
   const usage = s.usage || {};
   const t = usage.tokens;
   const demo = usage.demo;
-  if (t) {
+  if (t && (t.expired || (demo && demo.expired))) {
+    // expired tokens can't be spent: never present them as "left"
+    kpi("kpiTokens", "Tokens", "Expired",
+      `${meterBar(100, "Workspace tokens", "Tokens expired")}
+       <div class="kpi-sub">${demo ? "Free trial ended" : "Tokens expired"}${t.remaining ? ` · ${esc(fmt(t.remaining))} unused` : ""}</div>`,
+      "kpi-token", { nav: "billing" });
+  } else if (t) {
     const pct = t.allocated > 0 ? Math.min(100, Math.round((t.used / t.allocated) * 100)) : 100;
     kpi("kpiTokens", "Tokens left", `${esc(fmt(t.remaining))}<span class="kpi-of"> / ${esc(fmt(t.allocated))}</span>`,
       `${meterBar(pct, "Workspace tokens used", `${t.used} of ${t.allocated} tokens used`)}
-       <div class="kpi-sub">${demo ? (demo.expired ? "Demo ended" : `Demo ends in <b data-countdown="${esc(demo.expires_at)}">${esc(countdownText(demo.expires_at))}</b>`) : t.expires_at ? "Resets " + esc(new Date(t.expires_at).toLocaleDateString()) : esc(fmt(c.tokens_consumed || 0)) + " used by you"}</div>`,
+       <div class="kpi-sub">${demo ? (demo.expired ? "Free trial ended" : `Free trial ends in <b data-countdown="${esc(demo.expires_at)}">${esc(countdownText(demo.expires_at))}</b>`) : t.expires_at ? "Resets " + esc(new Date(t.expires_at).toLocaleDateString()) : esc(fmt(c.tokens_consumed || 0)) + " used by you"}</div>`,
       "kpi-token", { nav: "usage" });
   } else {
     kpi("kpiTokens", "Plan", esc((usage.plan || {}).name || "—"), `<div class="kpi-sub">Not token-metered</div>`, "kpi-token", { nav: "billing" });
@@ -3855,12 +3931,12 @@ function renderDashboard(s) {
   const plan = usage.plan || {};
   const caps = s.caps || {};
   const sub = s.subscription || {};
-  const status = sub.is_demo ? "demo" : sub.status;
+  const status = sub.is_demo ? (usage.demo && usage.demo.expired ? "expired" : "demo") : sub.status;
   const meters = [["monthly_searches", "Searches"], ["monthly_ai_analyses", "AI analyses"], ["monthly_exports", "Exports"], ["team_members", "Team members"]];
   $("dashPlan").innerHTML = `
     <div class="plan-summary">
       <div class="plan-summary-head">
-        <div><div class="plan-summary-name">${esc(plan.is_demo ? "Demo" : (plan.name || "No plan"))}</div>
+        <div><div class="plan-summary-name">${esc(planLabel(plan, "No plan"))}</div>
         <div class="kpi-sub">${caps.posts_per_search ? `Up to ${esc(caps.posts_per_search)} posts per search` : ""}${caps.comments_per_post ? ` · ${esc(caps.comments_per_post)} comments per post` : ""}</div></div>
         ${status ? statusPill(status) : ""}
       </div>
@@ -3868,7 +3944,7 @@ function renderDashboard(s) {
         const m = (usage.metrics || {})[k];
         if (!m) return "";
         const pct = m.limit > 0 ? Math.min(100, Math.round((m.used / m.limit) * 100)) : 0;
-        const val = `${fmt(m.used)} / ${m.limit >= 1e9 ? "∞" : m.limit ? fmt(m.limit) : "—"}`;
+        const val = meterText(m);
         return `<div class="meter"><div class="meter-head"><span>${esc(label)}</span><span class="cell-mono">${esc(val)}</span></div>${meterBar(pct, label + " used", val)}</div>`;
       }).join("")}</div>
     </div>`;
@@ -4175,9 +4251,11 @@ async function loadUsage() {
       <section class="panel">
         <div class="panel-head"><h2 class="panel-title">Workspace tokens</h2></div>
         <div class="panel-body">
-          ${t ? `<div class="meter-big"><span class="meter-big-val">${esc(fmt(t.remaining))}</span><span class="kpi-of"> of ${esc(fmt(t.allocated))} left</span></div>
+          ${t ? `<div class="meter-big">${t.expired || (demo && demo.expired)
+              ? `<span class="meter-big-val">Expired</span><span class="kpi-of"> · ${esc(fmt(t.remaining))} of ${esc(fmt(t.allocated))} unused</span>`
+              : `<span class="meter-big-val">${esc(fmt(t.remaining))}</span><span class="kpi-of"> of ${esc(fmt(t.allocated))} left</span>`}</div>
             <div class="quota-bar" role="progressbar" aria-label="Workspace tokens used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${tokPct}"><div class="quota-fill ${meterClass(tokPct)}" style="width:${tokPct}%"></div></div>
-            <div class="kpi-sub mt-8">${demo ? (demo.expired ? "Demo ended — choose a plan to continue." : `Demo ends in <b data-countdown="${esc(demo.expires_at)}">${esc(countdownText(demo.expires_at))}</b>`) : t.expires_at ? "Resets " + esc(new Date(t.expires_at).toLocaleDateString()) : ""}</div>`
+            <div class="kpi-sub mt-8">${demo ? (demo.expired ? "Free trial ended — choose a plan to continue." : `Free trial ends in <b data-countdown="${esc(demo.expires_at)}">${esc(countdownText(demo.expires_at))}</b>`) : t.expires_at ? "Resets " + esc(new Date(t.expires_at).toLocaleDateString()) : ""}</div>`
           : `<div class="kpi-sub">Your workspace isn't token-metered.</div>`}
           ${Object.keys(costs).length ? `<div class="cost-list">${Object.entries(costs).map(([k, v]) => `<span class="cost-chip">${esc(REASON_LABELS[k] || k)}: <b>${esc(v)}</b> token${v === 1 ? "" : "s"}</span>`).join("")}</div>` : ""}
           ${caps.posts_per_search || caps.comments_per_post ? `<div class="kpi-sub mt-8">Per search: up to ${esc(caps.posts_per_search || "—")} posts · ${esc(caps.comments_per_post || "—")} comments per post</div>` : ""}
@@ -4192,12 +4270,12 @@ async function loadUsage() {
       </section>
     </div>
     <section class="panel">
-      <div class="panel-head"><h2 class="panel-title">Workspace plan meters</h2><span class="kpi-sub">${esc((org.plan || {}).name || "")}</span></div>
+      <div class="panel-head"><h2 class="panel-title">Workspace plan meters</h2><span class="kpi-sub">${esc(planLabel(org.plan))}</span></div>
       <div class="panel-body"><div class="meter-grid">${metrics.map(([k, label]) => {
         const m = (org.metrics || {})[k];
         if (!m) return "";
         const pct = m.limit > 0 ? Math.min(100, Math.round((m.used / m.limit) * 100)) : 0;
-        const val = `${fmt(m.used)} / ${m.limit >= 1e9 ? "∞" : m.limit ? fmt(m.limit) : "—"}`;
+        const val = meterText(m);
         return `<div class="meter"><div class="meter-head"><span>${esc(label)}</span><span class="cell-mono">${esc(val)}</span></div>${meterBar(pct, label + " used", val)}</div>`;
       }).join("")}</div></div>
     </section>`;
@@ -4266,7 +4344,7 @@ function showSettingsTab(tab) {
   $("settingsProfile").classList.toggle("hidden", currentSettingsTab !== "profile");
   $("settingsNotifications").classList.toggle("hidden", currentSettingsTab !== "notifications");
   $("settingsSecurity").classList.toggle("hidden", currentSettingsTab !== "security");
-  if (currentSettingsTab === "security") loadSessions();
+  if (currentSettingsTab === "security") { loadSessions(); loadTwoFactor(); }
   else loadProfile();
 }
 
@@ -4317,7 +4395,7 @@ async function loadProfile() {
   prefsBody.innerHTML = `<p class="field-hint prefs-intro">Shared with the Admin portal — changes apply everywhere you sign in.</p>
   <div class="prefs-table" role="list" aria-label="Notification preferences">
     ${options.map((o) => `<div class="prefs-row" role="listitem">
-      <span><span class="prefs-label" id="pref-${esc(o.key)}">${esc(o.label)}</span>${o.hint ? `<span class="field-hint prefs-hint">${esc(o.hint)}</span>` : ""}</span>
+      <span><span class="prefs-label" id="pref-${esc(o.key)}">${esc(trialWording(o.label))}</span>${o.hint ? `<span class="field-hint prefs-hint">${esc(trialWording(o.hint))}</span>` : ""}</span>
       <label class="switch"><input type="checkbox" data-pref="${esc(o.key)}" aria-labelledby="pref-${esc(o.key)}" ${prefs[o.key] ? "checked" : ""}><span class="switch-ui" aria-hidden="true"></span></label>
     </div>`).join("")}
     <div class="prefs-row" role="listitem"><span><span class="prefs-label" id="pref-security">Security alerts</span><span class="field-hint prefs-hint">Always on — sign-ins, password changes, suspicious activity</span></span>
@@ -4404,6 +4482,92 @@ async function changePassword(ev) {
   $("passwordStatus").textContent = res.data.message || "Password updated.";
   toast("Password updated — other sessions were signed out", "success");
   loadSessions();
+}
+
+// ── Two-factor authentication (authenticator app, /api/auth/2fa/*) ──────
+// The sign-in page already asks for the code; this is where a customer turns it on or off.
+async function loadTwoFactor() {
+  const box = $("twofaBody");
+  if (!box) return;
+  box.innerHTML = skeletonRows(1);
+  const res = await api("/api/auth/2fa/status");
+  if (!res.ok) { RETRY.twofa = loadTwoFactor; box.innerHTML = failureState(res, "twofa", "two-factor settings"); return; }
+  const on = Boolean(res.data.totp_enabled);
+  const readOnly = Boolean(portal.user && portal.user.impersonated_by);
+  box.innerHTML = `<div class="twofa-row">
+      <div><div class="twofa-state">${statusPill(on ? "active" : "cancelled", on ? "On" : "Off")}</div>
+        <p class="field-hint">${on ? "Signing in needs a 6-digit code from your authenticator app." : "Add a second step to sign-in with an authenticator app (Google Authenticator, 1Password, Authy…)."}</p></div>
+      <button type="button" class="${on ? "btn-ghost" : "btn-primary"}" id="twofaToggle"${readOnly ? ' disabled title="Read-only during a support session"' : ""}>${on ? "Turn off" : "Turn on"}</button>
+    </div>`;
+  $("twofaToggle").addEventListener("click", () => (on ? twoFactorDisableForm() : twoFactorSetup()));
+}
+
+async function twoFactorSetup() {
+  const box = $("twofaBody");
+  const btn = $("twofaToggle");
+  if (btn) btn.disabled = true;
+  const res = await api("/api/auth/2fa/setup", { method: "POST" });
+  if (!res.ok) { if (btn) btn.disabled = false; toast(errText(res.data, "Couldn't start the setup"), "error"); return; }
+  const { secret, otpauth_url: uri } = res.data;
+  box.innerHTML = `<form class="twofa-form" id="twofaEnableForm" novalidate>
+      <p class="field-hint">1. In your authenticator app, add an account with this setup key (or open the link on your phone).</p>
+      <div class="twofa-key"><code class="cell-mono" id="twofaSecret">${esc(secret)}</code>
+        <button type="button" class="btn-ghost btn-sm" id="twofaCopy">Copy key</button></div>
+      ${safeUrl(uri) || /^otpauth:\/\//i.test(String(uri || "")) ? `<p class="field-hint twofa-uri">Link: <a href="${esc(uri)}">${esc(uri)}</a></p>` : ""}
+      <div class="form-field">
+        <label class="field-label" for="twofaCode">2. Enter the 6-digit code it shows</label>
+        <input type="text" id="twofaCode" class="form-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="123456" data-error="twofaCodeErr" required>
+        <div class="field-error" id="twofaCodeErr" role="alert"></div>
+      </div>
+      <div class="twofa-actions"><button type="button" class="btn-ghost" id="twofaCancel">Cancel</button>
+        <button type="submit" class="btn-primary" id="twofaVerify"><span class="btn-label">Verify &amp; turn on</span></button></div>
+    </form>`;
+  $("twofaCopy").addEventListener("click", () => {
+    const done = () => toast("Setup key copied", "success");
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(secret).then(done, () => toast("Select the key and copy it", "info"));
+  });
+  $("twofaCancel").addEventListener("click", loadTwoFactor);
+  $("twofaCode").focus();
+  $("twofaEnableForm").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const code = $("twofaCode").value.replace(/\s+/g, "");
+    if (!/^\d{6}$/.test(code)) { fieldError("twofaCode", "Enter the 6-digit code from your app."); return; }
+    fieldError("twofaCode", "");
+    const b = $("twofaVerify");
+    setBusy(b, true, "Verifying…");
+    const r = await api("/api/auth/2fa/enable", { method: "POST", body: { secret, code } });
+    setBusy(b, false);
+    if (!r.ok) { fieldError("twofaCode", errText(r.data, "That code didn't work — try the current one.")); return; }
+    toast("Two-factor authentication is on", "success");
+    loadTwoFactor();
+  });
+}
+
+function twoFactorDisableForm() {
+  const box = $("twofaBody");
+  box.innerHTML = `<form class="twofa-form" id="twofaDisableForm" novalidate>
+      <div class="form-field">
+        <label class="field-label" for="twofaPassword">Confirm with your current password</label>
+        <input type="password" id="twofaPassword" class="form-input" autocomplete="current-password" data-error="twofaPasswordErr" required>
+        <div class="field-error" id="twofaPasswordErr" role="alert"></div>
+      </div>
+      <div class="twofa-actions"><button type="button" class="btn-ghost" id="twofaCancel">Cancel</button>
+        <button type="submit" class="btn-danger-solid" id="twofaOff"><span class="btn-label">Turn off two-factor</span></button></div>
+    </form>`;
+  $("twofaCancel").addEventListener("click", loadTwoFactor);
+  $("twofaPassword").focus();
+  $("twofaDisableForm").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const password = $("twofaPassword").value;
+    if (!password) { fieldError("twofaPassword", "Enter your current password."); return; }
+    const b = $("twofaOff");
+    setBusy(b, true, "Turning off…");
+    const r = await api("/api/auth/2fa/disable", { method: "POST", body: { password } });
+    setBusy(b, false);
+    if (!r.ok) { fieldError("twofaPassword", errText(r.data, "Couldn't turn it off")); return; }
+    toast("Two-factor authentication is off", "info");
+    loadTwoFactor();
+  });
 }
 
 function deviceName(ua) {

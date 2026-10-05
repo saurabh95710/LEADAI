@@ -483,6 +483,7 @@
     return box;
   };
   let cycle = 'monthly';
+  let siteTrial = false;   // self-serve free trial on (public config), see trialLabels()
   // Who provides each external API: 'leadai' (included in the price) or 'own'
   // (the customer's own key: cheaper, they pay Apify / Google directly).
   // Prices always come from the API's coverage_options, never computed here.
@@ -591,7 +592,6 @@
       const free = price === 0;
       const meta = [];
       if (useYear) meta.push('≈ ' + money(price / 12, p.currency) + ' / month, billed yearly');
-      if (Number(p.trial_days) > 0) meta.push(p.trial_days + '-day trial');
       const own = API_CHOICES.filter(a => opt.coverage && opt.coverage[a.key] === 'own').map(a => a.name);
       const covNote = !allowsOwn(p) ? h('span', { class: 'plan-cov', text: 'LeadAI-provided only' })
         : own.length ? h('span', { class: 'plan-cov is-own', text: 'Your own ' + own.join(' + ') + ' key' + (own.length > 1 ? 's' : '') })
@@ -602,7 +602,9 @@
         h('p', { class: 'plan-desc', text: p.description || '' }),
         h('p', { class: 'plan-price' }, h('strong', { text: free ? 'Free' : money(price, p.currency) }),
           free ? null : h('span', { text: useYear ? '/ year' : '/ month' })),
-        h('p', { class: 'plan-meta' }, covNote, meta.length ? h('span', { text: meta.join(' · ') }) : null),
+        h('p', { class: 'plan-meta' }, covNote, meta.length ? h('span', { text: meta.join(' · ') }) : null,
+          // a plan's own trial; hidden when sign-up starts the site-wide free trial (its CTA says how long)
+          Number(p.trial_days) > 0 && !siteTrial ? h('span', { 'data-plan-trial': '', text: p.trial_days + '-day trial' }) : null),
         h('ul', { 'aria-label': 'Included' }, (p.highlights || []).map(f => h('li', null, svg('check'), f))),
         h('a', { class: 'btn w-full ' + (p.popular ? 'btn-primary' : 'btn-secondary'), href: planHref(safeUrl(cta.url), p, opt), text: cta.label,
           'aria-label': cta.label + ' — ' + p.name }));
@@ -679,6 +681,51 @@
       h('div', { class: 'state-card', role: 'status' }, h('h2', { text: title }), body ? h('p', { text: body }) : null,
         actions ? h('div', { class: 'cta-row' }, actions) : null));
   }
+
+  // Self-serve free trial (Super Admin → demo settings → auto-approve): sign-up
+  // starts a trial at once, so "Request a demo" links (code or CMS content) say
+  // "Start free trial" — including ones rendered later.
+  (function trialLabels() {
+    const DEMO_TEXT = /^\s*(request|book|get)( a| your)?( free)? demo\s*$/i;
+    let label = '';
+    const relabel = (root) => {
+      if (!label || !root || !root.querySelectorAll) return;
+      root.querySelectorAll('[data-plan-trial]').forEach(el => el.remove());
+      root.querySelectorAll('a[href^="/request-demo"], a[href^="/signup"]').forEach(a => {
+        if (a.children.length === 0 && DEMO_TEXT.test(a.textContent)) a.textContent = label;
+      });
+    };
+    soft(api('/api/public/config')).then(cfg => {
+      const t = (cfg && cfg.trial) || {};
+      if (!t.self_serve) return;
+      label = t.days > 0 ? 'Start free ' + t.days + '-day trial' : 'Start free trial';
+      siteTrial = true;
+      relabel(document);
+      new MutationObserver(list => list.forEach(m => m.addedNodes.forEach(n => {
+        if (n.nodeType === 1) { relabel(n); if (n.matches && n.matches('a')) relabel(n.parentNode); }
+      }))).observe(document.body, { childList: true, subtree: true });
+    });
+  })();
+
+  // Already signed in as a customer: "Sign in" becomes "Open your dashboard"
+  // (the user panel lives at /user; / is this website).
+  (function dashboardLink() {
+    const swap = (root) => {
+      if (!root || !root.querySelectorAll) return;
+      root.querySelectorAll('a[href="/login"]').forEach(a => {
+        if (a.children.length === 0 && /^\s*sign in\s*$/i.test(a.textContent)) {
+          a.textContent = 'Open your dashboard'; a.setAttribute('href', '/user');
+        }
+      });
+    };
+    soft(getJSON('/api/auth/status')).then(st => {
+      if (!st || !st.signed_in || st.scope !== 'site') return;
+      swap(document);
+      new MutationObserver(list => list.forEach(m => m.addedNodes.forEach(n => {
+        if (n.nodeType === 1) swap(n.parentNode || n);
+      }))).observe(document.body, { childList: true, subtree: true });
+    });
+  })();
 
   window.LeadAISite = { h, svg, clear, txt, safeUrl, link, ctas, titleNodes, sectionHead, bodyNodes, iconTile,
     api, soft, applySeo, initChrome, renderSections, stateCard, niceDate, reveal, faqList, curPath };

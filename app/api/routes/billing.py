@@ -208,6 +208,46 @@ async def get_tenant_invoices(ctx: TenantContext = Depends(require_org_permissio
     return {"success": True, "invoices": invoices}
 
 
+async def _own_invoice(ctx: TenantContext, number: str, request: Request):
+    db = get_async_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    inv = await db.invoices.find_one({"number": number, "organization_id": str(ctx.tenant_id)})
+    if not inv:  # another organization's invoice looks exactly like a missing one (and is logged)
+        other = await db.invoices.find_one({"number": number}, {"_id": 1, "organization_id": 1})
+        if other:
+            from app.auth.tenant import report_out_of_scope
+            report_out_of_scope(request, ctx, "invoices", other)
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    from bson import ObjectId
+    org = await db.organizations.find_one({"_id": ObjectId(str(ctx.tenant_id))}, {"name": 1}) \
+        if ObjectId.is_valid(str(ctx.tenant_id)) else None
+    return inv, org or {}
+
+
+@router.get("/invoices/{number}/download")
+async def download_invoice(number: str, request: Request,
+                           ctx: TenantContext = Depends(require_org_permission(ORG_BILLING_VIEW))):
+    """The invoice as a printable page (Print → Save as PDF)."""
+    from fastapi.responses import HTMLResponse
+    from app.billing.invoices import render_invoice_html
+    inv, org = await _own_invoice(ctx, number, request)
+    return HTMLResponse(render_invoice_html(inv, org), headers={
+        "Content-Disposition": f'inline; filename="{inv["number"]}.html"', "Cache-Control": "no-store"})
+
+
+@router.get("/invoices/{number}/receipt")
+async def download_receipt(number: str, request: Request,
+                          ctx: TenantContext = Depends(require_org_permission(ORG_BILLING_VIEW))):
+    from fastapi.responses import HTMLResponse
+    from app.billing.invoices import render_invoice_html
+    inv, org = await _own_invoice(ctx, number, request)
+    if inv.get("status") != "paid":
+        raise HTTPException(status_code=409, detail="This invoice isn't paid yet, so there's no receipt")
+    return HTMLResponse(render_invoice_html(inv, org, receipt=True), headers={
+        "Content-Disposition": f'inline; filename="{inv["number"]}-receipt.html"', "Cache-Control": "no-store"})
+
+
 @router.post("/webhook")
 async def billing_webhook(request: Request):
     """Signature-verified provider webhook (public, no session)."""

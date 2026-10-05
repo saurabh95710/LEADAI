@@ -32,7 +32,17 @@
     suspended: 'suspended', rejected: 'danger', reversed: 'danger', failed: 'danger', churned: 'neutral',
     refund: 'danger', chargeback: 'danger', cancelled: 'neutral', archived: 'neutral', disabled: 'neutral' };
   Object.assign(TONE, { registered: 'warning', won: 'success', lost: 'neutral', expired: 'neutral' });
-  var STAGE_LABEL = { signed_up: 'Signed up', demo: 'Demo', subscription: 'Checkout started', payment: 'Payment received', customer: 'Customer' };
+  var STAGE_LABEL = { signed_up: 'Signed up', demo: 'Demo approved', subscription: 'Checkout started', payment: 'Payment received', customer: 'Customer' };
+  // Self-serve free trial (public config): website sign-ups start a trial at once,
+  // so the referral "demo" stage is a started trial. Set by loadTrial() before any view renders.
+  function trialOn() { return !!(S.trial && S.trial.self_serve); }
+  function trialName() { var d = S.trial && S.trial.days; return (d > 0 ? d + '-day ' : '') + 'free trial'; }
+  function trialsLabel() { return trialOn() ? 'trials started' : 'demos approved'; }
+  async function loadTrial() {
+    try { var r = await fetch('/api/public/config', { credentials: 'same-origin', headers: { Accept: 'application/json' } }); S.trial = r.ok ? ((await r.json()).trial || {}) : {}; }
+    catch (e) { S.trial = {}; }
+    STAGE_LABEL.demo = trialOn() ? 'Free trial' : 'Demo approved';
+  }
   function pill(s, label) { return s ? '<span class="oa-pill" data-tone="' + (TONE[s] || 'neutral') + '">' + esc(label || title(s)) + '</span>' : '<span class="oa-muted">—</span>'; }
   function iso(d) { return d.toISOString().slice(0, 10); }
 
@@ -228,7 +238,7 @@
       changes_requested: 'Our team asked for changes. Update your application below and resubmit it.',
       rejected: 'Your application was not approved.', approved: 'Your application is approved.' }[a.status] || '';
     root.innerHTML = head('Your partner application', status) +
-      (a.review_note ? '<div class="pp-banner"><b>Note from the LeadAI team:</b> ' + esc(a.review_note) + '</div>' : '') +
+      (a.review_note && (a.status === 'changes_requested' || a.status === 'rejected') ? '<div class="pp-banner"><b>Note from the LeadAI team:</b> ' + esc(a.review_note) + '</div>' : '') +
       '<div class="oa-grid oa-grid-2">' +
       card('Status', kv([['Status', pill(a.status), true], ['Submitted', date(a.created_at)], ['Partner type', title(a.partner_type)], ['Last update', dt(a.updated_at)]])) +
       card('History', '<ul class="oa-feed">' + (a.history || []).slice().reverse().map(function (h) { return '<li><span class="oa-feed-main">' + pill(h.status) + (h.note ? ' <span class="oa-small">' + esc(h.note) + '</span>' : '') + '</span><time>' + esc(dt(h.at)) + '</time></li>'; }).join('') + '</ul>') +
@@ -268,7 +278,7 @@
     $('[data-dash]', root).innerHTML = (nt ? '<div class="pp-banner" role="status">You have <b>' + nt + ' open task' + (nt === 1 ? '' : 's') + '</b> from the LeadAI team. <a class="oa-link" href="#/tasks">Open tasks →</a></div>' : '') + links +
       '<div class="oa-grid oa-grid-4">' +
       stat('Referral clicks', num(k.clicks), num(k.unique_clicks) + ' unique', '', go('analytics')) +
-      stat('Referrals', num(k.referrals), num(k.demos) + ' demo registrations', '', go('referrals', { from: r.from, to: r.to })) +
+      stat('Referrals', num(k.referrals), num(k.demos) + ' ' + trialsLabel(), '', go('referrals', { from: r.from, to: r.to })) +
       stat('Customers', num(k.customers), num(k.total_customers) + ' total · ' + num(k.active_subscriptions) + ' active subs', '', go('customers', { stage: 'customer' })) +
       stat('Conversion', k.conversion_rate + '%', 'clicks → signups · ' + k.customer_rate + '% signups → customers', '', go('analytics')) +
       '</div><div class="oa-grid oa-grid-4">' +
@@ -278,7 +288,7 @@
         : stat('Available balance', money(b.available, cur), 'payable now', '', go('commissions', { status: 'payable' }))) +
       stat('Paid out', money(b.paid, cur), num(k.pending_payout_count) + ' payout(s) in progress · ' + money(k.pending_payouts, cur), '', go('payouts', { status: 'paid' }) || go('commissions', { status: 'paid' })) +
       '</div><div class="oa-grid oa-grid-2">' +
-      card('Recent referrals', list(d.recent_referrals, function (x) { return '<li><span class="oa-feed-main"><b>' + esc(x.company || 'New signup') + '</b> ' + pill(x.stage) + '</span><time>' + esc(date(x.signed_up_at)) + '</time></li>'; }, 'No referrals yet — share your link to get started.'), '', has('referrals.view') ? '<a class="oa-link" href="#/referrals">View all</a>' : '') +
+      card('Recent referrals', list(d.recent_referrals, function (x) { return '<li><span class="oa-feed-main"><b>' + esc(x.company || 'New signup') + '</b> ' + pill(x.stage, STAGE_LABEL[x.stage]) + '</span><time>' + esc(date(x.signed_up_at)) + '</time></li>'; }, 'No referrals yet — share your link to get started.'), '', has('referrals.view') ? '<a class="oa-link" href="#/referrals">View all</a>' : '') +
       card('Recent customers', list(d.recent_customers, function (x) { return '<li><span class="oa-feed-main"><b>' + esc(x.company || '—') + '</b> <span class="oa-small oa-muted">' + esc(x.plan_id || '') + '</span></span><time>' + esc(date(x.converted_at)) + '</time></li>'; }, 'No paying customers yet.'), '', has('customers.view') ? '<a class="oa-link" href="#/customers">View all</a>' : '') +
       card('Recent commission activity', list(d.recent_commissions, function (x) { return '<li><span class="oa-feed-main"><span class="pp-money">' + esc(money(x.amount, x.currency)) + '</span> ' + esc(x.company || title(x.kind)) + ' ' + pill(x.status) + '</span><time>' + esc(date(x.created_at)) + '</time></li>'; }, 'No commissions yet.'), '', has('commissions.view') ? '<a class="oa-link" href="#/commissions">View all</a>' : '') +
       card('Recent notifications', list(d.recent_notifications || [], function (n) { return '<li' + (n.severity === 'danger' ? ' class="fail"' : '') + '><span class="oa-feed-main"><b>' + esc(n.title) + '</b> <span class="oa-small">' + esc(n.message) + '</span></span><time>' + esc(date(n.created_at)) + '</time></li>'; }, 'You are all caught up.'), '', '<a class="oa-link" href="#/notifications">View all</a>') +
@@ -323,7 +333,7 @@
   async function viewCustomers(root, q, ctx, param) {
     if (param) return viewCustomer(root, param);
     var canCreate = has('customers.create');
-    root.innerHTML = head('Customers', canCreate ? 'Organizations you referred or onboarded. New customers go through LeadAI\'s demo approval.' : 'Organizations attributed to you.',
+    root.innerHTML = head('Customers', canCreate ? 'Organizations you referred or onboarded. ' + (trialOn() ? 'New customers start a ' + trialName() + ' at once.' : 'New customers go through LeadAI\'s demo approval.') : 'Organizations attributed to you.',
       canCreate ? '<a class="btn btn-secondary btn-sm" href="#/campaigns">Onboarding links</a><button type="button" class="btn btn-primary btn-sm" id="newCust">+ New customer</button>' : '') + '<div id="custT"></div>';
     var t = table($('#custT', root), {
       initial: only(q, ['stage', 'q', 'managed']),
@@ -342,7 +352,7 @@
     var nb = $('#newCust', root);
     if (nb) nb.onclick = async function () {
       var ok = await modal({ title: 'New customer', submit: 'Create customer', wide: true,
-        body: '<p class="oa-small oa-muted" style="margin-top:0">LeadAI creates the workspace as a demo request. The owner receives an email to set their password; the workspace opens after LeadAI approves the demo.</p><div class="oa-form-grid">' +
+        body: '<p class="oa-small oa-muted" style="margin-top:0">' + esc(onboardNote('The owner')) + '</p><div class="oa-form-grid">' +
           field('company', 'Company *', '', { max: 160 }) + field('name', 'Owner name *', '', { max: 120 }) + field('email', 'Owner email *', '', { type: 'email', max: 200 }) +
           field('phone', 'Phone', '', { max: 30 }) + field('notes', 'Notes for the LeadAI team', '', { type: 'textarea', span: true }) + '</div>',
         onSubmit: function (f) {
@@ -350,8 +360,19 @@
           if (!d.company || !d.name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) throw new Error('Company, owner name and a valid email are required.');
           return api('/api/partner/v1/customers', { method: 'POST', body: d });
         } });
-      if (ok) { toast(ok.message || 'Customer created'); t.reload(); }
+      if (ok) { toast(createdMessage(ok)); t.reload(); }
     };
+  }
+  /** what happens when a partner onboards a customer (self-serve trial or demo approval) */
+  function onboardNote(who) {
+    return trialOn() ? 'LeadAI creates the workspace and its ' + trialName() + ' starts at once. ' + who + ' gets an email to set a password.'
+      : 'LeadAI creates the workspace as a demo request. ' + who + ' gets an email to set a password; the workspace opens after LeadAI approves the demo.';
+  }
+  function createdMessage(res) {
+    var st = res && res.customer && res.customer.status;
+    if (st === 'approved') return 'Customer created — their ' + trialName() + ' has started. The owner gets an email to set a password.';
+    if (st === 'pending') return 'Customer created — the owner gets an email to set a password; the workspace opens once LeadAI approves the demo.';
+    return (res && res.message) || 'Customer created';
   }
 
   async function viewCustomer(root, orgId) {
@@ -360,9 +381,9 @@
     root.innerHTML = '<p><a class="oa-link" href="#/customers">← Customers</a></p>' + head(c.company || org.name || 'Customer', 'Attributed ' + date(c.signed_up_at) + ' via ' + title(c.source) + '.',
       (c.managed && has('reseller.customers.manage') && c.owner_activated === false) ? '<button type="button" class="btn btn-secondary btn-sm" id="resend">Resend setup email</button>' : '') +
       '<div class="oa-grid oa-grid-3">' +
-      card('Workspace', kv([['Status', pill(org.status), true], ['Plan', org.plan_id], ['Demo ends', date(org.demo_expires_at)], ['Members', num(c.members)], ['Created', date(org.created_at)]])) +
+      card('Workspace', kv([['Status', pill(org.status), true], ['Plan', org.plan_id], [trialOn() ? 'Trial ends' : 'Demo ends', date(org.demo_expires_at)], ['Members', num(c.members)], ['Created', date(org.created_at)]])) +
       card('Subscription', sub ? kv([['Status', pill(sub.status), true], ['Plan', sub.plan_id], ['Billing', title(sub.billing_cycle)], ['Renews', date(sub.current_period_end)]]) : '<div class="oa-mini-empty">No subscription yet</div>') +
-      card('Your earnings', kv([['Stage', pill(c.stage), true], ['Revenue', money(c.revenue_total)], ['Commission', money(c.commission_total)], ['Customer since', date(c.converted_at)]]
+      card('Your earnings', kv([['Stage', pill(c.stage, STAGE_LABEL[c.stage]), true], ['Revenue', money(c.revenue_total)], ['Commission', money(c.commission_total)], ['Customer since', date(c.converted_at)]]
         .concat(c.tokens ? [['Tokens left', num(c.tokens.balance != null ? c.tokens.balance : c.tokens.available)]] : [])
         .concat(c.managed ? [['Owner signed in', c.owner_activated ? 'Yes' : 'Not yet']] : []))) +
       '</div>' + card('Commissions from this customer', (c.commissions || []).length ? '<div class="oa-table-wrap"><table class="oa-table"><thead><tr><th>Date</th><th>Event</th><th class="oa-num">Payment</th><th class="oa-num">Commission</th><th>Status</th></tr></thead><tbody>' +
@@ -459,19 +480,19 @@
     var po = a.payouts || { by_status: {} };
     var poRows = Object.keys(po.by_status || {}).map(function (k) { return '<li class="oa-hbar"><span class="oa-hbar-label">' + esc(title(k)) + '</span><span class="oa-hbar-track"><span style="width:100%"></span></span><span class="oa-hbar-val">' + esc(po.by_status[k].count) + '</span></li>'; }).join('');
     $('[data-an]', root).innerHTML =
-      '<div class="oa-grid oa-grid-4">' + stat('Clicks', num(t.clicks), num(t.visitors) + ' unique visitors', '', go('campaigns')) + stat('Signups', num(t.referrals), num(t.demos) + ' demo registrations', '', go('referrals', { from: r.from, to: r.to, campaign_id: ctx.campaign })) +
+      '<div class="oa-grid oa-grid-4">' + stat('Clicks', num(t.clicks), num(t.visitors) + ' unique visitors', '', go('campaigns')) + stat('Signups', num(t.referrals), num(t.demos) + ' ' + trialsLabel(), '', go('referrals', { from: r.from, to: r.to, campaign_id: ctx.campaign })) +
       stat('Customers', num(t.customers), num(t.active_subscriptions) + ' active subscriptions', '', go('customers', { stage: 'customer' })) + stat('Conversion', t.conversion_rate + '%', 'visitors → signups · ' + t.customer_rate + '% signups → customers', '', go('referrals', { from: r.from, to: r.to, campaign_id: ctx.campaign })) + '</div>' +
       '<div class="oa-grid oa-grid-4">' + stat('Revenue generated', money(t.revenue, revCur), 'paid invoices, net of refunds', '', go('customers', { stage: 'customer' })) + stat('Commission earned', money(t.commission, curs[0]), 'excluding reversed', '', go('commissions', { from: r.from, to: r.to })) +
       stat('Payouts', num(po.count), money(t.payouts, curs[0]) + ' paid in period', '', go('payouts')) + stat('Campaigns', num(a.campaigns.length), 'with activity in range', '', go('campaigns')) + '</div>' +
       '<div class="oa-grid oa-grid-2">' + card('Clicks', bars(a.series.clicks, a.labels), '', seg) + card('Unique visitors', bars(a.series.visitors, a.labels)) +
-      card('Signups', bars(a.series.referrals, a.labels)) + card('Demo registrations', bars(a.series.demos, a.labels)) +
+      card('Signups', bars(a.series.referrals, a.labels)) + card(trialOn() ? 'Trials started' : 'Demos approved', bars(a.series.demos, a.labels)) +
       card('Customers', bars(a.series.customers, a.labels)) + card('Revenue generated', bars(a.series.revenue, a.labels, true, revCur)) +
       card('Commission earned', bars(a.series.commission, a.labels, true, curs[0])) + card('Payouts paid', bars(a.series.payouts, a.labels, true, curs[0])) + '</div>' +
-      '<div class="oa-grid oa-grid-2">' + card('Funnel', '<ul class="oa-hbars">' + a.funnel.map(function (f) { return '<li class="oa-hbar"><span class="oa-hbar-label">' + esc(title(f.stage)) + '</span><span class="oa-hbar-track"><span style="width:' + (f.count * 100 / maxF) + '%"></span></span><span class="oa-hbar-val">' + esc(num(f.count)) + '</span></li>'; }).join('') + '</ul>') +
+      '<div class="oa-grid oa-grid-2">' + card('Funnel', '<ul class="oa-hbars">' + a.funnel.map(function (f) { return '<li class="oa-hbar"><span class="oa-hbar-label">' + esc(f.stage === 'demos' ? (trialOn() ? 'Trials' : 'Demos') : title(f.stage)) + '</span><span class="oa-hbar-track"><span style="width:' + (f.count * 100 / maxF) + '%"></span></span><span class="oa-hbar-val">' + esc(num(f.count)) + '</span></li>'; }).join('') + '</ul>') +
       card('Referral sources', a.sources.length ? '<ul class="oa-hbars">' + a.sources.map(function (s2) { return '<li class="oa-hbar"><span class="oa-hbar-label">' + esc(title(s2.source)) + '</span><span class="oa-hbar-track"><span style="width:' + (s2.count * 100 / Math.max.apply(null, a.sources.map(function (x) { return x.count; }))) + '%"></span></span><span class="oa-hbar-val">' + esc(num(s2.count)) + '</span></li>'; }).join('') + '</ul>' : '<div class="oa-mini-empty">No signups in this period.</div>') + '</div>' +
       card('Commissions by status', statusTable) +
       card('Payouts by status', poRows ? '<ul class="oa-hbars">' + poRows + '</ul>' : '<div class="oa-mini-empty">No payouts in this period.</div>') +
-      card('Campaign performance', a.campaigns.length ? '<div class="oa-table-wrap"><table class="oa-table"><thead><tr><th>Campaign</th><th>Status</th><th class="oa-num">Clicks</th><th class="oa-num">Visitors</th><th class="oa-num">Signups</th><th class="oa-num">Demos</th><th class="oa-num">Customers</th><th class="oa-num">Revenue</th><th class="oa-num">Conversion</th></tr></thead><tbody>' +
+      card('Campaign performance', a.campaigns.length ? '<div class="oa-table-wrap"><table class="oa-table"><thead><tr><th>Campaign</th><th>Status</th><th class="oa-num">Clicks</th><th class="oa-num">Visitors</th><th class="oa-num">Signups</th><th class="oa-num">' + (trialOn() ? 'Trials' : 'Demos') + '</th><th class="oa-num">Customers</th><th class="oa-num">Revenue</th><th class="oa-num">Conversion</th></tr></thead><tbody>' +
         a.campaigns.map(function (c) { return '<tr><td><b>' + esc(c.name) + '</b> <span class="oa-small oa-muted">/' + esc(c.slug) + '</span>' + (c.kind === 'onboarding' ? ' <span class="oa-pill" data-tone="brand">Onboarding</span>' : '') + '</td><td>' + pill(c.status) + '</td><td class="oa-num">' + num(c.clicks) + '</td><td class="oa-num">' + num(c.visitors) + '</td><td class="oa-num">' + num(c.referrals) + '</td><td class="oa-num">' + num(c.demos) + '</td><td class="oa-num">' + num(c.customers) + '</td><td class="oa-num pp-money">' + esc(money(c.revenue, revCur)) + '</td><td class="oa-num">' + esc(c.conversion_rate) + '%</td></tr>'; }).join('') + '</tbody></table></div>' : '<div class="oa-mini-empty">No campaigns yet — create one under Campaigns.</div>');
     $$('[data-unit]', root).forEach(function (b2) { b2.onclick = function () { ctx.unit = b2.getAttribute('data-unit'); route(true); }; });
   }
@@ -521,6 +542,7 @@
         (share ? '<button type="button" class="btn btn-secondary btn-sm" data-copy="' + esc(share) + '" style="margin-top:8px">Copy a short pitch with your link</button>' : '')) +
       card('How you get credit', (k.referral_url ? linkRow(k.referral_url, 'Your referral link') : '') + '<p class="oa-small" style="margin-top:8px">Code <b class="oa-mono">' + esc(k.referral_code) + '</b> · clicks are remembered for <b>' + esc(k.attribution_window_days) + ' days</b>. ' +
         'Talking to a prospect who hasn\'t signed up yet? <b>Register the deal</b> — once LeadAI approves it your claim is protected for ' + esc(k.deal_protection_days) + ' days.</p>' +
+        (trialOn() ? '<p class="oa-small">Businesses who sign up through your link start a <b>' + esc(trialName()) + '</b> at once — no approval, no card. You earn when they choose a paid plan.</p>' : '') +
         (k.coupons.length ? '<p class="oa-small"><b>Your coupons:</b> ' + k.coupons.map(function (c) { return '<span class="oa-mono">' + esc(c.code) + '</span> (' + esc(c.discount_type === 'percentage' ? c.discount_value + '%' : money(c.discount_value, c.currency)) + ' off)'; }).join(', ') + '</p>' : '')) + '</div>' +
       (k.plans.length ? '<div class="oa-grid oa-grid-3" style="margin-top:14px">' + k.plans.map(planCard).join('') + '</div>' : empty('No plans published', 'LeadAI has no public plans right now.'));
     bindCopy(root);
@@ -558,8 +580,8 @@
           if (ok) { toast('Deal updated'); reload(); }
         };
         var c = $('[data-dc]', tr); if (c) c.onclick = async function () {
-          if (!(await modal({ title: 'Onboard ' + d.company + '?', submit: 'Create customer', body: '<p>LeadAI creates their workspace as a demo request. ' + esc(d.contact_email) + ' gets an email to set a password; the workspace opens after LeadAI approves the demo.</p>' }))) return;
-          busy(c, function () { return api('/api/partner/v1/deals/' + d.id + '/convert', { method: 'POST' }); }).then(function () { toast('Customer created'); reload(); }, function (err) { toast(err.message, 'error'); });
+          if (!(await modal({ title: 'Onboard ' + d.company + '?', submit: 'Create customer', body: '<p>' + esc(onboardNote(d.contact_email)) + '</p>' }))) return;
+          busy(c, function () { return api('/api/partner/v1/deals/' + d.id + '/convert', { method: 'POST' }); }).then(function (res) { toast(createdMessage(res)); reload(); }, function (err) { toast(err.message, 'error'); });
         };
       },
       empty: { title: 'No deals yet', desc: 'Register a prospect before they sign up to protect your claim.' }
@@ -649,7 +671,7 @@
   async function viewCampaigns(root) {
     var L = has('referral_links.create') ? (await api('/api/partner/v1/referral-links')).links : null;
     root.innerHTML = head('Campaigns', 'Campaign links let you track each channel separately.', '<button type="button" class="btn btn-primary btn-sm" id="newCamp">+ New campaign</button>') +
-      (L ? card('Main links', '<div class="oa-form-grid">' + linkRow(L.referral_url, 'Referral link') + linkRow(L.signup_url, 'Direct demo signup link') + '</div>') : '') + '<div id="campT" style="margin-top:14px"></div>';
+      (L ? card('Main links', '<div class="oa-form-grid">' + linkRow(L.referral_url, 'Referral link') + linkRow(L.signup_url, trialOn() ? 'Direct sign-up link (' + trialName() + ')' : 'Direct demo request link') + '</div>') : '') + '<div id="campT" style="margin-top:14px"></div>';
     bindCopy(root);
     var t = table($('#campT', root), {
       url: function () { return '/api/partner/v1/campaigns'; },
@@ -693,8 +715,25 @@
         { label: 'Redeemed', cls: 'oa-num', render: function (c) { return esc(num(c.times_redeemed) + (c.max_redemptions ? ' / ' + num(c.max_redemptions) : '')); } },
         { label: 'Expires', render: function (c) { return esc(date(c.expires_at)); } },
         { label: 'Plans', render: function (c) { return esc((c.plan_slugs || []).join(', ') || 'All'); } },
-        { label: 'Status', render: function (c) { return pill(c.status) + (c.created_by_role === 'super_admin' ? '<div class="oa-small oa-muted">issued by LeadAI</div>' : ''); } }
+        { label: 'Status', render: function (c) { return pill(c.status) + (c.created_by_role === 'super_admin' ? '<div class="oa-small oa-muted">issued by LeadAI</div>' : ''); } },
+        { label: '', cls: 'oa-num', render: function (c) { return d.can_create && c.created_by_role === 'partner' ? '<button type="button" class="btn btn-ghost btn-xs" data-edit>Edit</button>' : ''; } }
       ],
+      bindRow: function (tr, c, reload) {
+        var b = $('[data-edit]', tr); if (!b) return;
+        b.onclick = async function () {
+          var ok = await modal({ title: 'Edit coupon ' + c.code, submit: 'Save',
+            body: '<div class="oa-form-grid">' + field('discount_value', 'Discount % *', c.discount_value, { type: 'number', min: 1, step: '0.5', hint: 'Up to ' + d.max_percent + '%.' }) +
+              field('max_redemptions', 'Max redemptions', c.max_redemptions || '', { type: 'number', min: 1 }) +
+              field('expires_at', 'Expires', c.expires_at ? String(c.expires_at).slice(0, 10) : '', { type: 'date' }) +
+              field('status', 'Status', c.status === 'active' ? 'active' : 'disabled', { options: [['active', 'Active'], ['disabled', 'Disabled']] }) + '</div>',
+            onSubmit: function (f) {
+              var x = formData(f);
+              return api('/api/partner/v1/coupons/' + encodeURIComponent(c.id), { method: 'PATCH', body: { discount_type: 'percentage', discount_value: parseFloat(x.discount_value) || 0,
+                max_redemptions: x.max_redemptions ? parseInt(x.max_redemptions, 10) : null, expires_at: x.expires_at || null, plan_slugs: c.plan_slugs || [], status: x.status } });
+            } });
+          if (ok) { toast('Coupon saved'); reload(); }
+        };
+      },
       empty: { title: 'No coupons yet', desc: d.can_create ? 'Create a coupon to share with your audience.' : '' }
     });
     var nb = $('#newCp', root);
@@ -722,6 +761,8 @@
         var ft = a.file_type || '', fp = a.file_path, img = (fp && /^image\//.test(ft)) || (!fp && a.url && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(a.url));
         var preview = img ? '<img src="' + esc(fp || a.url) + '" alt="' + esc(a.title) + '" loading="lazy">' : (fp && /^video\//.test(ft) ? '<video src="' + esc(fp) + '" controls preload="metadata" style="max-width:100%;border-radius:var(--radius-md)"></video>' : '');
         var tpl = a.category === 'email_templates' && a.content ? (a.subject ? 'Subject: ' + a.subject + '\n\n' : '') + a.content : a.content;
+        // referral links are site paths when PUBLIC_BASE_URL is unset: make copied text usable anywhere
+        if (tpl) tpl = tpl.replace(/(^|[\s("'])(\/r\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)?)/g, function (m, pre, path) { return pre + location.origin + path; });
         return '<section class="oa-card pp-asset"><div class="oa-card-title">' + esc(a.title) + '</div><div class="oa-small oa-muted">' + esc(a.category_label) + (a.file_size ? ' · ' + esc(Math.max(1, Math.round(a.file_size / 1024))) + ' KB' : '') + '</div>' +
           (a.description ? '<p class="oa-small">' + esc(a.description) + '</p>' : '') + preview +
           (tpl ? '<pre>' + esc(tpl) + '</pre><button type="button" class="btn btn-secondary btn-sm" data-copy="' + esc(tpl) + '">Copy text</button>' : '') +
@@ -735,6 +776,12 @@
     render();
   }
 
+  /** '/partner#/x' -> '#/x' (this portal); other site paths ('/partners') stay as they are */
+  function notifHref(link) {
+    link = String(link || '');
+    if (/^\/partner\/?#\//.test(link)) return link.slice(link.indexOf('#'));
+    return /^\/(?!\/)/.test(link) ? link : '';
+  }
   async function viewNotifications(root) {
     root.innerHTML = head('Notifications', '', '<button type="button" class="btn btn-secondary btn-sm" id="readAll">Mark all read</button>') + '<div id="nT"></div>';
     var t = table($('#nT', root), {
@@ -745,9 +792,9 @@
         { label: '', render: function (n) { return n.read ? '' : '<span class="oa-pill" data-tone="brand">New</span>'; } },
         { label: 'Notification', render: function (n) { return '<b>' + esc(n.title) + '</b><div class="oa-small">' + esc(n.message) + '</div>'; } },
         { label: 'When', render: function (n) { return esc(dt(n.created_at)); } },
-        { label: '', cls: 'oa-num', render: function (n) { return n.link && n.link.indexOf('/partner') === 0 ? '<a class="oa-link" href="' + esc(n.link.replace('/partner', '')) + '" data-open>Open</a>' : ''; } }
+        { label: '', cls: 'oa-num', render: function (n) { var h = notifHref(n.link); return h ? '<a class="oa-link" href="' + esc(h) + '" data-open' + (h.charAt(0) === '/' ? ' target="_blank" rel="noopener"' : '') + '>Open</a>' : ''; } }
       ],
-      bindRow: function (tr, n) { if (!n.read) tr.addEventListener('click', function () { api('/api/partner/v1/notifications/read', { method: 'POST', body: { id: n.id } }).then(refreshBell, function () {}); }); },
+      bindRow: function (tr, n) { if (!n.read) tr.addEventListener('click', function () { if (n.read) return; n.read = true; var pl = $('.oa-pill', tr); if (pl) pl.remove(); api('/api/partner/v1/notifications/read', { method: 'POST', body: { id: n.id } }).then(refreshBell, function () {}); }); },
       empty: { title: 'No notifications', desc: 'Application updates, referrals, commissions and payouts are announced here.' }
     });
     $('#readAll', root).onclick = function () { api('/api/partner/v1/notifications/read', { method: 'POST', body: {} }).then(function () { refreshBell(); t.reload(); }, function (e) { toast(e.message, 'error'); }); };
@@ -869,7 +916,7 @@
   function viewSupport(root) {
     var p = (S.me || {}).program || {};
     root.innerHTML = head('Help & support', 'Answers to common partner questions.') + '<div class="oa-grid oa-grid-2">' +
-      card('How attribution works', '<p class="oa-small">When someone clicks your link, a cookie remembers you for <b>' + esc(p.attribution_window_days || 30) + ' days</b> (' + esc(p.attribution_model === 'last_touch' ? 'the last partner link clicked wins' : 'the first partner link clicked wins') + '). If they request a demo in that window, the new organization is attributed to you — once, permanently. Customers can also enter your referral code, or pay with your coupon.</p>') +
+      card('How attribution works', '<p class="oa-small">When someone clicks your link, a cookie remembers you for <b>' + esc(p.attribution_window_days || 30) + ' days</b> (' + esc(p.attribution_model === 'last_touch' ? 'the last partner link clicked wins' : 'the first partner link clicked wins') + '). If they ' + (trialOn() ? 'sign up for a ' + esc(trialName()) : 'request a demo') + ' in that window, the new organization is attributed to you — once, permanently. Customers can also enter your referral code, or pay with your coupon.</p>') +
       card('When do I earn?', '<p class="oa-small">Commissions are created when a referred customer\'s payment is verified and confirmed by LeadAI — on the first payment and, for recurring rules, on renewals. Each one is <b>pending</b> during a <b>' + esc(p.commission_hold_days || 0) + '-day qualification period</b>, then <b>qualified → approved → payable</b>. A payout moves it to <b>processing</b> and then <b>paid</b>. If the customer is refunded, charges back or cancels during qualification, the commission is reversed (a paid one is deducted from your next payout).</p>') +
       card('Payouts', '<p class="oa-small">Request a payout of your available balance from the Wallet when it reaches <b>' + esc(money(p.min_payout)) + '</b>. LeadAI reviews and pays it to your saved payout method; you\'ll see the transfer reference here.</p>') +
       card('Rules', '<p class="oa-small">Self-referrals, coupon abuse, spam and misleading claims are not allowed and lead to reversal of commissions and suspension.</p>') +
@@ -988,7 +1035,7 @@
   }
 
   async function init() {
-    try { await loadMe(); }
+    try { await Promise.all([loadMe(), loadTrial()]); }
     catch (e) {
       $('#oa-gate').innerHTML = '<div class="oa-gate-inner"><div class="oa-card">' + errorBox(e) + '<div class="oa-actions" style="justify-content:center"><a class="btn btn-secondary btn-sm" href="/login?partner=1">Sign in again</a></div></div></div>';
       var rb = $('[data-retry]', $('#oa-gate')); if (rb) rb.onclick = function () { location.reload(); };

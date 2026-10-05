@@ -10,7 +10,7 @@ LeadAI provides segregated portals designed for different personas with fail-clo
 |---|---|---|---|---|
 | **Platform Console** | `/superadmin` | Super Admin & Platform Staff (`super_admin`, `operations_admin`, `billing_admin`, `support_admin`, `technical_admin`, `viewer`) | `/api/super-admin` | Global cross-tenant management, organization provisioning, billing plans, platform audit logs, and unit economics. |
 | **Organization Admin Portal** | `/org-admin` | Customer Organization Owners & Admins (`owner`, `admin`) with confirmed subscription | `/api/org-admin` | Workspace team management, role delegation, lead assignment rules, outbound webhooks, public API keys, and organization audit trails. |
-| **Workspace Dashboard** | `/dashboard` (or `/`) | All verified organization members (`owner`, `admin`, `manager`, `member`, `viewer`) | `/api` | Daily operations: URL search execution, social posts & comments scraping, AI lead analysis, CRM pipeline, notes, and CSV/Excel exports. |
+| **Workspace Dashboard** | `/user` (or `/dashboard`; `/` is the public website) | All verified organization members (`owner`, `admin`, `manager`, `member`, `viewer`) | `/api` | Daily operations: URL search execution, social posts & comments scraping, AI lead analysis, CRM pipeline, notes, and CSV/Excel exports. |
 | **Public Portal & Landing** | `/`, `/website`, `/pricing`, `/login` | Public / Anonymous visitors | `/api/public` | Product marketing, pricing tiers, self-service organization signup, demo registration, and authentication entry point. |
 
 ---
@@ -50,7 +50,7 @@ Each customer organization has its own isolated admin portal. Access requires th
 
 ---
 
-## 3. Workspace Dashboard (`/dashboard`)
+## 3. Workspace Dashboard (`/user`, also `/dashboard`)
 
 The main operational workspace where team members discover leads, review prospective buyers, and manage outreach.
 

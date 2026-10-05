@@ -1338,8 +1338,20 @@ async def _apify_probe(actor_id: Optional[str] = None) -> Dict[str, Any]:
         return {"ok": True, "actor": target,
                 "title": info.get("title") if isinstance(info, dict) else None}
     except Exception as e:
-        logger.warning("System info query failed: %s", e)
-        return {"ok": False, "error": "Failed to retrieve system info"}
+        logger.warning("Apify test call failed: %s", e)
+        text = str(e).lower()
+        status = getattr(e, "status_code", None)
+        if status == 401 or "401" in text or "unauthorized" in text or "invalid token" in text:
+            msg = "Apify rejected the token (401) — check it on Super Admin → API keys"
+        elif status in (402, 403) or "402" in text or "403" in text or "payment" in text or "credit" in text:
+            msg = "The Apify account behind this token has no credit or no access to this actor"
+        elif status == 404 or "404" in text or "not found" in text:
+            msg = f"Actor {actor_id or 'apify/facebook-pages-scraper'} not found with this token"
+        elif "timed out" in text or "timeout" in text or "connect" in text:
+            msg = "Couldn't reach Apify — try again in a moment"
+        else:
+            msg = "Apify test failed: " + type(e).__name__
+        return {"ok": False, "error": msg}
 
 
 @router.get("/apify", dependencies=[Depends(require_viewer)])
@@ -1398,7 +1410,28 @@ async def clear_apify_token():
 async def env_lock_status(request: Request):
     from app.auth.service import ENV_UNLOCK_COOKIE, parse_env_unlock_value
     locked = not parse_env_unlock_value(request.cookies.get(ENV_UNLOCK_COOKIE))
-    return {"locked": locked, "unlock_minutes": ev.GUARD_UNLOCK_MINUTES}
+    return {"locked": locked, "unlock_minutes": ev.GUARD_UNLOCK_MINUTES,
+            "guard_set": bool(ev._guard_hash())}
+
+
+class EnvGuardBody(_PydanticBaseModel):
+    new_password: str
+    current_password: Optional[str] = None
+
+
+@router.put("/env/guard", dependencies=[Depends(require_super)])
+async def env_set_guard(body: EnvGuardBody):
+    """Set (first time) or change the guard password that locks this section.
+    Super Admin only; changing an existing one needs the current one."""
+    if ev._guard_hash() and not ev.verify_guard_password(body.current_password or ""):
+        await a.aaudit("env.guard.change_failed", "env", success=False)
+        raise HTTPException(status_code=401, detail="The current guard password is wrong")
+    if len(body.new_password or "") < 8:
+        raise HTTPException(status_code=422, detail="Use at least 8 characters")
+    if not ev.set_guard_password(body.new_password, by="super_admin"):
+        raise HTTPException(status_code=503, detail="Couldn't save the guard password. Try again.")
+    await a.aaudit("env.guard.set", "env")
+    return {"success": True, "guard_set": True}
 
 
 @router.post("/env/unlock", dependencies=[Depends(require_viewer)])

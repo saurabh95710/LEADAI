@@ -42,7 +42,9 @@ async function api(path, opts = {}) {
     const message = typeof detail === "string"
       ? detail
       : (detail && detail.message) || `Request failed (${res.status})`;
-    throw new Error(message);
+    const err = new Error(message);
+    err.status = res.status;
+    throw err;
   }
   return data;
 }
@@ -70,6 +72,36 @@ function statLink(route, cls, inner, dest, style = "") {
 // Same look for a box that filters the view it sits on (no route change).
 function statButton(cls, inner, title, attrs = "") {
   return `<button type="button" class="${cls} adm-stat-link" title="${esc(title)}" ${attrs}>${inner}</button>`;
+}
+
+/* LeadAI's own Apify / Gemini keys are also managed (tested, stored encrypted)
+   on the Super Admin portal's API keys page. Only the Super Admin can open it. */
+const PROVIDER_KEYS_URL = "/superadmin#/provider-keys";
+function providerKeysLink(label = "Super Admin → API keys") {
+  return state.user && state.user.role === "super_admin"
+    ? `<a href="${PROVIDER_KEYS_URL}" target="_blank" rel="noopener">${esc(label)} ↗</a>`
+    : `the Super Admin's <b>API keys</b> page`;
+}
+
+// Organization status → [badge colour, label]. "demo" is the self-serve free
+// trial every website sign-up starts (and an approved demo request).
+const ORG_STATUS = {
+  active: ["green", "active"], demo: ["violet", "free trial"], trial: ["violet", "trial"],
+  pending: ["amber", "pending"], suspended: ["red", "suspended"], disabled: ["gray", "disabled"],
+  cancelled: ["gray", "cancelled"], archived: ["gray", "archived"],
+};
+function orgStatusBadge(s) {
+  const [cls, label] = ORG_STATUS[s] || ["gray", s || "—"];
+  return `<span class="adm-badge ${cls}">${esc(label)}</span>`;
+}
+// "ends in 2 days" / "ended 3 days ago" for a free-trial organization
+function trialEndsText(org) {
+  const end = parseDate(((org || {}).demo || {}).expires_at);
+  if (!end) return "";
+  const days = Math.round((end.getTime() - Date.now()) / 86400000);
+  if (days > 0) return `trial ends in ${days} day${days === 1 ? "" : "s"}`;
+  if (days === 0) return "trial ends today";
+  return `trial ended ${-days} day${days === -1 ? "" : "s"} ago`;
 }
 
 function esc(value) {
@@ -191,6 +223,11 @@ const ICONS = {
   download: '<path d="M12 4v11M8 11l4 4 4-4"/><path d="M4 20h16"/>',
   history: '<path d="M4 12a8 8 0 101.5-4.9"/><path d="M4 4v4h4"/><path d="M12 8v4l3 2"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l3 3M14 9l2 2"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/>',
+  unlock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 017.5-2"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+  sparkles: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>',
+  export: '<path d="M12 4v11M8 11l4 4 4-4"/><path d="M4 19h16"/>',
   organizations: '<path d="M3 21h18M3 7v14M21 7v14M6 7V3h12v4M9 7v4M15 7v4M9 15v2M15 15v2M9 11h6"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/>',
 };
@@ -349,8 +386,8 @@ const CRUMBS = {
   limits: "Operations", database: "Operations", logs: "Operations",
   health: "Operations", exports: "Operations",
   users: "Administration", security: "Administration", features: "Administration",
-  maintenance: "Administration", audit: "Administration", organizations: "Customers",
-  pages: "Main", posts: "Main",
+  maintenance: "Administration", audit: "Administration", organizations: "Administration",
+  pages: "Main", posts: "Main", settings: "Settings",
   plans: "SaaS & Billing", subscriptions: "SaaS & Billing", invoices: "SaaS & Billing",
 };
 
@@ -762,9 +799,9 @@ function renderShell() {
   $$("#nav .adm-nav-item").forEach((el) => {
     const view = el.dataset.view;
     if (!view) return;
-    if (view === "users" || view === "security" || view === "organizations") {
-      el.style.display = (role === "super_admin" || role === "operations_admin") ? "" : "none";
-    }
+    // Users is Super Admin only server-side (require_super); Organizations and
+    // Security are readable by every staff role (Security holds "change my password").
+    if (view === "users") el.style.display = role === "super_admin" ? "" : "none";
   });
 
   // Support Impersonation Banner wiring
@@ -857,6 +894,8 @@ function renderShell() {
   if (profileBtn) {
     const ddUsers = $("#ddUsers");
     if (ddUsers) ddUsers.hidden = role !== "super_admin";
+    const ddSuper = $("#ddSuper");
+    if (ddSuper) ddSuper.hidden = role !== "super_admin";
     profileBtn.onclick = (e) => {
       e.stopPropagation();
       dropdown.hidden = !dropdown.hidden;
@@ -878,7 +917,8 @@ function renderShell() {
     const runSearch = async (q) => {
       if (q.length < 2) { searchBox.hidden = true; searchBox.innerHTML = ""; return; }
       try {
-        const data = await api(`/api/admin/search?q=${encodeURIComponent(q)}`);
+        // the endpoint answers {results: {jobs, leads, pages, posts, comments, platforms}}
+        const data = ((await api(`/api/admin/search?q=${encodeURIComponent(q)}`)) || {}).results || {};
         const groups = [
           ["jobs", "Jobs"], ["leads", "Leads"], ["pages", "Pages"],
           ["posts", "Posts"], ["comments", "Comments"], ["platforms", "Platforms"],
@@ -889,8 +929,10 @@ function renderShell() {
           if (!items.length) return "";
           return `
             <div class="adm-search-group">${label}</div>
-            ${items.map((it) => {
-              const sub = it.query || it.commenter_name || it.page_name || it.platform || it.run_id || it._id || "";
+            ${items.map((raw) => {
+              const it = typeof raw === "string" ? { platform: raw } : raw;   // platforms are plain names
+              const sub = it.query || it.commenter_name || it.page_name || it.caption || it.comment_text
+                || it.platform || it.run_id || it._id || "";
               const nav = g === "jobs" ? `jobs/details:${esc(it.run_id || it._id)}`
                 : g === "leads" ? `leads/details:${esc(it._id)}`
                 : g === "platforms" ? `platforms/details:${esc(it.platform)}`
@@ -1021,6 +1063,25 @@ function renderShell() {
   });
 }
 
+/* Every navigation renders into a fresh #view element. A slower render still
+   in flight for the page just left writes into its own detached element, whose
+   innerHTML setter throws, so it can never overwrite (or bind into) the page
+   now open; its rejection is ignored below because its sequence is stale. */
+let _navSeq = 0;
+function freshView() {
+  const old = $("#view");
+  const el = old.cloneNode(false);
+  el.classList.remove("adm-dash-flex");     // only the dashboard is a flex column
+  el.innerHTML = skeleton();
+  Object.defineProperty(old, "innerHTML", {
+    configurable: true,
+    get() { return ""; },
+    set() { const e = new Error("stale view"); e.stale = true; throw e; },
+  });
+  old.replaceWith(el);
+  return ++_navSeq;
+}
+
 function navigate(view, params = null) {
   const clean = String(view || "dashboard").replace(/^#\/?/, "");
   if (SETT.dirty && clean.split("?")[0] !== "settings") {
@@ -1078,9 +1139,8 @@ function navigate(view, params = null) {
     $$("#nav .adm-nav-item").forEach((el) => el.classList.remove("active"));
     $("#crumb").textContent = "Not found";
     $("#crumbSub").textContent = "";
-    const viewEl = $("#view");
-    viewEl.innerHTML = skeleton();
-    target().catch((err) => errorState(err.message, () => navigate(state.view), "404"));
+    const seq = freshView();
+    target().catch((err) => { if (seq === _navSeq && !err.stale) errorState(err.message, () => navigate(state.view), "404"); });
     return;
   }
   // Close any open modal or drawer when navigating
@@ -1105,14 +1165,14 @@ function navigate(view, params = null) {
   if (override && override.label) $("#crumb").textContent = override.label;
   $("#crumbSub").textContent =
     ((cfg && cfg.app.name) || "LeadAI") + " · " + ((cfg && cfg.app.tagline) || "AI Lead Intelligence");
-  const viewEl = $("#view");
-  viewEl.innerHTML = skeleton();
+  const seq = freshView();
   target().catch((err) => {
+    if (seq !== _navSeq || err.stale) return;     // a page the user already left
     errorState(err.message, () => navigate(state.view), labels[base] || base);
   });
 }
 
-function viewNotFound() {
+async function viewNotFound() {
   $("#view").innerHTML = `
     <div class="adm-card" style="margin-top:8px;max-width:560px">
       <div class="adm-empty">
@@ -1206,7 +1266,7 @@ async function viewDashboard() {
   const maxPlat = Math.max(1, ...data.leads_by_platform.map((p) => p.count));
   root.innerHTML = `
     ${pageHead("Dashboard", "Live overview of the LeadAI platform — every number is real data from the database.", `
-      <a class="adm-btn primary" href="/" target="_blank">${icon("plus", 14)} New Search</a>`)}
+      <a class="adm-btn" href="#/jobs" data-nav="jobs">${icon("jobs", 14)} All jobs</a>`)}
     ${saas ? `
     <div class="adm-card" style="margin-bottom:16px;background:linear-gradient(135deg,rgba(124,92,255,0.06) 0%,rgba(240,165,49,0.04) 100%);border:1px solid rgba(124,92,255,0.22)">
       <div class="adm-card-head-row" style="margin-bottom:12px">
@@ -1459,8 +1519,7 @@ async function viewJobs() {
   const data = await api(`/api/admin/jobs?${qs}`);
   const role = state.user.role;
   root.innerHTML = `
-    ${pageHead("Jobs", "All search runs. Retry recreates a failed run with the same URL and limits; deletion is permanent. Click a row for the full run report.", `
-      <a class="adm-btn primary" href="/" target="_blank">${icon("plus", 14)} New Search</a>
+    ${pageHead("Jobs", "All search runs. Retry recreates a failed run with the same URL and limits; deletion is permanent. Click a row for the full run report. Searches are started by customers in the user app (to run one as a customer, impersonate a member from <a href='#/organizations'>Organizations</a>).", `
       <a class="adm-btn" href="/api/admin/export/jobs.csv" ${role === "viewer" ? "onclick='return false'" : ""}>${icon("exports", 14)} Export CSV</a>`)}
     <div class="adm-card">
       <div class="adm-filters">
@@ -1916,7 +1975,8 @@ async function viewLeadDetail(leadId) {
             ${contactLinks(v, String(v).includes("@") ? "email" : "phone")}
           </div>`).join("")}
       </dd>
-    </div>` : ""}`, `
+    </div>` : ""}
+    <div id="leadExtra" style="margin-top:14px"><div class="adm-hint">Loading notes and follow-ups…</div></div>`, `
     <button class="adm-btn" data-close>Close</button>
     ${role !== "viewer" ? `<button class="adm-btn primary" id="leadStatusSave">Save status</button>` : ""}
     ${role === "super_admin" ? `<button class="adm-btn danger" id="leadDelete">Delete</button>` : ""}`);
@@ -1932,6 +1992,7 @@ async function viewLeadDetail(leadId) {
       }
     };
   });
+  loadLeadExtra(leadId, role);
   const saveBtn = $("#leadStatusSave");
   if (saveBtn) saveBtn.onclick = async () => {
     try {
@@ -1951,6 +2012,81 @@ async function viewLeadDetail(leadId) {
       closeModal();
       viewLeads();
     }, "Delete Forever");
+}
+
+/* Notes and follow-up tasks on a lead (/api/admin/leads/{id}/notes, /follow-ups) */
+async function loadLeadExtra(leadId, role) {
+  const box = $("#leadExtra");
+  if (!box) return;
+  const base = `/api/admin/leads/${encodeURIComponent(leadId)}`;
+  let notes = [], fus = [];
+  try {
+    [notes, fus] = await Promise.all([
+      api(`${base}/notes`).then((r) => r.notes || []),
+      api(`${base}/follow-ups`).then((r) => r.follow_ups || []),
+    ]);
+  } catch (err) {
+    box.innerHTML = `<div class="adm-hint">Notes unavailable: ${esc(err.message)}</div>`;
+    return;
+  }
+  if (!$("#leadExtra")) return;       // the dialog was closed meanwhile
+  const canEdit = role !== "viewer";
+  const fuBadge = (s) => `<span class="adm-badge ${s === "done" ? "green" : s === "cancelled" ? "gray plain" : "amber"}">${esc(s || "pending")}</span>`;
+  box.innerHTML = `
+    <div class="adm-card-title" style="margin-bottom:6px">Notes <span class="adm-hint">(${notes.length})</span></div>
+    ${notes.length ? notes.slice().reverse().map((n) => `
+      <div class="adm-feed-item" style="padding:8px 0">
+        <div class="adm-feed-head"><span class="adm-cell-sub">${esc(n.created_by || "")} · ${fmtTime(n.created_at)}</span>
+          ${canEdit ? `<button class="adm-btn small ghost" data-del-note="${esc(n.id)}" title="Delete note" aria-label="Delete note" style="margin-left:auto">${icon("trash", 12)}</button>` : ""}</div>
+        <div style="font-size:13px;white-space:pre-wrap;word-break:break-word">${esc(n.text)}</div>
+      </div>`).join("") : `<div class="adm-hint">No notes yet.</div>`}
+    ${canEdit ? `
+      <div class="adm-flex" style="margin-top:8px">
+        <input class="adm-input" id="leadNoteText" maxlength="2000" placeholder="Add a note…" style="flex:1;min-width:160px">
+        <button class="adm-btn small" id="leadNoteAdd">${icon("plus", 12)} Add note</button>
+      </div>` : ""}
+    <div class="adm-card-title" style="margin:14px 0 6px">Follow-ups <span class="adm-hint">(${fus.length})</span></div>
+    ${fus.length ? fus.map((f) => `
+      <div class="adm-flex" style="padding:6px 0;border-bottom:1px solid var(--border-soft)">
+        ${fuBadge(f.status)} <span class="adm-cell-sub" style="max-width:none">due ${fmtTime(f.due_at)}</span>
+        <span style="flex:1;min-width:120px;font-size:13px">${esc(f.note || "")}</span>
+        ${canEdit && (f.status || "pending") === "pending" ? `
+          <button class="adm-btn small" data-fu="${esc(f.id)}" data-fu-status="done">Done</button>
+          <button class="adm-btn small ghost" data-fu="${esc(f.id)}" data-fu-status="cancelled">Cancel</button>` : ""}
+      </div>`).join("") : `<div class="adm-hint">No follow-ups scheduled.</div>`}
+    ${canEdit ? `
+      <div class="adm-flex" style="margin-top:8px">
+        <input class="adm-input" type="datetime-local" id="leadFuDue" aria-label="Due date" style="max-width:210px">
+        <input class="adm-input" id="leadFuNote" maxlength="500" placeholder="What to do…" style="flex:1;min-width:140px">
+        <button class="adm-btn small" id="leadFuAdd">${icon("plus", 12)} Schedule</button>
+      </div>` : ""}`;
+  const reload = () => loadLeadExtra(leadId, role);
+  const addNote = $("#leadNoteAdd");
+  if (addNote) addNote.onclick = async () => {
+    const text = $("#leadNoteText").value.trim();
+    if (!text) { toast("Write the note first", "warn"); return; }
+    try { await api(`${base}/notes`, { method: "POST", body: { text } }); toast("Note added", "ok"); reload(); }
+    catch (err) { toast(err.message, "error"); }
+  };
+  $$("[data-del-note]", box).forEach((btn) => btn.onclick = async () => {
+    try { await api(`${base}/notes/${encodeURIComponent(btn.dataset.delNote)}`, { method: "DELETE" }); toast("Note deleted", "ok"); reload(); }
+    catch (err) { toast(err.message, "error"); }
+  });
+  const addFu = $("#leadFuAdd");
+  if (addFu) addFu.onclick = async () => {
+    const due = $("#leadFuDue").value;
+    if (!due) { toast("Pick a due date", "warn"); return; }
+    try {
+      await api(`${base}/follow-ups`, { method: "POST", body: { due_at: new Date(due).toISOString(), note: $("#leadFuNote").value.trim() } });
+      toast("Follow-up scheduled", "ok"); reload();
+    } catch (err) { toast(err.message, "error"); }
+  };
+  $$("[data-fu]", box).forEach((btn) => btn.onclick = async () => {
+    try {
+      await api(`${base}/follow-ups/${encodeURIComponent(btn.dataset.fu)}`, { method: "PATCH", body: { status: btn.dataset.fuStatus } });
+      toast(`Follow-up ${btn.dataset.fuStatus}`, "ok"); reload();
+    } catch (err) { toast(err.message, "error"); }
+  });
 }
 
 /* ──────────────────────────────── ANALYTICS ───────────────────────── */
@@ -2459,23 +2595,33 @@ async function viewApify() {
   // /api/admin/apify/test is a POST that performs a real Apify API probe,
   // so it must NOT run on page load. Load status only; the probe runs on
   // demand via the "Run live test" button.
-  const [status, usage] = await Promise.all([
+  const role = state.user.role;
+  const [status, usage, keys] = await Promise.all([
     api("/api/admin/apify"),
     api("/api/admin/usage?days=30").catch(() => null),
+    // exact source / last test of LeadAI's key (Super Admin only; optional)
+    role === "super_admin" ? api("/api/super-admin/provider-keys?show=problems").catch(() => null) : null,
   ]);
-  const role = state.user.role;
+  const pk = keys && keys.platform && keys.platform.apify;
+  const sourceText = pk
+    ? (pk.source === "saved" ? "saved in LeadAI (encrypted) — overrides the server environment"
+      : pk.source === "environment" ? "server environment (APIFY_API_TOKEN)" : "not set")
+    : status.env_token_configured
+      ? "saved key if one is set here, otherwise the server environment (APIFY_API_TOKEN)"
+      : status.token_configured ? "saved in LeadAI (encrypted)" : "—";
   const u = usage || {};
   const maxActor = Math.max(1, ...(u.actors || []).map((a) => a.runs));
   root.innerHTML = `
-    ${pageHead("Apify", "Connection status, connection test and token management. Tokens are never displayed — only a masked hint.", `
+    ${pageHead("Apify", "Connection status, connection test and token management for the Apify token LeadAI provides to customers. Tokens are never displayed — only a masked hint.", `
       <a class="adm-btn" href="#/usage">${icon("usage", 14)} Usage & Cost</a>`)}
     <div class="adm-grid-2">
       <div class="adm-card">
         <div class="adm-card-title">Connection</div>
         <div class="adm-kv">
           <div class="adm-kv-row"><dt>Token</dt><dd>${status.token_configured ? `<span class="adm-badge green">${esc(status.token_hint)}</span>` : `<span class="adm-badge red">not configured</span>`}</dd></div>
-          <div class="adm-kv-row"><dt>Source</dt><dd>${status.env_token_configured && status.token_hint ? "env override active" : status.env_token_configured ? "environment (.env)" : "—"}</dd></div>
-          <div class="adm-kv-row"><dt>Last test</dt><dd>${status.last_test_at ? `${status.last_test_ok ? "✓ ok" : "✕ failed"} · ${fmtTime(new Date(status.last_test_at * 1000))}` : "never"}</dd></div>
+          <div class="adm-kv-row"><dt>Source</dt><dd>${esc(sourceText)}</dd></div>
+          <div class="adm-kv-row"><dt>Last test</dt><dd>${status.last_test_at ? `${status.last_test_ok ? "✓ ok" : "✕ failed"} · ${fmtTime(status.last_test_at)}` : "never"}</dd></div>
+          ${pk ? `<div class="adm-kv-row"><dt>Customers using it</dt><dd>${fmtNum(pk.organizations_using)} organization(s) on LeadAI-provided Apify</dd></div>` : ""}
         </div>
         <div class="adm-btn-row" style="margin-top:14px">
           <button class="adm-btn primary" id="probeBtn" ${role === "viewer" ? "disabled" : ""}>${icon("refresh", 14)} Run live test</button>
@@ -2483,15 +2629,16 @@ async function viewApify() {
       </div>
       <div class="adm-card">
         <div class="adm-card-title">Token</div>
-        ${role === "viewer" ? `<div class="adm-note">Viewer role cannot change the token.</div>` : `
+        ${role === "viewer" ? `<div class="adm-note">Viewer role cannot change the token. LeadAI's Apify and Gemini keys are managed on ${providerKeysLink()}.</div>` : `
           <div class="adm-field" style="margin-bottom:12px">
             <label>New token (or edit token)</label>
             <input class="adm-input" id="tokenInput" type="password" placeholder="apify_api_…">
-            <span class="adm-hint">Stored as a DB override; the .env token is the fallback. The new token is tested immediately.</span>
+            <span class="adm-hint">Stored encrypted as an override; the server environment's APIFY_API_TOKEN is the fallback. The new token is tested immediately.</span>
           </div>
+          <div class="adm-note" style="margin-bottom:12px">This is the same key as LeadAI's Apify key on ${providerKeysLink()}, where it can also be tested, replaced or reset and where customers' own keys are listed.</div>
           <div class="adm-btn-row">
             <button class="adm-btn primary" id="saveToken">Save & Test</button>
-            ${role === "super_admin" ? `<button class="adm-btn danger" id="clearToken">Remove override</button>` : ""}
+            ${role === "super_admin" && (!pk || pk.source === "saved") ? `<button class="adm-btn danger" id="clearToken">Remove override</button>` : ""}
           </div>`}
       </div>
     </div>
@@ -2530,7 +2677,7 @@ async function viewApify() {
       toast(err.message, "error");
     } finally {
       probeBtn.disabled = false;
-      probeBtn.textContent = "Run live test";
+      probeBtn.innerHTML = `${icon("refresh", 14)} Run live test`;
     }
   };
   if (role !== "viewer") {
@@ -2653,9 +2800,23 @@ async function viewEnvironment() {
       ${role === "viewer" ? `<span class="adm-badge gray plain">viewer — read only</span>` : `
         <button class="adm-btn" id="envLockNow" ${locked ? "disabled" : ""}>${icon("lock", 14)} Lock</button>`}`)}
     <div class="adm-note ${locked ? "adm-note-warn" : ""}">${locked
-      ? `<b>The environment is locked.</b> Enter the guard password to unlock and edit for ${esc(lock.unlock_minutes || "a short")} minutes.`
+      ? `<b>The environment is locked.</b> Enter the guard password (separate from your sign-in password) to unlock and edit for ${esc(lock.unlock_minutes || "a short")} minutes.`
       : `<b>Unlocked.</b> Edits are saved to the DB override table; the .env value stays the fallback.`}</div>
-    ${locked ? `
+    <div class="adm-note">LeadAI's own <b>Apify</b> and <b>Gemini</b> keys (APIFY_API_TOKEN, GEMINI_API_KEY) can also be replaced, tested and reset without unlocking this page, on ${providerKeysLink()} — they are stored encrypted and tested before they are saved.</div>
+    ${locked && lock.guard_set === false ? `
+      <div class="adm-card" style="max-width:440px">
+        <div class="adm-card-title">Set the guard password</div>
+        <p class="adm-hint">No guard password has been set yet, so this section can't be unlocked. ${role === "super_admin"
+          ? "Choose one (8+ characters, separate from your sign-in password); staff will need it to unlock this page."
+          : "Ask the Super Admin to set it."}</p>
+        ${role === "super_admin" ? `
+        <div class="adm-field"><label>New guard password</label>
+          <input class="adm-input" id="envGuardNew" type="password" autocomplete="new-password" placeholder="8+ characters"></div>
+        <div class="adm-field"><label>Repeat it</label>
+          <input class="adm-input" id="envGuardNew2" type="password" autocomplete="new-password"></div>
+        <div class="adm-btn-row"><button class="adm-btn primary" id="envGuardSet">${icon("key", 14)} Set guard password</button></div>
+        <div class="adm-hint" id="envGuardErr"></div>` : ""}
+      </div>` : locked ? `
       <div class="adm-card" style="max-width:440px">
         <div class="adm-card-title">Unlock environment</div>
         <div class="adm-field"><label>Guard password</label>
@@ -2681,6 +2842,7 @@ async function viewEnvironment() {
                 </div>
                 <span class="adm-code">${v.secret ? (v.managed_elsewhere ? (v.set ? "••••••••" : "not set") : `••••${(v.masked && v.masked.length > 4 ? esc(v.masked.slice(-4)) : "")}`) : esc(String(v.value ?? "—").slice(0, 60))}</span>
                 <div class="adm-cell-sub">${esc(v.description || "")}</div>
+                ${v.name === "APIFY_API_TOKEN" || v.name === "GEMINI_API_KEY" ? `<div class="adm-hint">Same key as on ${providerKeysLink()}.</div>` : ""}
                 <div class="adm-env-actions">
                   ${v.managed_elsewhere ? `<span class="adm-hint">set in the hosting environment (e.g. Render) — read-only here</span>` : `
                   ${v.secret ? `<span class="adm-hint">value never exposed</span>` : ""}
@@ -2691,14 +2853,45 @@ async function viewEnvironment() {
           </div>
         </div>`).join("")}
       <div class="adm-card">
-        <div class="adm-card-title">Guard password</div>
-        <p class="adm-hint">Change the password protecting this section. It is hashed server-side (SHA-256) and stored as an override.</p>
+        <div class="adm-card-title">Recovery sign-in password</div>
+        <p class="adm-hint">Sets the legacy recovery admin password (PANEL_ADMIN_PASSWORD_HASH), hashed server-side and stored as an override; it applies at the next admin sign-in. It does <b>not</b> change this section's guard password. Refused while SUPERADMIN_PASSWORD in the hosting environment defines the Super Admin.</p>
         <div class="adm-field" style="margin-bottom:12px">
           <label>New password</label>
           <input class="adm-input" id="envNewPassword" type="password" placeholder="8+ characters" ${role === "viewer" ? "disabled" : ""}>
         </div>
-        ${role !== "viewer" ? `<button class="adm-btn primary" id="envSavePassword">${icon("key", 14)} Change password</button>` : ""}
-      </div>`}`;
+        ${role !== "viewer" ? `<button class="adm-btn primary" id="envSavePassword">${icon("key", 14)} Set recovery password</button>` : ""}
+      </div>
+      ${role === "super_admin" ? `
+      <div class="adm-card" style="max-width:440px">
+        <div class="adm-card-title">Change the guard password</div>
+        <p class="adm-hint">The password that unlocks this section (not a sign-in password).</p>
+        <div class="adm-field"><label>Current guard password</label>
+          <input class="adm-input" id="envGuardCur" type="password" autocomplete="current-password"></div>
+        <div class="adm-field"><label>New guard password</label>
+          <input class="adm-input" id="envGuardNew" type="password" autocomplete="new-password" placeholder="8+ characters"></div>
+        <div class="adm-field"><label>Repeat it</label>
+          <input class="adm-input" id="envGuardNew2" type="password" autocomplete="new-password"></div>
+        <div class="adm-btn-row"><button class="adm-btn primary" id="envGuardSet">${icon("key", 14)} Change guard password</button></div>
+        <div class="adm-hint" id="envGuardErr"></div>
+      </div>` : ""}`}`;
+
+  const guardBtn = $("#envGuardSet");
+  if (guardBtn) guardBtn.onclick = async () => {
+    const pw = $("#envGuardNew").value, pw2 = $("#envGuardNew2").value;
+    const cur = $("#envGuardCur") ? $("#envGuardCur").value : undefined;
+    if (pw.length < 8) { $("#envGuardErr").textContent = "Use at least 8 characters"; return; }
+    if (pw !== pw2) { $("#envGuardErr").textContent = "The two passwords don't match"; return; }
+    guardBtn.disabled = true;
+    try {
+      await api("/api/admin/env/guard", { method: "PUT", body: { new_password: pw, current_password: cur } });
+      toast("Guard password saved", "ok");
+      viewEnvironment();
+    } catch (err) {
+      $("#envGuardErr").textContent = err.message || "Couldn't save";
+    } finally {
+      guardBtn.disabled = false;
+    }
+  };
 
   const unlockBtn = $("#envUnlockBtn");
   if (unlockBtn) unlockBtn.onclick = async () => {
@@ -2733,7 +2926,7 @@ async function viewEnvironment() {
       if (pw.length < 8) { toast("Password must be at least 8 characters", "warn"); return; }
       try {
         await api("/api/admin/env/password", { method: "POST", body: { new_password: pw } });
-        toast("Password changed", "ok");
+        toast("Recovery sign-in password changed", "ok");
         $("#envNewPassword").value = "";
       } catch (err) { toast(err.message, "error"); }
     };
@@ -2861,11 +3054,12 @@ async function viewAI() {
         <div class="adm-card-title">Status</div>
         <div class="adm-kv">
           <div class="adm-kv-row"><dt>Model</dt><dd><span class="adm-badge violet">${esc(settings["ai.model"] || "—")}</span></dd></div>
-          <div class="adm-kv-row"><dt>API key</dt><dd>${data.gemini_key_configured ? `<span class="adm-badge green">configured</span>` : `<span class="adm-badge red">missing</span>`}</dd></div>
+          <div class="adm-kv-row"><dt>API key</dt><dd>${data.gemini_key_configured ? `<span class="adm-badge green">configured</span>` : `<span class="adm-badge red">missing — rule fallback</span>`}</dd></div>
           <div class="adm-kv-row"><dt>Analyzed (all time)</dt><dd>${fmtNum(data.counts.analyzed)}</dd></div>
           <div class="adm-kv-row"><dt>This month</dt><dd>${fmtNum(data.counts.this_month)}</dd></div>
           <div class="adm-kv-row"><dt>Leads saved</dt><dd>${fmtNum(data.counts.leads)}</dd></div>
         </div>
+        <div class="adm-hint" style="margin-top:10px">LeadAI's Gemini key (GEMINI_API_KEY) is changed, tested and stored encrypted on ${providerKeysLink()}${state.user.role !== "viewer" ? ` or on <a href="#/environment">Environment</a>` : ""}. Organizations on their own Gemini key use theirs.</div>
       </div>
       <div class="adm-card">
         <div class="adm-card-title">Settings <span class="adm-hint">(saved instantly)</span></div>
@@ -3270,7 +3464,7 @@ async function viewKeywordRules() {
         </div>
         ${canManage ? `<button class="adm-btn small" id="krNewRule2">${icon("plus", 13)} New Rule</button>` : ""}
       </div>`}
-    <div class="adm-grid-2" style="grid-template-columns:repeat(4,1fr)">
+    <div class="adm-grid-4 adm-kr-kpis">
       ${statButton("adm-kpi", `<div class="adm-kpi-top"><span class="adm-kpi-label">Comments filtered ${STAT_GO}</span></div><div class="adm-kpi-value">${fmtNum(t.filtered ?? 0)}</div><span class="adm-hint">of ${fmtNum(t.comments ?? 0)} total${t.coverage_pct != null ? ` · ${t.coverage_pct}%` : ""}</span>`, "Show all filtered comments", `data-kr-show="all"`)}
       ${statButton("adm-kpi", `<div class="adm-kpi-top"><span class="adm-kpi-label">Matched → AI ${STAT_GO}</span></div><div class="adm-kpi-value gold">${fmtNum(t.matched ?? 0)}</div><span class="adm-hint">${t.match_pct != null ? `${t.match_pct}% of filtered` : ""}</span>`, "Show matched comments", `data-kr-show="MATCHED"`)}
       ${statButton("adm-kpi", `<div class="adm-kpi-top"><span class="adm-kpi-label">Skipped (NOT_MATCHED) ${STAT_GO}</span></div><div class="adm-kpi-value">${fmtNum(t.not_matched ?? 0)}</div><span class="adm-hint">kept stored, no AI call</span>`, "Show skipped comments", `data-kr-show="NOT_MATCHED"`)}
@@ -3986,23 +4180,24 @@ async function viewOrganizations() {
   const data = await api("/api/admin/organizations");
   const orgs = data.organizations || [];
   const role = state.user.role;
-
-  const statusBadge = (s) => {
-    const map = { active: "green", trial: "violet", suspended: "red", disabled: "gray", pending: "amber" };
-    return `<span class="adm-badge ${map[s] || "gray"}">${esc(s || "—")}</span>`;
-  };
+  // create / edit / suspend / activate are Super Admin only on the server
+  const isSuper = role === "super_admin";
+  const statusBadge = orgStatusBadge;
 
   root.innerHTML = `
-    ${pageHead("Organizations", "Customer tenants, workspaces, subscription status, and memberships.", `
-      <button class="adm-btn primary" id="createOrgBtn" ${(role === "super_admin" || role === "operations_admin") ? "" : "disabled"}>${icon("plus", 14)} Create organization</button>`)}
+    ${pageHead("Organizations", "Customer tenants, workspaces, subscription status, and memberships. Website sign-ups start a self-serve free trial (status: free trial).", `
+      <button class="adm-btn primary" id="createOrgBtn" ${isSuper ? "" : `disabled title="Super Admin only"`}>${icon("plus", 14)} Create organization</button>`)}
     
     <div class="adm-filter-bar" style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
       <input class="adm-input" id="orgSearch" placeholder="Search by name or slug..." style="max-width:280px">
       <select class="adm-input" id="orgStatusFilter" style="max-width:160px">
         <option value="">All statuses</option>
         <option value="active">Active</option>
-        <option value="trial">Trial</option>
+        <option value="demo">Free trial</option>
         <option value="suspended">Suspended</option>
+        <option value="cancelled">Cancelled</option>
+        <option value="disabled">Disabled</option>
+        <option value="archived">Archived</option>
       </select>
       <span class="adm-hint" id="orgCountHint" style="margin-left:auto">${orgs.length} organization(s)</span>
     </div>
@@ -4047,19 +4242,19 @@ async function viewOrganizations() {
         </td>
         <td><span class="adm-code">${esc(o.slug)}</span></td>
         <td><span class="adm-cell-main">${esc(o.owner_name || o.owner_email || "—")}</span></td>
-        <td><span class="adm-badge gray plain">${Number(o.members_count || 1)}</span></td>
-        <td><span class="adm-badge amber">${Number(o.leads_count || 0)}</span></td>
-        <td>${statusBadge(o.status)}</td>
-        <td><span class="adm-badge violet">${esc(o.plan_id || "—")}</span></td>
+        <td><span class="adm-badge gray plain">${Number(o.member_count ?? o.members_count ?? 0)}</span></td>
+        <td><span class="adm-badge amber">${Number(o.lead_count ?? o.leads_count ?? 0)}</span></td>
+        <td>${statusBadge(o.status)}${o.status === "demo" && trialEndsText(o) ? `<div class="adm-hint">${esc(trialEndsText(o))}</div>` : ""}</td>
+        <td>${o.plan_id ? `<span class="adm-badge violet">${esc(o.plan_id)}</span>` : `<span class="adm-badge gray plain">${o.status === "demo" ? "trial — no plan" : "no plan"}</span>`}</td>
         <td><span class="adm-hint">${fmtTime(o.created_at)}</span></td>
         <td class="adm-cell-actions" style="text-align:right">
           <a class="adm-btn small ghost" href="#/organizations/details:${esc(o.id)}">${icon("eye", 12)} View</a>
-          ${o.status === "suspended" ? `
+          ${!isSuper ? "" : o.status === "suspended" ? `
             <button class="adm-btn small ok" data-activate-org="${esc(o.id)}">Activate</button>
           ` : `
             <button class="adm-btn small danger" data-suspend-org="${esc(o.id)}" data-name="${esc(o.name)}">Suspend</button>
           `}
-          <button class="adm-btn small ghost" data-edit-org="${esc(o.id)}">${icon("edit", 12)} Edit</button>
+          ${isSuper ? `<button class="adm-btn small ghost" data-edit-org="${esc(o.id)}">${icon("edit", 12)} Edit</button>` : ""}
         </td>
       </tr>`).join("");
   }
@@ -4130,6 +4325,7 @@ async function viewOrganizations() {
 
   // Create Org Modal
   $("#createOrgBtn").onclick = async () => {
+    if (!isSuper) return;
     let planOptions = "";
     try {
       const pd = await api("/api/admin/plans");
@@ -4193,10 +4389,12 @@ async function viewOrganizations() {
        <div class="adm-field"><label>Website</label><input class="adm-input" id="editOrgWebsite" value="${esc(o.website || "")}"></div>
        <div class="adm-field"><label>Status</label>
          <select class="adm-input" id="editOrgStatus">
-           <option value="active" ${o.status === "active" ? "selected" : ""}>Active</option>
-           <option value="trial" ${o.status === "trial" ? "selected" : ""}>Trial</option>
-           <option value="suspended" ${o.status === "suspended" ? "selected" : ""}>Suspended</option>
+           ${[["active", "Active"], ["demo", "Free trial"], ["trial", "Trial (legacy)"], ["pending", "Pending"],
+              ["suspended", "Suspended"], ["cancelled", "Cancelled"], ["disabled", "Disabled"], ["archived", "Archived"]]
+             .filter(([v]) => v !== "trial" || o.status === "trial")
+             .map(([v, label]) => `<option value="${v}" ${o.status === v ? "selected" : ""}>${label}</option>`).join("")}
          </select>
+         ${o.status === "demo" ? `<span class="adm-hint">Free trial${trialEndsText(o) ? ` — ${esc(trialEndsText(o))}` : ""}. Extend free trials on <a href="/superadmin#/demo" target="_blank" rel="noopener">Super Admin → Free trials ↗</a>.</span>` : ""}
        </div>`,
       `<button class="adm-btn" data-close>Cancel</button>
        <button class="adm-btn primary" id="saveEditOrgBtn">Save Changes</button>`
@@ -4235,10 +4433,17 @@ async function viewOrgDetail(orgId) {
   const members = data.members || [];
   const metrics = data.metrics || {};
   const role = state.user.role;
-
-  const statusBadge = (s) => {
-    const map = { active: "green", trial: "violet", suspended: "red", disabled: "gray" };
-    return `<span class="adm-badge ${map[s] || "gray"}">${esc(s || "—")}</span>`;
+  const isSuper = role === "super_admin";
+  const statusBadge = orgStatusBadge;
+  const keys = (org.api_keys || {}).keys || {};
+  const coverage = (org.api_keys || {}).coverage || org.api_coverage || {};
+  const keyRow = (api, name) => {
+    const own = coverage[api] === "own";
+    const k = keys[api] || {};
+    const state_ = !own ? `<span class="adm-badge gray plain">LeadAI-provided</span>`
+      : !k.configured ? `<span class="adm-badge red">own key — not added</span>`
+      : `<span class="adm-badge ${k.verified ? "green" : "amber"}">own key ${esc(k.hint || "")}${k.verified ? "" : " — not verified"}</span>`;
+    return `<div class="adm-kv-row"><dt>${name}</dt><dd>${state_}${own && k.last_error ? `<div class="adm-hint" style="color:var(--red)">${esc(k.last_error)}</div>` : ""}</dd></div>`;
   };
 
   root.innerHTML = `
@@ -4249,12 +4454,12 @@ async function viewOrgDetail(orgId) {
           <div style="display:flex;align-items:center;gap:12px">
             <h1 class="adm-title" style="margin:0">${esc(org.name)}</h1>
             ${statusBadge(org.status)}
-            <span class="adm-badge violet">${esc(org.plan_id || "—")}</span>
+            ${org.plan_id ? `<span class="adm-badge violet">${esc(org.plan_id)}</span>` : `<span class="adm-badge gray plain">${org.status === "demo" ? "trial — no plan" : "no plan"}</span>`}
           </div>
           <p class="adm-desc">Slug: <span class="adm-code">${esc(org.slug)}</span> · Created ${fmtTime(org.created_at)}</p>
         </div>
         <div class="adm-head-actions">
-          ${org.status === "suspended" ? `
+          ${!isSuper ? "" : org.status === "suspended" ? `
             <button class="adm-btn ok" id="orgDetailActivateBtn">Activate Organization</button>
           ` : `
             <button class="adm-btn danger" id="orgDetailSuspendBtn">Suspend Organization</button>
@@ -4278,11 +4483,6 @@ async function viewOrgDetail(orgId) {
         <div style="font-size:22px;font-weight:700;color:var(--amber-deep)">${Number(metrics.leads_count || 0).toLocaleString()}</div>
         <div class="adm-hint">AI qualified</div>
       </div>
-      <div class="adm-card" style="padding:14px">
-        <div class="adm-stat-label">Posts Processed</div>
-        <div style="font-size:22px;font-weight:700">${Number(metrics.posts_count || 0).toLocaleString()}</div>
-        <div class="adm-hint">Collected</div>
-      </div>
     </div>
 
     <div class="adm-grid-2" style="margin-bottom:18px">
@@ -4303,11 +4503,16 @@ async function viewOrgDetail(orgId) {
       <div class="adm-card">
         <div class="adm-card-title">Tenant Security &amp; Plan</div>
         <div class="adm-kv">
-          <div class="adm-kv-row"><dt>Plan</dt><dd><span class="adm-badge violet">${esc(org.plan_id || "—")}</span></dd></div>
+          <div class="adm-kv-row"><dt>Plan</dt><dd>${org.plan_id ? `<span class="adm-badge violet">${esc(org.plan_id)}</span>` : `<span class="adm-badge gray plain">${org.status === "demo" ? "trial — no plan" : "no plan"}</span>`}</dd></div>
           <div class="adm-kv-row"><dt>Tenant Isolation</dt><dd><span class="adm-badge green">Enforced (Server-Side)</span></dd></div>
           <div class="adm-kv-row"><dt>IDOR Protection</dt><dd><span class="adm-badge green">Active</span></dd></div>
-          <div class="adm-kv-row"><dt>Billing Status</dt><dd><span class="adm-badge gray plain">Default Trial (Billing module in Master Prompt 2)</span></dd></div>
+          <div class="adm-kv-row"><dt>Billing</dt><dd>${org.status === "demo"
+            ? `<span class="adm-badge violet">free trial</span>${trialEndsText(org) ? ` <span class="adm-hint">${esc(trialEndsText(org))}</span>` : ""}`
+            : `<a href="#/subscriptions">See subscriptions →</a>`}</dd></div>
+          ${keyRow("apify", "Apify key")}
+          ${keyRow("gemini", "Gemini key")}
         </div>
+        ${isSuper ? `<div class="adm-hint" style="margin-top:8px">Customers' own keys are managed on ${providerKeysLink()}.</div>` : ""}
       </div>
     </div>
 
@@ -4417,7 +4622,7 @@ async function viewOrgDetail(orgId) {
           });
           toast("Impersonation active", "ok");
           closeModal();
-          location.href = "/";
+          location.href = "/user";
         } catch (err) {
           toast(err.message, "error");
           $("#confirmImpBtn").disabled = false;
@@ -4501,8 +4706,8 @@ async function viewPlans() {
           <td style="max-width:240px">${feats || "—"}</td>
           <td>${statusBadge(p.status)}</td>
           <td class="adm-cell-actions" style="text-align:right">
-            <button class="adm-btn small ghost" data-edit-plan="${esc(p.id)}">${icon("edit", 12)} Edit</button>
-            ${p.status === "active" ? `<button class="adm-btn small danger" data-archive-plan="${esc(p.id)}" data-name="${esc(p.name)}">Archive</button>` : ""}
+            ${isSuper ? `<button class="adm-btn small ghost" data-edit-plan="${esc(p.id)}">${icon("edit", 12)} Edit</button>
+            ${p.status === "active" ? `<button class="adm-btn small danger" data-archive-plan="${esc(p.id)}" data-name="${esc(p.name)}">Archive</button>` : ""}` : `<span class="adm-hint">Super Admin only</span>`}
           </td>
         </tr>
       `;
@@ -4680,7 +4885,9 @@ async function viewPlans() {
 async function viewSubscriptions() {
   const root = $("#view");
   const data = await api("/api/admin/subscriptions");
-  const subs = data.subscriptions || [];
+  // the API returns Mongo's _id; every action needs the subscription id
+  const subs = (data.subscriptions || []).map((s) => ({ ...s, id: s.id || s._id }));
+  const isSuper = state.user.role === "super_admin";
 
   const statusBadge = (s) => {
     const map = { active: "green", trialing: "violet", past_due: "red", cancelled: "gray", expired: "gray" };
@@ -4688,7 +4895,7 @@ async function viewSubscriptions() {
   };
 
   root.innerHTML = `
-    ${pageHead("Subscriptions", "All tenant subscription lifecycles, plans, trials, and manual entitlements.")}
+    ${pageHead("Subscriptions", `All tenant subscription lifecycles, plans, trials, and manual entitlements. Self-serve free trials from website sign-ups have no subscription yet — find them under <a href="#/organizations">Organizations</a> (status: free trial).${isSuper ? "" : " Plan changes, trial extensions and credits are Super Admin only."}`)}
 
     <div class="adm-filter-bar" style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
       <input class="adm-input" id="subSearch" placeholder="Search by organization..." style="max-width:280px">
@@ -4742,9 +4949,10 @@ async function viewSubscriptions() {
         </td>
         <td><span class="adm-hint">${fmtTime(s.created_at)}</span></td>
         <td class="adm-cell-actions" style="text-align:right">
+          ${isSuper ? `
           <button class="adm-btn small ghost" data-change-plan="${esc(s.id)}" data-org="${esc(s.organization_id)}">Change Plan</button>
           <button class="adm-btn small ghost" data-extend-trial="${esc(s.id)}">Extend Trial</button>
-          <button class="adm-btn small ghost" data-grant-credits="${esc(s.organization_id)}">Grant Credits</button>
+          <button class="adm-btn small ghost" data-grant-credits="${esc(s.organization_id)}">Grant Credits</button>` : `<span class="adm-hint">—</span>`}
         </td>
       </tr>
     `).join("");
@@ -4907,11 +5115,11 @@ async function viewInvoices() {
       <tr>
         <td><span class="adm-code" style="font-weight:600">${esc(inv.number)}</span></td>
         <td>
-          <div class="adm-cell-main"><a href="#/organizations/details:${esc(inv.organization_id)}">${esc(inv.organization_id)}</a></div>
+          <div class="adm-cell-main"><a href="#/organizations/details:${esc(inv.organization_id)}">${esc(inv.organization_name && inv.organization_name !== "Unknown" ? inv.organization_name : inv.organization_id)}</a></div>
         </td>
         <td><span class="adm-cell-main" style="font-weight:700">${esc(fmtMoney(inv.total, inv.currency))}</span></td>
         <td>${statusBadge(inv.status)}</td>
-        <td><span class="adm-hint">${fmtTime(inv.created_at)}</span></td>
+        <td><span class="adm-hint">${fmtTime(inv.invoice_date || inv.created_at)}</span></td>
         <td>
           ${inv.receipt_url ? `<a href="${esc(inv.receipt_url)}" target="_blank" rel="noopener" class="adm-btn small ghost">View Receipt ↗</a>` : `<span class="adm-hint">Generated</span>`}
         </td>
@@ -4923,6 +5131,14 @@ async function viewInvoices() {
 /* ──────────────────────────────── USERS ───────────────────────────── */
 async function viewUsers() {
   const root = $("#view");
+  if (state.user.role !== "super_admin") {
+    // GET /api/admin/users is Super Admin only: explain instead of an error card
+    root.innerHTML = `
+      ${pageHead("Users", "Platform accounts, roles, organization memberships, and session controls.")}
+      <div class="adm-card"><div class="adm-empty">${icon("users", 22)}<div>Only the Super Admin can manage users.</div>
+        <div class="adm-hint" style="margin-top:6px">You can change your own password on <a href="#/security">Security</a>.</div></div></div>`;
+    return;
+  }
   const data = await api("/api/admin/users");
   const users = data.users || [];
   const role = state.user.role;
@@ -5157,13 +5373,14 @@ async function viewSecurity() {
           <div class="adm-cell-main">Session timeout (hours)</div>
           <div class="adm-hint">Idle sessions are invalidated after this many hours. Env default: ${esc(data.session_timeout_hours_env ?? "—")}h.</div>
         </div>
-        <input class="adm-input" type="number" min="1" max="720" step="1" value="${settings["security.session_timeout_hours"] ?? 24}" data-setting="security.session_timeout_hours" ${role === "viewer" ? "disabled" : ""}>
+        <input class="adm-input" type="number" min="1" max="720" step="1" value="${settings["security.session_timeout_hours"] ?? 24}" data-setting="security.session_timeout_hours" ${!isSuper ? "disabled" : ""}>
       </div>
       ${Object.entries(SECURITY_TOGGLES).map(([key, m]) => `
         <div class="adm-toggle-row">
           <div><div class="adm-cell-main">${esc(m.label)}</div><div class="adm-hint">${esc(m.hint)}</div></div>
-          <label class="adm-switch"><input type="checkbox" data-setting="${key}" ${settings[key] ? "checked" : ""} ${role === "viewer" ? "disabled" : ""}><span></span></label>
+          <label class="adm-switch"><input type="checkbox" data-setting="${key}" ${settings[key] ? "checked" : ""} ${!isSuper ? "disabled" : ""}><span></span></label>
         </div>`).join("")}
+      ${!isSuper ? `<div class="adm-hint" style="margin-top:8px">Only the Super Admin can change these settings.</div>` : ""}
       <div class="adm-kv" style="margin-top:14px">
         <div class="adm-kv-row"><dt>Login protection</dt><dd><span class="adm-badge ${data.login_protection_active ? "green" : "amber"}">${data.login_protection_active ? "active" : "disabled"}</span></dd></div>
         <div class="adm-kv-row"><dt>Session epoch</dt><dd><span class="adm-code">${esc(String(settings["security.session_epoch"] ?? 0))}</span> <span class="adm-hint">(bumped when sessions are revoked)</span></dd></div>
@@ -5185,7 +5402,7 @@ async function viewSecurity() {
       </div>
       <button class="adm-btn primary" id="changePassword">${icon("key", 14)} Change password</button>`}
     </div>`;
-  if (role !== "viewer") {
+  if (isSuper) {
     $$(".adm-switch input", root).forEach((el) => el.addEventListener("change", async () => {
       try {
         await api("/api/admin/security", { method: "PUT", body: { [el.dataset.setting]: el.checked } });
@@ -5213,7 +5430,10 @@ async function viewSecurity() {
       "Revoke all sessions", "Every admin cookie becomes invalid. You will need to sign in again.",
       async () => { await api("/api/admin/security/revoke-sessions", { method: "POST" }); toast("All sessions revoked", "ok"); },
       "Revoke");
-    if ($("#changePassword")) $("#changePassword").onclick = async () => {
+  }
+  // staff (non Super Admin) change their own password here
+  if ($("#changePassword")) {
+    $("#changePassword").onclick = async () => {
       const old = $("#secOldPassword").value, pw = $("#secPassword").value.trim();
       if (!old) { toast("Enter your current password", "warn"); return; }
       if (pw.length < 8) { toast("Password must be at least 8 characters", "warn"); return; }
@@ -5323,7 +5543,7 @@ async function viewHealth() {
   const entries = Object.entries(checks);
   const isOk = (c) => c.ok !== undefined ? c.ok : true;
   const allOk = entries.filter(([, c]) => c.ok !== undefined).every(([, c]) => c.ok);
-  const checkedAt = data.checked_at ? new Date(data.checked_at * 1000) : new Date();
+  const checkedAt = parseDate(data.checked_at) || new Date();
   root.innerHTML = `
     ${pageHead("Health", "Live health checks of every subsystem behind LeadAI.", "")}
     <div class="adm-health-hero">
@@ -5348,10 +5568,16 @@ async function viewHealth() {
 }
 
 /* ──────────────────────────────── AUDIT ───────────────────────────── */
+const AUDIT_FILTERS = { category: "", q: "", offset: 0 };
+
 async function viewAudit() {
   const root = $("#view");
-  const data = await api("/api/admin/audit-logs?limit=60");
+  const f = AUDIT_FILTERS;
+  const qs = qsOf({ category: f.category, q: f.q, offset: f.offset, limit: 60 });
+  const data = await api(`/api/admin/audit-logs?${qs}`);
   const items = data.items || [];
+  const total = Number(data.total || 0);
+  const categories = (data.categories || []).filter(Boolean).sort();
   const detailText = (e) => {
     const d = e.details;
     if (!d || typeof d !== "object" || !Object.keys(d).length) return "";
@@ -5360,7 +5586,16 @@ async function viewAudit() {
   };
   root.innerHTML = `
     ${pageHead("Audit log", "Every admin action, chronologically. Immutable — this list cannot be cleared.", `
-      <span class="adm-badge gray plain">${fmtNum(data.total || items.length)} events</span>`)}
+      <span class="adm-badge gray plain">${fmtNum(total)} events</span>`)}
+    <div class="adm-filters" style="margin-bottom:14px">
+      <select class="adm-select" id="auCategory" aria-label="Category">
+        <option value="">All categories</option>
+        ${categories.map((c) => `<option value="${esc(c)}" ${f.category === c ? "selected" : ""}>${esc(c)}</option>`).join("")}
+      </select>
+      <input class="adm-input" id="auQ" placeholder="Action or user…" value="${esc(f.q)}">
+      <button class="adm-btn primary" id="auApply">Filter</button>
+      <button class="adm-btn" id="auClear">Clear</button>
+    </div>
     <div class="adm-feed">
       ${items.length ? items.map((e) => `
         <div class="adm-feed-item">
@@ -5369,11 +5604,23 @@ async function viewAudit() {
             <span class="adm-cell-main">${esc(e.user || "system")}</span>
             <span class="adm-badge gray plain">${esc(e.category || "")}</span>
             <span class="adm-badge ${e.success === false ? "red" : "gray plain"}">${esc(e.action)}</span>
-            <span class="adm-feed-time" title="${new Date(e.at * 1000).toISOString()}">${fmtTime(new Date(e.at * 1000))}</span>
+            <span class="adm-feed-time" title="${esc(e.at || "")}">${fmtTime(e.at)}</span>
           </div>
           ${detailText(e) ? `<div class="adm-feed-reason">${esc(detailText(e))}</div>` : ""}
-        </div>`).join("") : emptyState("audit", "No audit events recorded yet.")}
-    </div>`;
+        </div>`).join("") : emptyState("audit", f.category || f.q ? "No audit events match these filters." : "No audit events recorded yet.")}
+    </div>
+    ${total > 60 ? pagerHtml(total, f.offset, 60) : ""}`;
+  const apply = () => {
+    f.category = $("#auCategory").value;
+    f.q = $("#auQ").value.trim();
+    f.offset = 0;
+    viewAudit();
+  };
+  $("#auApply").onclick = apply;
+  $("#auCategory").onchange = apply;
+  $("#auQ").onkeydown = (e) => { if (e.key === "Enter") apply(); };
+  $("#auClear").onclick = () => { Object.assign(f, { category: "", q: "", offset: 0 }); viewAudit(); };
+  bindPager(root, (dir) => { f.offset = Math.max(0, f.offset + dir * 60); viewAudit(); });
 }
 
 /* ─────────────────────────── GLOBAL SETTINGS ──────────────────────── */

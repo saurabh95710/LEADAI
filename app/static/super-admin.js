@@ -62,7 +62,7 @@
     // warning
     pending: 'warning', pending_payment: 'warning', payment_received: 'warning', pending_admin_confirmation: 'warning',
     draft: 'warning', invited: 'warning', queued: 'warning', warn: 'warning', medium: 'warning', pending_approval: 'warning',
-    open: 'warning', refunded: 'warning',
+    open: 'warning', refunded: 'warning', partially_refunded: 'warning',
     // danger
     failed: 'danger', error: 'danger', rejected: 'danger', refund_due: 'danger', failure: 'danger', high: 'danger',
     critical: 'danger', urgent: 'danger', down: 'danger', err: 'danger', past_due: 'danger',
@@ -76,7 +76,8 @@
     info: 'info', low: 'info', normal: 'muted', muted: 'muted', hidden: 'muted', tracking: 'muted'
   };
   var PILL_LABEL = { pending_admin_confirmation: 'Awaiting confirmation', pending_payment: 'Pending payment',
-    payment_received: 'Payment received', member: 'User', disabled: 'Deactivated', error: 'Failed', refund_due: 'Refund due' };
+    payment_received: 'Payment received', member: 'User', disabled: 'Deactivated', error: 'Failed', refund_due: 'Refund due',
+    demo: 'Free trial', past_due: 'Past due', partially_refunded: 'Partly refunded' };
   function toneOf(status) { return STATUS_TONE[String(status || '').toLowerCase()] || 'muted'; }
   // Rendered with the shared design-system pill (components.css .status-pill): data-status carries the
   // canonical colour; the explicit tone class covers portal-specific statuses (open, locked, extended…).
@@ -247,8 +248,18 @@
     var tid = 'd' + Math.random().toString(36).slice(2, 8);
     wrap.innerHTML = '<aside class="sa-drawer" role="dialog" aria-modal="true" aria-labelledby="' + tid + '"><header><h3 id="' + tid + '">' + esc(title) + '</h3><button type="button" class="modal-close" aria-label="Close">✕</button></header><div class="body">' + skeleton('rows') + '</div></aside>';
     layer().appendChild(wrap);
-    var restore;
-    function close() { wrap.remove(); if (restore) restore(); }
+    var restore, closed = false;
+    // a link inside the drawer (organization, subscription…) navigates: the drawer must not stay over the new page;
+    // Escape closes it even after its body re-rendered and focus fell back to the page
+    function onHash() { close(); }
+    function onKey(e) { if (e.key === 'Escape' && !$('.sa-overlay') && layer().lastElementChild === wrap) { e.preventDefault(); close(); } }
+    function close() {
+      if (closed) return; closed = true;
+      wrap.remove(); window.removeEventListener('hashchange', onHash); document.removeEventListener('keydown', onKey);
+      if (restore) restore();
+    }
+    window.addEventListener('hashchange', onHash);
+    document.addEventListener('keydown', onKey);
     restore = trapFocus(wrap, close);
     $('.modal-close', wrap).onclick = close;
     $('.modal-close', wrap).focus();
@@ -733,7 +744,7 @@
       kpi('Organizations', fmtN(d.organizations.total), fmtN(d.organizations.active) + ' active · ' + fmtN(d.organizations.suspended) + ' suspended', { href: '#/organizations', icon: 'org' }) +
       kpi('Admins', fmtN(d.admins.total), 'owners & admins', { href: '#/admins', icon: 'shield' }) +
       kpi('Users', fmtN(d.users.total), fmtN(d.users.active) + ' active · +' + fmtN(d.users.new_7d) + ' this week', { href: '#/users', icon: 'users' }) +
-      kpi('Demo accounts', fmtN(d.demo.accounts), fmtN(d.demo.pending_requests) + ' requests pending', { href: '#/demo', tone: d.demo.pending_requests ? 'warn' : '', icon: 'gift' }) +
+      kpi('Free trials', fmtN(d.demo.accounts), d.demo.pending_requests ? fmtN(d.demo.pending_requests) + ' sign-ups waiting for approval' : 'Trial length & tokens →', { href: d.demo.pending_requests ? '#/demo?status=pending' : '#/demo?tab=config', tone: d.demo.pending_requests ? 'warn' : '', icon: 'gift' }) +
       kpi('Active subscriptions', fmtN(sub.active), fmtN(sub.awaiting_confirmation) + ' awaiting confirmation', { href: '#/subscriptions', tone: sub.awaiting_confirmation ? 'warn' : '', icon: 'repeat' }) +
       kpi('MRR', mrrTxt, esc(rev30Txt) + ' collected (30d)', { href: '#/payments', icon: 'card' }) +
       kpi('Tokens used (24h)', fmtN(d.tokens.consumed_24h), fmtN(d.tokens.consumed_30d) + ' in 30 days', { href: '#/tokens', icon: 'coin' }) +
@@ -756,7 +767,7 @@
     }
     // needs attention + subscriptions mix + health
     var attn = [
-      [d.demo.pending_requests, 'demo request(s) waiting for approval', '#/demo?status=pending', 'warn'],
+      [d.demo.pending_requests, 'trial sign-up(s) waiting for approval', '#/demo?status=pending', 'warn'],
       [sub.awaiting_confirmation, 'paid subscription(s) awaiting your confirmation', '#/subscriptions', 'warn'],
       [d.payments.refund_required, 'payment(s) flagged refund due', '#/payments?status=refunded', 'err'],
       [d.apify.failed_24h, 'Apify job(s) failed in the last 24h', '#/ops/jobs?status=failed', 'err'],
@@ -808,9 +819,9 @@
       '<div class="sa-card"><h3>Recent payments <a class="sa-link" href="#/payments">All →</a></h3>' + feed(rec.payments, function (p) {
         return '<li><div><b>' + esc(fmtMoney(p.amount, p.currency)) + '</b> ' + pill(p.status) + (p.refund_required ? ' ' + pill('refund_due') : '') + '<div class="sa-small">' + orgLink(p.organization_id, p.organization_name) + '</div></div><span class="when">' + esc(ago(p.created_at)) + '</span></li>';
       }, 'No payments yet') + '</div>' +
-      '<div class="sa-card"><h3>Demo requests <a class="sa-link" href="#/demo">Inbox →</a></h3>' + feed(rec.demo_requests, function (x) {
+      '<div class="sa-card"><h3>Trial sign-ups <a class="sa-link" href="#/demo">Free trials →</a></h3>' + feed(rec.demo_requests, function (x) {
         return '<li><div><b>' + esc(x.company || x.name) + '</b><div>' + pill(x.status) + '</div></div><span class="when">' + esc(ago(x.created_at)) + '</span></li>';
-      }, 'No demo requests') + '</div>' +
+      }, 'No trial sign-ups yet') + '</div>' +
       '<div class="sa-card sa-span2"><h3>Activity feed <a class="sa-link" href="#/audit">Audit log →</a></h3>' + feed(rec.activity, function (a) {
         return '<li><span class="sa-dot ' + (a.status === 'failure' ? 'err' : 'ok') + '" style="margin-top:6px" aria-hidden="true"></span><div><span class="sa-mono">' + esc(a.action) + '</span>' + (a.status === 'failure' ? ' ' + pill('failure') : '') + '<div class="sa-small sa-muted">' + esc(a.actor_email || 'system') + (a.organization_id ? ' · ' + orgLink(a.organization_id, a.organization_name) : '') + '</div></div><span class="when">' + esc(ago(a.at)) + '</span></li>';
       }, 'No activity yet') + '</div>' +
@@ -823,7 +834,7 @@
   // ════════════════════════════════════════════════════════
   //  ORGANIZATIONS
   // ════════════════════════════════════════════════════════
-  var ORG_STATUS_OPTS = [['', 'All statuses'], ['active', 'Active'], ['demo', 'Demo'], ['trial', 'Trial'], ['pending', 'Pending demo'], ['suspended', 'Suspended'], ['disabled', 'Deactivated'], ['cancelled', 'Cancelled'], ['archived', 'Archived']];
+  var ORG_STATUS_OPTS = [['', 'All statuses'], ['active', 'Active'], ['demo', 'Free trial'], ['trial', 'Trial (plan)'], ['pending', 'Waiting for trial approval'], ['suspended', 'Suspended'], ['disabled', 'Deactivated'], ['cancelled', 'Cancelled'], ['archived', 'Archived']];
 
   async function orgStatusAction(org, status, after) {
     var name = org.name || 'this organization';
@@ -900,7 +911,7 @@
         if (reason.length < 5) throw new Error('Enter a reason of at least 5 characters.');
         return api('/api/super-admin/impersonate', { method: 'POST', body: { organization_id: org.id, reason: reason } });
       } });
-    if (res) { toast('Support session started — opening the customer app'); setTimeout(function () { location.href = res.redirect || '/'; }, 600); }
+    if (res) { toast('Support session started — opening the customer app'); setTimeout(function () { location.href = res.redirect || '/user'; }, 600); }
   }
 
   async function adjustTokens(orgId, after) {
@@ -1211,8 +1222,8 @@
           '<div class="sa-card"><h3>Admins</h3>' + ((o.admins || []).length ? '<ul class="sa-feed">' + o.admins.map(function (m) {
             return '<li><div><a class="sa-link" href="#/users/' + esc(m.user_id) + '">' + esc(m.name || m.email) + '</a><div class="sa-small sa-muted">' + esc(m.email) + '</div></div><span class="when">' + esc(roleLabel(m.role)) + ' ' + pill(m.user_status) + '</span></li>';
           }).join('') + '</ul>' : emptyState('No admins', 'This organization has no owner/admin.')) + '</div>' +
-          '<div class="sa-card"><h3>Demo</h3>' + (dr ? '<dl class="sa-kv"><dt>Request</dt><dd>' + pill(dr.status) + '</dd><dt>Requested</dt><dd>' + esc(fmtDT(dr.created_at)) + '</dd>' +
-            (dr.converted_at ? '<dt>Converted</dt><dd>' + esc(fmtDT(dr.converted_at)) + '</dd>' : '') + '</dl><div class="sa-row" style="margin-top:8px"><a class="sa-link" href="#/demo?q=' + esc(encodeURIComponent(dr.email || '')) + '">Open in demo inbox →</a></div>' : emptyState('No demo request')) + '</div>' +
+          '<div class="sa-card"><h3>Free trial</h3>' + (dr ? '<dl class="sa-kv"><dt>Sign-up</dt><dd>' + pill(dr.status) + '</dd><dt>Requested</dt><dd>' + esc(fmtDT(dr.created_at)) + '</dd>' +
+            (dr.converted_at ? '<dt>Converted</dt><dd>' + esc(fmtDT(dr.converted_at)) + '</dd>' : '') + '</dl><div class="sa-row" style="margin-top:8px"><a class="sa-link" href="#/demo?q=' + esc(encodeURIComponent(dr.email || '')) + '">Open in Free trials →</a></div>' : emptyState('No free trial', 'This organization did not start from a website sign-up.')) + '</div>' +
           '<div class="sa-card"><h3>Recent searches <button type="button" class="sa-link" data-tabgo="searches">All →</button></h3>' + ((o.recent_searches || []).length ? '<ul class="sa-feed">' + o.recent_searches.map(function (s) {
             return '<li><div><button type="button" class="sa-link" data-chain="' + esc(s.run_id) + '">' + esc(short(s.query, 40)) + '</button><div class="sa-small sa-muted">' + esc(s.created_by || '') + '</div></div><span class="when">' + pill(s.status) + ' ' + esc(ago(s.created_at)) + '</span></li>';
           }).join('') + '</ul>' : emptyState('No searches yet')) + '</div></div>';
@@ -1391,8 +1402,8 @@
   }
 
   async function viewAdmins(root, q) {
-    root.innerHTML = header('Admins', 'Organization owners and admins across all organizations, and the platform staff accounts. Approving an admin = approving their organization\'s demo or subscription.',
-      '<a class="btn btn-secondary btn-sm" href="#/demo">Demo queue</a><a class="btn btn-secondary btn-sm" href="#/subscriptions?status=awaiting">Confirmation queue</a>') + '<div id="aTabs"></div>';
+    root.innerHTML = header('Admins', 'Organization owners and admins across all organizations, and the platform staff accounts. An admin gets access when their organization\'s free trial starts or its subscription is confirmed.',
+      '<a class="btn btn-secondary btn-sm" href="#/demo">Free trials</a><a class="btn btn-secondary btn-sm" href="#/subscriptions?status=awaiting">Confirmation queue</a>') + '<div id="aTabs"></div>';
     tabs($('#aTabs', root), [['org', 'Organization admins'], ['staff', 'Platform staff']], q.tab || 'org', function (key, el) {
       if (key === 'staff') return staffList(el);
       el.innerHTML = '<div id="aList"></div>';
@@ -1547,19 +1558,19 @@
     var base = '/api/super-admin/demo-requests/' + encodeURIComponent(id) + '/';
     if (action === 'approve') {
       var cfg = (await api('/api/super-admin/demo-config')).config;
-      var r = await openModal({ title: 'Approve demo — ' + (req.company || req.name), submitLabel: 'Approve demo', body:
-        '<p style="margin:0;color:var(--text-secondary)">Activates the organization in demo mode and emails the requester. Defaults come from the demo configuration; override for this account only if needed.</p>' +
+      var r = await openModal({ title: 'Start free trial — ' + (req.company || req.name), submitLabel: 'Approve & start trial', body:
+        '<p style="margin:0;color:var(--text-secondary)">Starts the free trial for this organization and emails the requester. Defaults come from Trial settings; override for this account only if needed.</p>' +
         '<div class="sa-form-grid"><div class="sa-field"><label for="apDays">Duration (days)</label><input class="form-input" id="apDays" name="duration_days" type="number" min="1" max="365" value="' + esc(cfg.duration_days) + '"></div>' +
-        '<div class="sa-field"><label for="apTok">Demo tokens</label><input class="form-input" id="apTok" name="tokens" type="number" min="0" value="' + esc(cfg.tokens) + '"></div></div>',
+        '<div class="sa-field"><label for="apTok">Trial tokens</label><input class="form-input" id="apTok" name="tokens" type="number" min="0" value="' + esc(cfg.tokens) + '"></div></div>',
         onSubmit: function (f, fd) {
           var ov = {};
           if (+fd.get('duration_days') !== +cfg.duration_days) ov.duration_days = +fd.get('duration_days');
           if (+fd.get('tokens') !== +cfg.tokens) ov.tokens = +fd.get('tokens');
           return api(base + 'approve', { method: 'POST', body: { overrides: Object.keys(ov).length ? ov : null } });
         } });
-      if (!r) return; toast('Demo approved');
+      if (!r) return; toast('Free trial started — the requester was emailed');
     } else if (action === 'extend') {
-      var e = await openModal({ title: 'Extend demo', submitLabel: 'Extend', body:
+      var e = await openModal({ title: 'Extend free trial', submitLabel: 'Extend', body:
         '<div class="sa-form-grid"><div class="sa-field"><label for="exDays">Extra days</label><input class="form-input" id="exDays" name="days" type="number" min="0" max="365" value="7"></div>' +
         '<div class="sa-field"><label for="exTok">Extra tokens</label><input class="form-input" id="exTok" name="tokens" type="number" min="0" value="0"></div></div>',
         onSubmit: function (f, fd) {
@@ -1567,24 +1578,24 @@
           if (!days && !tok) throw new Error('Add days and/or tokens.');
           return api(base + 'extend', { method: 'POST', body: { days: days, tokens: tok } });
         } });
-      if (!e) return; toast('Demo extended');
+      if (!e) return; toast('Free trial extended');
     } else {
-      var labels = { reject: ['Reject demo request', 'The requester is told the request was not approved. Their organization stays blocked.', 'Reject'], cancel: ['Cancel demo', 'Ends the demo immediately; members lose access.', 'Cancel demo'] }[action];
+      var labels = { reject: ['Reject trial sign-up', 'The requester is told the sign-up was not approved. Their organization stays blocked.', 'Reject'], cancel: ['End free trial', 'Ends the free trial immediately; members lose access.', 'End trial'] }[action];
       var c = await confirmDialog({ title: labels[0], message: labels[1], confirmLabel: labels[2], reason: 'required' });
       if (!c) return;
       await api(base + action, { method: 'POST', body: { reason: c.reason } });
-      toast(action === 'reject' ? 'Request rejected' : 'Demo cancelled');
+      toast(action === 'reject' ? 'Sign-up rejected' : 'Free trial ended');
     }
     if (after) after();
   }
   function demoButtons(r) {
     var b = [];
     if (r.status === 'pending') b.push(['approve', 'Approve', 'btn-primary'], ['reject', 'Reject', 'btn-danger']);
-    if (r.status === 'approved' || r.status === 'extended') b.push(['extend', 'Extend', 'btn-secondary'], ['cancel', 'Cancel', 'btn-danger']);
+    if (r.status === 'approved' || r.status === 'extended') b.push(['extend', 'Extend', 'btn-secondary'], ['cancel', 'End trial', 'btn-danger']);
     return b;
   }
   function demoDrawer(id, after) {
-    openDrawer('Demo request', async function (body, close) {
+    openDrawer('Trial sign-up', async function (body, close) {
       var r = (await api('/api/super-admin/demo-requests/' + encodeURIComponent(id))).request;
       var d = r.demo || {}, t = d.tokens || {};
       // usage boxes open the demo organization (tab); without one they fall back to the demo inbox
@@ -1607,8 +1618,13 @@
   }
 
   async function viewDemo(root, q) {
-    root.innerHTML = header('Demo management', 'Signup = demo request. Nothing is usable until approved here. A demo converts automatically when its paid subscription is confirmed.') + '<div id="dmTabs"></div>';
-    tabs($('#dmTabs', root), [['inbox', 'Inbox'], ['config', 'Demo configuration'], ['costs', 'Token costs']], q.tab || 'inbox', async function (key, el) {
+    var trialCfg = {};
+    try { trialCfg = (await api('/api/super-admin/demo-config')).config || {}; } catch (e) {}
+    root.innerHTML = header('Free trials', trialCfg.auto_approve
+      ? 'Website sign-ups start a free ' + (trialCfg.duration_days || '') + '-day trial with ' + fmtN(trialCfg.tokens || 0) + ' tokens at once — no approval needed. Change the length and tokens under Trial settings. A trial converts automatically when its paid subscription is confirmed.'
+      : 'Self-serve trials are off: every website sign-up waits for approval here. Turn them on under Trial settings. A demo converts automatically when its paid subscription is confirmed.') +
+      '<div id="dmTabs"></div>';
+    tabs($('#dmTabs', root), [['inbox', 'Sign-ups'], ['config', 'Trial settings (days & tokens)'], ['costs', 'Token costs']], q.tab || 'inbox', async function (key, el) {
       if (key === 'inbox') {
         el.innerHTML = '<div class="sa-chips" id="dmChips"></div><div id="dmList"></div>';
         var current = q.status || '';
@@ -1642,20 +1658,23 @@
               demoAction(r, a, reload).catch(function (e) { toast(e.message, 'error'); });
             }; });
           },
-          empty: { title: 'No demo requests', desc: 'New signups from the website appear here.' }
+          empty: { title: 'No trial sign-ups', desc: 'Website sign-ups appear here' + (trialCfg.auto_approve ? ' — their free trial starts at once.' : ' and wait for your approval.') }
         });
       } else if (key === 'config') {
         var data = await api('/api/super-admin/demo-config');
         var c = data.config;
         var num = function (k, label, hint) { return '<div class="sa-field"><label for="dc_' + k + '">' + esc(label) + '</label><input class="form-input" id="dc_' + k + '" name="' + k + '" type="number" min="0" value="' + esc(c[k]) + '">' + (hint ? '<span class="hint">' + esc(hint) + '</span>' : '') + '</div>'; };
-        el.innerHTML = '<form class="sa-card" id="dcForm" novalidate><h3>What an approved demo gets</h3><div class="sa-form-grid">' +
-          num('duration_days', 'Duration (days)') + num('tokens', 'Tokens granted') + num('max_searches', 'Max searches') + num('posts_per_search', 'Posts per search') +
+        el.innerHTML = '<form class="sa-card" id="dcForm" novalidate><h3>What every free trial gets</h3>' +
+          '<label class="sa-check sa-section"><input type="checkbox" name="auto_approve"' + (c.auto_approve ? ' checked' : '') + '> <b>Self-serve free trial</b> — a website sign-up starts the trial at once and opens the dashboard (off: every sign-up waits for approval in Sign-ups)</label>' +
+          '<div class="sa-form-grid sa-section">' +
+          num('duration_days', 'Trial length (days)') + num('tokens', 'Tokens per trial', 'Spent on searches, collections, AI analyses and exports — see Token costs') + num('max_searches', 'Max searches') + num('posts_per_search', 'Posts per search') +
           num('comments_per_post', 'Comments per post') + num('max_leads', 'Max leads') + num('max_users', 'Max users') + '</div>' +
           '<div class="sa-field sa-section"><label>Allowed platforms</label><div class="sa-row">' + (data.platforms || []).map(function (p) {
             return '<label class="sa-check"><input type="checkbox" name="allowed_platforms" value="' + esc(p) + '"' + ((c.allowed_platforms || []).indexOf(p) >= 0 ? ' checked' : '') + '> ' + esc(titleCase(p)) + '</label>';
           }).join('') + '</div></div><div class="sa-row sa-section">' +
-          ['ai_enabled', 'exports_enabled', 'auto_approve'].map(function (k) { return '<label class="sa-check"><input type="checkbox" name="' + k + '"' + (c[k] ? ' checked' : '') + '> ' + esc({ ai_enabled: 'AI analysis enabled', exports_enabled: 'CSV exports enabled', auto_approve: 'Auto-approve new requests' }[k]) + '</label>'; }).join('') +
-          '</div><div class="sa-err" id="dcErr" role="alert"></div><div class="sa-row sa-section"><button class="btn btn-primary btn-sm" type="submit">Save configuration</button><span class="sa-small sa-muted">Applies to demos approved from now on. Audited.</span></div></form>';
+          ['ai_enabled', 'exports_enabled'].map(function (k) { return '<label class="sa-check"><input type="checkbox" name="' + k + '"' + (c[k] ? ' checked' : '') + '> ' + esc({ ai_enabled: 'AI analysis enabled', exports_enabled: 'CSV exports enabled' }[k]) + '</label>'; }).join('') +
+          '</div><div class="sa-err" id="dcErr" role="alert"></div><div class="sa-row sa-section"><button class="btn btn-primary btn-sm" type="submit">Save trial settings</button><span class="sa-small sa-muted">Applies to trials started from now on. Audited.</span></div></form><div id="dcLc" class="sa-section"></div>';
+        lifecycleCard($('#dcLc', el), 'Trial access stops on its end date. The “trial ends soon” and “trial has ended” emails to the organization are sent by lifecycle automation.');
         $('#dcForm', el).onsubmit = async function (e) {
           e.preventDefault();
           var fd = new FormData(this), body = {};
@@ -1664,7 +1683,7 @@
           ['ai_enabled', 'exports_enabled', 'auto_approve'].forEach(function (k) { body[k] = !!fd.get(k); });
           $('#dcErr', el).textContent = '';
           var btn = $('button[type=submit]', this);
-          try { await busy(btn, function () { return api('/api/super-admin/demo-config', { method: 'PUT', body: body }); }); toast('Demo configuration saved'); }
+          try { await busy(btn, function () { return api('/api/super-admin/demo-config', { method: 'PUT', body: body }); }); toast('Trial settings saved'); }
           catch (err) { $('#dcErr', el).textContent = err.message; }
         };
       } else {
@@ -1756,7 +1775,7 @@
       '<div class="sa-field"><label for="peCur">Currency</label><input class="form-input" id="peCur" name="currency" maxlength="3" value="' + esc(p.currency || 'USD') + '"></div>' +
       '<div class="sa-field"><label for="peM">Price / month</label><input class="form-input" id="peM" name="price_monthly" type="number" min="0" step="0.01" value="' + esc(p.price_monthly || 0) + '"></div>' +
       '<div class="sa-field"><label for="peY">Price / year</label><input class="form-input" id="peY" name="price_yearly" type="number" min="0" step="0.01" value="' + esc(p.price_yearly || 0) + '"></div>' +
-      '<div class="sa-field"><label for="peT">Trial days</label><input class="form-input" id="peT" name="trial_days" type="number" min="0" value="' + esc(p.trial_days || 0) + '"></div>' +
+      '<div class="sa-field"><label for="peT">Trial days <span class="sa-muted">(pricing page label)</span></label><input class="form-input" id="peT" name="trial_days" type="number" min="0" value="' + esc(p.trial_days || 0) + '" aria-describedby="peTHint"><span class="hint" id="peTHint">Only shown on the pricing page. The free trial website sign-ups get is set in <b>Free trials → Trial settings</b>.</span></div>' +
       '<div class="sa-field"><label for="peO">Display order</label><input class="form-input" id="peO" name="display_order" type="number" value="' + esc(p.display_order == null ? 99 : p.display_order) + '"></div></div>' +
       '<div class="sa-field"><label for="peD">Description</label><textarea class="form-textarea" id="peD" name="description" rows="2" style="min-height:60px">' + esc(p.description || '') + '</textarea></div>' +
       '<div class="sa-row">' + [['is_public', 'Shown on the public pricing page'], ['is_default', 'Default / highlighted plan'], ['is_trial', 'Trial plan']].map(function (x) { return '<label class="sa-check"><input type="checkbox" name="' + x[0] + '"' + (p[x[0]] ? ' checked' : '') + '> ' + esc(x[1]) + '</label>'; }).join('') + '</div>' +
@@ -1885,7 +1904,10 @@
           (p.features || []).map(function (f) { return '<li>' + esc(schema.features[f] || f) + '</li>'; }).join('') + '</ul></div>';
       }).join('') : emptyState('No public plans', 'Only plans that are Active and Public appear on the website.');
     }
-    root.innerHTML = header('Pricing preview', 'Exactly what the public website shows (GET /api/public/pricing). Edit prices and limits in Plans.',
+    var tc = {};
+    try { tc = (await api('/api/super-admin/demo-config')).config || {}; } catch (e) { /* the note is optional */ }
+    root.innerHTML = header('Pricing preview', 'Exactly what the public website shows (GET /api/public/pricing). Edit prices and limits in Plans.' +
+      (tc.duration_days ? ' The “N-day trial” labels come from each plan; website sign-ups actually get the ' + tc.duration_days + '-day free trial set in Free trials → Trial settings.' : ''),
       '<div class="sa-chips" style="margin:0"><button type="button" class="sa-chip active" data-c="monthly">Monthly</button><button type="button" class="sa-chip" data-c="yearly">Yearly</button></div><a class="btn btn-secondary btn-sm" href="#/plans">Edit plans</a><a class="btn btn-secondary btn-sm" href="/pricing" target="_blank" rel="noopener">Open website ↗</a>') +
       '<div class="sa-grid sa-3" id="prCards"></div>';
     $$('[data-c]', root).forEach(function (b) { b.onclick = function () { cycle = b.getAttribute('data-c'); $$('[data-c]', root).forEach(function (x) { x.classList.toggle('active', x === b); }); render(); }; });
@@ -2189,11 +2211,141 @@
       } });
     if (r) { toast('Subscription extended'); if (after) after(); }
   }
+  /** Record a renewal paid outside the online checkout (POST …/renew): next period, tokens, paid invoice. */
+  async function renewSub(sub, after) {
+    var r = await openModal({ title: 'Record a renewal payment', submitLabel: 'Record renewal', body:
+      '<p style="margin:0;color:var(--text-secondary)">For a renewal paid outside the online checkout (bank transfer, invoice, cash). Starts the next billing period, grants the plan\'s tokens again, records a paid invoice and tells the organization. Possible once the current period has ended (' + esc(fmtDate(sub.current_period_end)) + ').</p>' +
+      '<div class="sa-field"><label for="rnAmt">Amount received <span class="sa-muted">(optional — empty = the renewal price)</span></label><input class="form-input" id="rnAmt" name="amount" type="number" min="0" step="0.01" inputmode="decimal"></div>' +
+      reasonField('rnReason', 'Payment reference or reason — recorded in the audit log.'),
+      onSubmit: function (f, fd) {
+        var amt = String(fd.get('amount') || '').trim();
+        return api('/api/super-admin/subscriptions/' + encodeURIComponent(sub.id || sub._id) + '/renew', { method: 'POST', body: { reason: needReason(fd), amount: amt === '' ? null : parseFloat(amt) } });
+      } });
+    if (r) { toast('Renewal recorded — paid until ' + fmtDate(r.current_period_end)); if (after) after(); }
+  }
+  // ── invoices (GET /invoices) & refunds — refunds are recorded here, no money moves ──
+  function invNumber(i) { return i.number || i.invoice_number || short(i.id || i._id, 8); }
+  function invTotal(i) { return Number((i.total != null ? i.total : i.amount) || 0); }
+  function invDate(i) { return i.invoice_date || i.paid_at || i.created_at; }
+  function invLeft(i) { return Math.round((invTotal(i) - Number(i.refunded_amount || 0)) * 100) / 100; }
+  function invRefundable(i) { return (i.status === 'paid' || i.status === 'partially_refunded') && invLeft(i) > 0; }
+  function invAmount(i) { return esc(fmtMoney(invTotal(i), i.currency)) + (i.refunded_amount ? '<span class="cell-sub">' + esc(fmtMoney(i.refunded_amount, i.currency)) + ' refunded</span>' : ''); }
+  async function refundInvoiceDialog(i) {
+    var left = invLeft(i), cur = i.currency || 'USD';
+    var r = await openModal({ title: 'Refund invoice ' + invNumber(i), submitLabel: 'Record refund', danger: true, body:
+      '<p style="margin:0;color:var(--text-secondary)">Records a refund (or chargeback) you have paid back to the customer. The invoice and its payment are marked refunded, the organization\'s admins are told, and any partner commission on this payment is reversed or clawed back. No money is sent from here.</p>' +
+      '<div class="sa-field"><label for="rfAmt">Amount <span class="sa-muted">(empty = the full ' + esc(fmtMoney(left, cur)) + ' not yet refunded)</span></label><input class="form-input" id="rfAmt" name="amount" type="number" min="0.01" step="0.01" inputmode="decimal"></div>' +
+      reasonField('rfReason', 'Recorded in the audit log and shown to the organization\'s admins.') +
+      '<label class="sa-check"><input type="checkbox" name="chargeback"> This is a chargeback / payment dispute</label>',
+      onSubmit: function (f, fd) {
+        var raw = String(fd.get('amount') || '').trim(), amt = raw === '' ? null : parseFloat(raw);
+        if (amt != null && !(amt > 0 && amt <= left + 0.004)) throw new Error('Enter an amount between 0.01 and ' + left.toFixed(2) + ', or leave it empty for the full amount.');
+        return api('/api/super-admin/invoices/' + encodeURIComponent(i.id || i._id) + '/refund', { method: 'POST', body: { amount: amt, reason: needReason(fd), chargeback: !!fd.get('chargeback') } });
+      } });
+    if (r) toast('Refund recorded on invoice ' + invNumber(i) + ' — the organization\'s admins were told');
+    return r;
+  }
+  function invoiceTable(items) {
+    if (!items.length) return emptyState('No invoices', 'An invoice is recorded when a payment is confirmed or a renewal is recorded.');
+    return '<div class="sa-table-wrap"><table class="sa-table"><thead><tr><th scope="col">Invoice</th><th scope="col">Date</th><th scope="col" class="num">Amount</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody>' + items.map(function (i, n) {
+      return '<tr><td class="sa-mono">' + esc(invNumber(i)) + '</td><td>' + esc(fmtDate(invDate(i))) + '</td><td class="num">' + invAmount(i) + '</td><td>' + pill(i.status) + '</td><td class="num">' +
+        (invRefundable(i) ? '<button type="button" class="btn btn-secondary btn-xs" data-refund="' + n + '">Refund</button>' : '') + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+  }
+  function invoicesList(el, fixed) {
+    fixed = fixed || {};
+    return listView(el, {
+      url: function (p) { return '/api/super-admin/invoices' + qs(Object.assign({ page: p.page, limit: p.limit, status: p.status, organization_id: p.organization_id }, fixed)); },
+      key: 'invoices',
+      filters: [{ key: 'organization_id', label: 'Organization ID' }, { key: 'status', type: 'select', label: 'Status', options: [['', 'All statuses'], ['paid', 'Paid'], ['partially_refunded', 'Partly refunded'], ['refunded', 'Refunded'], ['open', 'Open'], ['void', 'Void']] }],
+      columns: [
+        { label: 'Invoice', render: function (i) { return '<span class="cell-main sa-mono">' + esc(invNumber(i)) + '</span><span class="cell-sub">' + esc(i.description || i.plan_name || '') + '</span>'; } },
+        { label: 'Organization', render: function (i) { return i.organization_id ? '<a class="sa-link" href="#/organizations/' + esc(i.organization_id) + '">' + esc(i.organization_name || 'org ' + short(i.organization_id)) + '</a>' : '<span class="sa-muted">—</span>'; } },
+        { label: 'Amount', cls: 'num', render: invAmount },
+        { label: 'Status', render: function (i) { return pill(i.status) + ((i.refunds || []).some(function (x) { return x.chargeback; }) ? ' ' + pill('failed', 'Chargeback') : ''); } },
+        { label: 'Date', render: function (i) { return esc(fmtDate(invDate(i))); } },
+        { label: '', cls: 'num', render: function (i) { return '<div class="row-actions">' + (invRefundable(i) ? '<button type="button" class="btn btn-secondary btn-xs" data-refund>Refund</button>' : '') + (i.subscription_id ? '<button type="button" class="btn btn-secondary btn-xs" data-sub>Subscription</button>' : '') + '</div>'; } }
+      ],
+      bindRow: function (tr, i, reload) {
+        var rb = $('[data-refund]', tr), sb = $('[data-sub]', tr);
+        if (rb) rb.onclick = function () { refundInvoiceDialog(i).then(function (r) { if (r) reload(); }, function (e) { toast(e.message, 'error'); }); };
+        if (sb) sb.onclick = function () { subDrawer(i.subscription_id, reload); };
+      },
+      empty: { title: 'No invoices', desc: 'Nothing matches these filters.' }
+    });
+  }
+
+  // ── Lifecycle automation (GET/POST /lifecycle): subscriptions ending, overdue renewals, free trials ending ──
+  var LC_LABEL = {
+    cancelled_at_period_end: ['Subscription ends', 'cancelled for the end of its paid period, which is over', 'cancelled'],
+    past_due: ['Renewal overdue', 'period ended 3+ days ago with no renewal → past due', 'past_due'],
+    demo_expiring: ['Free trial ends soon', 'admins get the “trial ends soon” email', 'pending'],
+    demo_expired: ['Free trial ended', 'admins get the “trial has ended” email', 'expired'] };
+  function lcTotal(counts) { return Object.keys(LC_LABEL).reduce(function (a, k) { return a + ((counts || {})[k] || 0); }, 0); }
+  async function lifecycleAutomation(el) {
+    var d = await api('/api/super-admin/lifecycle');
+    var counts = d.counts || {}, items = d.pending || [], total = lcTotal(counts), on = !!d.auto_apply;
+    var again = function () { return lifecycleAutomation(el).catch(function (e) { el.innerHTML = errorState(e, again); }); };
+    el.innerHTML = '<div class="sa-card"><h3><span>Lifecycle automation</span>' + (on ? badge('Automatic', 'success') : badge('Preview only', 'warning')) + '</h3>' +
+      '<p class="sa-small" style="margin:0 0 10px;color:var(--text-secondary)">Time-driven changes: subscriptions cancelled for the end of their period, renewals that are overdue, and free trials that end soon or have ended (their admins are emailed; trial access itself always stops at the end date). ' +
+      (on ? 'Automation is on: a background check applies these every 15 minutes.' : 'Automation is off: nothing changes on its own. Review the pending changes below and apply them now, or turn automation on.') + '</p>' +
+      '<label class="sa-check"><input type="checkbox" id="lcAuto"' + (on ? ' checked' : '') + '> <b>Apply these changes automatically</b></label>' +
+      '<div class="sa-row sa-section"><button type="button" class="btn btn-primary btn-sm" id="lcRun"' + (total ? '' : ' disabled') + '>' + (total ? 'Apply ' + fmtN(total) + ' pending change' + (total === 1 ? '' : 's') + ' now' : 'Nothing to apply') + '</button><span class="sa-small sa-muted">Every change is audited.</span></div></div>' +
+      '<div class="sa-grid sa-kpis sa-section">' + Object.keys(LC_LABEL).map(function (k) {
+        return kpi(LC_LABEL[k][0], fmtN(counts[k] || 0), esc(LC_LABEL[k][1]), { href: '#lc-list', tone: counts[k] && k === 'past_due' ? 'warn' : '' });
+      }).join('') + '</div>' +
+      '<div class="sa-card sa-section" data-section="lc-list" tabindex="-1"><h3><span>Pending changes <span class="sa-small sa-muted">what the next check would do' + (items.length < total ? ' · first ' + fmtN(items.length) : '') + '</span></span></h3><div id="lcList"></div></div>';
+    bindScrollKpis(el);
+    listView($('#lcList', el), {
+      data: function () { return Promise.resolve(items); }, key: 'lifecycle-pending',
+      filters: [{ key: 'action', type: 'select', label: 'Change', options: [['', 'All changes']].concat(Object.keys(LC_LABEL).map(function (k) { return [k, LC_LABEL[k][0]]; })) }],
+      columns: [
+        { label: 'Change', sort: 'action', render: function (x) { var l = LC_LABEL[x.action] || [titleCase(x.action), '', 'muted']; return pill(l[2], l[0]); } },
+        { label: 'Organization', render: function (x) { return '<a class="sa-link" href="#/organizations/' + esc(x.organization_id) + '">' + esc(x.name || 'org ' + short(x.organization_id)) + '</a>'; } },
+        { label: 'Date', sort: 'when', sortVal: function (x) { var t = toDate(x.period_end || x.expires_at); return t ? t.getTime() : 0; },
+          csv: function (x) { return fmtDT(x.period_end || x.expires_at); },
+          render: function (x) { var w = x.period_end || x.expires_at; return '<span title="' + esc(fmtDT(w)) + '">' + esc(fmtDate(w)) + '</span><span class="cell-sub">' + esc((x.period_end ? 'period ended ' : 'trial ends ') + ago(w)) + '</span>'; } },
+        { label: '', cls: 'num', render: function (x) { return x.subscription_id ? '<button type="button" class="btn btn-secondary btn-xs" data-sub>Subscription</button>' : '<a class="btn btn-secondary btn-xs" href="#/organizations/' + esc(x.organization_id) + '">Organization</a>'; } }
+      ],
+      bindRow: function (tr, x) { var b = $('[data-sub]', tr); if (b) b.onclick = function () { subDrawer(x.subscription_id, again); }; },
+      empty: { title: 'Nothing pending', desc: 'No subscription or free trial needs a time-driven change right now.' }
+    });
+    $('#lcAuto', el).onchange = async function () {
+      var cb = this, want = cb.checked;
+      var r = await confirmDialog({ title: want ? 'Turn lifecycle automation on' : 'Turn lifecycle automation off', danger: false, confirmLabel: want ? 'Turn on' : 'Turn off',
+        message: want ? 'A background check every 15 minutes applies these changes on its own' + (total ? ', starting with the ' + total + ' pending now' : '') + '. Customers are emailed when their subscription ends or becomes past due, and when their free trial ends.'
+          : 'Changes are only previewed here until you apply them yourself.' });
+      if (!r) { cb.checked = !want; return; }
+      try { await busy(cb, function () { return api('/api/super-admin/lifecycle', { method: 'POST', body: { auto_apply: want } }); }); toast(want ? 'Lifecycle automation is on' : 'Lifecycle automation is off — preview only'); again(); }
+      catch (e) { cb.checked = !want; toast(e.message, 'error'); }
+    };
+    $('#lcRun', el).onclick = async function () {
+      var btn = this;
+      var r = await confirmDialog({ title: 'Apply ' + total + ' pending change' + (total === 1 ? '' : 's') + ' now', confirmLabel: 'Apply now',
+        message: 'Subscriptions past their end are ended or marked past due, and the admins of organizations whose free trial ends are emailed. This cannot be undone from here.' });
+      if (!r) return;
+      try {
+        var out = await busy(btn, function () { return api('/api/super-admin/lifecycle', { method: 'POST', body: { run_now: true } }); });
+        toast(fmtN(lcTotal(out.applied)) + ' change(s) applied'); again();
+      } catch (e) { toast(e.message, 'error'); }
+    };
+  }
+  /** One-line lifecycle status card (Maintenance page, Trial settings) linking to the automation tab. */
+  async function lifecycleCard(el, intro) {
+    try {
+      var d = await api('/api/super-admin/lifecycle'), n = lcTotal(d.counts);
+      el.innerHTML = '<div class="alert alert-' + (d.auto_apply ? 'info' : n ? 'warning' : 'info') + '"><div class="alert-body"><div class="alert-title">Lifecycle automation is ' + (d.auto_apply ? 'on' : 'off (preview only)') + '</div><div>' + esc(intro) +
+        (n ? ' ' + fmtN(n) + ' change' + (n === 1 ? ' is' : 's are') + ' waiting' + (d.auto_apply ? ' for the next check.' : ' for your review.') : ' Nothing is waiting.') + '</div>' +
+        '<div style="margin-top:6px"><a class="sa-link" href="#/subscriptions?tab=automation">Review lifecycle automation →</a></div></div></div>';
+    } catch (e) { el.innerHTML = ''; }
+  }
   function subActions(s) {
     var a = [];
     switch (s.status) {
       case 'pending_admin_confirmation': a.push(['confirm', 'Confirm', 'btn-primary'], ['cancelled', 'Reject', 'btn-danger']); break;
-      case 'active': case 'trialing': a.push(['plan', 'Change plan', 'btn-secondary'], ['extend', 'Extend', 'btn-secondary'], ['suspended', 'Suspend', 'btn-danger'], ['cancelled', 'Cancel', 'btn-danger']); if (s.status === 'active') a.push(['expired', 'Expire', 'btn-danger']); break;
+      case 'active': case 'trialing': a.push(['plan', 'Change plan', 'btn-secondary'], ['extend', 'Extend', 'btn-secondary']); if (s.status === 'active') a.push(['renew', 'Record renewal', 'btn-secondary']);
+        a.push(['suspended', 'Suspend', 'btn-danger'], ['cancelled', 'Cancel', 'btn-danger']); if (s.status === 'active') a.push(['expired', 'Expire', 'btn-danger']); break;
+      case 'past_due': a.push(['renew', 'Record renewal', 'btn-primary'], ['suspended', 'Suspend', 'btn-danger'], ['cancelled', 'Cancel', 'btn-danger'], ['expired', 'Expire', 'btn-danger']); break;
       case 'suspended': a.push(['active', 'Resume', 'btn-primary'], ['extend', 'Extend', 'btn-secondary'], ['cancelled', 'Cancel', 'btn-danger'], ['expired', 'Expire', 'btn-danger']); break;
       case 'pending_payment': case 'payment_received': a.push(['cancelled', 'Cancel', 'btn-danger']); break;
       case 'expired': a.push(['cancelled', 'Cancel', 'btn-danger']); break;
@@ -2201,12 +2353,14 @@
     return a;
   }
   function runSubAction(s, key, after) {
-    var p = key === 'confirm' ? subConfirm(s, after) : key === 'plan' ? changePlan(s, after) : key === 'extend' ? extendSub(s, after) : subStatus(s, key, after);
+    var p = key === 'confirm' ? subConfirm(s, after) : key === 'plan' ? changePlan(s, after) : key === 'extend' ? extendSub(s, after) : key === 'renew' ? renewSub(s, after) : subStatus(s, key, after);
     return p.catch(function (e) { toast(e.message, 'error'); });
   }
   function subDrawer(id, after) {
     openDrawer('Subscription', async function (body, close, rerun) {
-      var d = await api('/api/super-admin/subscriptions/' + encodeURIComponent(id) + '/detail');
+      var both = await Promise.all([api('/api/super-admin/subscriptions/' + encodeURIComponent(id) + '/detail'),
+        api('/api/super-admin/invoices' + qs({ subscription_id: id, limit: 50 })).catch(function () { return null; })]);
+      var d = both[0], invs = both[1] ? both[1].items || [] : null;
       var s = d.subscription; s.organization_name = (d.organization || {}).name;
       body.innerHTML = '<dl class="sa-kv"><dt>Organization</dt><dd><a class="sa-link" href="#/organizations/' + esc(s.organization_id) + '">' + esc(s.organization_name || s.organization_id) + '</a></dd>' +
         '<dt>Plan</dt><dd>' + esc(s.plan_id) + '</dd><dt>Status</dt><dd>' + pill(s.status) + '</dd><dt>Amount</dt><dd>' + esc(fmtMoney(s.amount, s.currency)) + ' / ' + esc(s.billing_cycle || '—') + '</dd>' +
@@ -2218,15 +2372,18 @@
         '<h4 class="sa-section">Payments</h4>' + (d.payments.length ? '<div class="sa-table-wrap"><table class="sa-table"><thead><tr><th>When</th><th class="num">Amount</th><th>Status</th><th>Verified via</th></tr></thead><tbody>' + d.payments.map(function (p) {
           return '<tr><td>' + esc(fmtDT(p.created_at)) + '</td><td class="num">' + esc(fmtMoney(p.amount, p.currency)) + '</td><td>' + pill(p.status) + (p.refund_required ? ' ' + pill('refund_due') : '') + '</td><td>' + esc(p.verified_via || p.provider || '—') + '</td></tr>';
         }).join('') + '</tbody></table></div>' : emptyState('No payments')) +
+        (invs ? '<h4 class="sa-section">Invoices</h4>' + invoiceTable(invs) : '') +
         '<h4 class="sa-section">Payment events</h4>' + timeline(d.events, { status: 'event', at: 'created_at', by: 'by', note: 'note' });
       $$('[data-a]', body).forEach(function (b) { b.onclick = function () { runSubAction(s, b.getAttribute('data-a'), function () { rerun(); if (after) after(); }); }; });
+      $$('[data-refund]', body).forEach(function (b) { b.onclick = function () { refundInvoiceDialog(invs[+b.getAttribute('data-refund')]).then(function (r) { if (r) { rerun(); if (after) after(); } }, function (e) { toast(e.message, 'error'); }); }; });
     });
   }
 
   async function viewSubscriptions(root, q) {
-    root.innerHTML = header('Subscriptions', 'Payment success never activates anything: verified payments wait in the confirmation queue until you confirm them.',
+    root.innerHTML = header('Subscriptions', 'Payment success never activates anything: verified payments wait in the confirmation queue until you confirm them. Lifecycle automation ends, renews and expires subscriptions and free trials over time.',
       '<a class="btn btn-secondary btn-sm" href="#/plans">Plans</a><a class="btn btn-secondary btn-sm" href="#/payments">Payments</a>') + '<div id="sbTabs"></div>';
-    tabs($('#sbTabs', root), [['queue', 'Confirmation queue'], ['all', 'All subscriptions']], (q.status && q.status !== 'awaiting') || q.coverage ? 'all' : (q.tab || 'queue'), function (key, el) {
+    tabs($('#sbTabs', root), [['queue', 'Confirmation queue'], ['all', 'All subscriptions'], ['automation', 'Lifecycle automation']], (q.status && q.status !== 'awaiting') || q.coverage ? 'all' : (q.tab || 'queue'), function (key, el) {
+      if (key === 'automation') return lifecycleAutomation(el);
       if (key === 'queue') {
         listView(el, {
           url: function (p) { return '/api/super-admin/subscriptions/queue' + qs({ page: p.page, limit: p.limit }); }, key: 'sub-queue',
@@ -2247,7 +2404,7 @@
           url: function (p) { return '/api/super-admin/subscriptions' + qs({ page: p.page, limit: p.limit, sort: p.sort, status: p.status, q: p.q, plan: p.plan, coverage: p.coverage }); },
           rowsKey: 'subscriptions', sort: '-created_at', initial: { status: q.status || '', coverage: COVERAGE_FILTER.some(function (x) { return x[0] && x[0] === q.coverage; }) ? q.coverage : '' }, key: 'subscriptions',
           exportUrl: function (st) { return reportUrl('subscriptions', { status: st.status }); },
-          filters: [{ key: 'q', label: 'Organization name…' }, { key: 'status', type: 'select', label: 'Status', options: [['', 'All statuses'], ['awaiting', 'Awaiting confirmation'], ['pending', 'Pending payment'], ['active', 'Active'], ['trialing', 'Trialing'], ['suspended', 'Suspended'], ['expired', 'Expired'], ['cancelled', 'Cancelled']] },
+          filters: [{ key: 'q', label: 'Organization name…' }, { key: 'status', type: 'select', label: 'Status', options: [['', 'All statuses'], ['awaiting', 'Awaiting confirmation'], ['pending', 'Pending payment'], ['active', 'Active'], ['past_due', 'Past due'], ['trialing', 'Trialing'], ['suspended', 'Suspended'], ['expired', 'Expired'], ['cancelled', 'Cancelled']] },
             { key: 'coverage', type: 'select', label: 'Coverage (who provides the APIs)', options: COVERAGE_FILTER }, { key: 'plan', label: 'Plan slug' }],
           columns: [
             { label: 'Organization', render: function (s) { return '<a class="sa-link cell-main" href="#/organizations/' + esc(s.organization_id) + '">' + esc(s.organization_name) + '</a>'; } },
@@ -2270,7 +2427,14 @@
 
   async function viewPayments(root, q) {
     root.innerHTML = header('Payments', 'Provider-verified payments, failures and refunds. Only signed webhooks / provider checks can mark a payment succeeded.',
-      '<a class="btn btn-secondary btn-sm" href="#/subscriptions">Subscriptions</a>') + '<div class="sa-grid sa-kpis" id="pySum"></div><div class="sa-section" id="pyList"></div>';
+      '<a class="btn btn-secondary btn-sm" href="#/subscriptions">Subscriptions</a>') + '<div id="pyTabs"></div>';
+    tabs($('#pyTabs', root), [['payments', 'Payments'], ['invoices', 'Invoices & refunds']], q.tab || 'payments', function (key, el) {
+      if (key === 'invoices') return invoicesList(el);
+      el.innerHTML = '<div class="sa-grid sa-kpis" id="pySum"></div><div class="sa-section" id="pyList"></div>';
+      paymentsList(el, q);
+    });
+  }
+  function paymentsList(root, q) {
     listView($('#pyList', root), {
       url: function (p) { return '/api/super-admin/payments' + qs({ page: p.page, limit: p.limit, sort: p.sort, status: p.status, q: p.q }); },
       sort: '-created_at', initial: { status: q.status || '' }, key: 'payments',
@@ -2350,7 +2514,7 @@
         $('[data-a=exp]', tr).onclick = function () { tokenExpiry(b.organization_id, b.expires_at, reload).catch(function (e) { toast(e.message, 'error'); }); };
         $('[data-a=led]', tr).href = '#/organizations/' + encodeURIComponent(b.organization_id) + '?tab=tokens';
       },
-      empty: { title: 'No token balances', desc: 'Organizations get balances when a demo is approved or a subscription is confirmed.' }
+      empty: { title: 'No token balances', desc: 'Organizations get balances when a free trial starts or a subscription is confirmed.' }
     });
   }
 
@@ -2628,10 +2792,10 @@
       '<div class="sa-chips" style="margin:0" role="group" aria-label="Group by">' + [['day', 'Day'], ['week', 'Week'], ['month', 'Month']].map(function (g) { return '<a class="sa-chip' + (g[0] === unit ? ' active' : '') + '" href="#/analytics' + qs({ range: range, from: q.from, to: q.to, org: q.org, g: g[0] === 'day' ? '' : g[0] }) + '"' + (g[0] === unit ? ' aria-current="true"' : '') + '>' + g[1] + '</a>'; }).join('') + '</div>' +
       '<label class="sa-small sa-muted" for="anFrom">From</label><input class="form-input" type="date" id="anFrom" name="from" value="' + esc(q.from || '') + '"><label class="sa-small sa-muted" for="anTo">To</label><input class="form-input" type="date" id="anTo" name="to" value="' + esc(q.to || '') + '">' +
       '<label class="sr-only" for="anOrg">Organization ID</label><input class="form-input" id="anOrg" name="org" placeholder="Organization ID (optional)" value="' + esc(q.org || '') + '"><button class="btn btn-secondary btn-sm" type="submit">Apply</button></form>' +
-      '<div class="sa-grid sa-kpis">' + kpi('Active customers', fmtN(snap.active_customers), '', { href: '#/organizations?status=active' }) + kpi('Demo accounts', fmtN(snap.demo_accounts), '', { href: '#/organizations?status=demo' }) + kpi('Total users', fmtN(snap.total_users), '', { href: '#/users' }) +
-      kpi('Demo → paid', fmtN(b.demo_conversions.total), b.demo_requests.total ? Math.round(b.demo_conversions.total * 100 / b.demo_requests.total) + '% of requests in range' : '', { href: '#/demo?status=converted' }) + kpi('Churned', fmtN(b.churn.total), 'cancelled / expired in range', { href: '#/subscriptions?status=cancelled', tone: b.churn.total ? 'warn' : '' }) + '</div>' +
+      '<div class="sa-grid sa-kpis">' + kpi('Active customers', fmtN(snap.active_customers), '', { href: '#/organizations?status=active' }) + kpi('Trial accounts', fmtN(snap.demo_accounts), 'on a free trial now', { href: '#/organizations?status=demo' }) + kpi('Total users', fmtN(snap.total_users), '', { href: '#/users' }) +
+      kpi('Trial → paid', fmtN(b.demo_conversions.total), b.demo_requests.total ? Math.round(b.demo_conversions.total * 100 / b.demo_requests.total) + '% of sign-ups in range' : '', { href: '#/demo?status=converted' }) + kpi('Churned', fmtN(b.churn.total), 'cancelled / expired in range', { href: '#/subscriptions?status=cancelled', tone: b.churn.total ? 'warn' : '' }) + '</div>' +
       '<h3 class="sa-section" style="font-size:15px">Business</h3><div class="sa-grid sa-3">' +
-      chart('Registrations (organizations)', b.registrations, '#/organizations') + chart('Demo requests', b.demo_requests, '#/demo') + chart('Demo conversions', b.demo_conversions, '#/demo?status=converted') +
+      chart('Registrations (organizations)', b.registrations, '#/organizations') + chart('Trial sign-ups', b.demo_requests, '#/demo') + chart('Trial conversions', b.demo_conversions, '#/demo?status=converted') +
       chart('Subscriptions activated', b.subscriptions_activated, '#/subscriptions?status=active') + chart('Churn', b.churn, '#/subscriptions?status=cancelled') + revenueCharts(b.revenue, '#/payments?status=succeeded') +
       '<div class="sa-card"><h3>Plan distribution (active)</h3>' + barList(Object.keys(snap.plan_distribution).map(function (k) { return { label: k, value: snap.plan_distribution[k] }; }).sort(function (x, y) { return y.value - x.value; }), { emptyTitle: 'No active subscriptions' }) + '</div></div>' +
       '<h3 class="sa-section" style="font-size:15px">Product</h3><div class="sa-grid sa-3">' +
@@ -2649,7 +2813,7 @@
       if (t.hidden) {
         var revCur = (b.revenue && b.revenue.by_currency) || {};
         var revCols = Object.keys(revCur).length > 1 ? Object.keys(revCur).map(function (c) { return ['Revenue ' + c, revCur[c]]; }) : [['Revenue' + (b.revenue.currency ? ' ' + b.revenue.currency : ''), b.revenue]];
-        var series = [['Registrations', b.registrations], ['Demo requests', b.demo_requests], ['Conversions', b.demo_conversions], ['Activated', b.subscriptions_activated], ['Churn', b.churn]].concat(revCols).concat([['Searches', p.searches], ['Failed', p.failed_searches], ['Active users', p.active_users], ['Leads', p.leads], ['AI calls', p.ai_calls], ['Tokens', p.tokens_consumed], ['Errors', p.errors]]);
+        var series = [['Registrations', b.registrations], ['Trial sign-ups', b.demo_requests], ['Trial conversions', b.demo_conversions], ['Activated', b.subscriptions_activated], ['Churn', b.churn]].concat(revCols).concat([['Searches', p.searches], ['Failed', p.failed_searches], ['Active users', p.active_users], ['Leads', p.leads], ['AI calls', p.ai_calls], ['Tokens', p.tokens_consumed], ['Errors', p.errors]]);
         var un = UNIT_NAME[unit] || UNIT_NAME.day;
         t.innerHTML = '<h3>Values per ' + esc(un[0]) + '</h3><div class="sa-table-wrap"><table class="sa-table"><thead><tr><th>' + esc(un[2]) + '</th>' + series.map(function (s) { return '<th class="num">' + esc(s[0]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
           labels.map(function (d, i) { return '<tr><td class="sa-mono">' + esc(bucketLabel(d, unit)) + '</td>' + series.map(function (s) { return '<td class="num">' + esc(fmtN((s[1].values || [])[i])) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
@@ -3053,7 +3217,7 @@
       header('#' + t.number + ' · ' + t.subject, (t.organization_name || '') + ' · opened by ' + (t.created_by || '—') + ' · ' + fmtDT(t.created_at),
         ticketPill(t.status) + ['open', 'waiting', 'resolved', 'closed'].filter(function (s) { return s !== t.status; }).map(function (s) { return '<button type="button" class="btn btn-secondary btn-sm" data-st="' + s + '">Mark ' + esc((TICKET_PILL[s] || [0, s])[1].toLowerCase()) + '</button>'; }).join('') +
         '<a class="btn btn-secondary btn-sm" href="#/organizations/' + esc(t.organization_id) + '">Organization</a>') +
-      '<div class="sa-grid sa-2" style="grid-template-columns:minmax(0,2fr) minmax(0,1fr)"><div><div class="sa-card"><h3>Conversation</h3><div style="display:grid;gap:10px">' + (t.messages || []).map(function (m) {
+      '<div class="sa-grid sa-2 sa-ticket"><div><div class="sa-card"><h3>Conversation</h3><div style="display:grid;gap:10px">' + (t.messages || []).map(function (m) {
         return '<div style="max-width:85%;justify-self:' + (m.from_staff ? 'end' : 'start') + ';background:' + (m.from_staff ? 'var(--primary-light)' : 'var(--surface)') + ';border:1px solid var(--border);border-radius:12px;padding:10px 12px"><div class="sa-small" style="font-weight:600">' + esc(m.author || m.author_email || '') + (m.from_staff ? ' ' + pill('info', 'Staff') : '') + ' <span class="sa-muted" style="font-weight:400">· ' + esc(fmtDT(m.at)) + '</span></div><div style="white-space:pre-wrap;overflow-wrap:anywhere;margin-top:4px;font-size:13.5px">' + esc(m.body) + '</div></div>';
       }).join('') + '</div></div>' +
       '<form class="sa-card sa-section" id="tkReply"><h3>Reply as LeadAI Support</h3><label class="sr-only" for="tkMsg">Reply</label><textarea class="form-textarea" id="tkMsg" name="message" rows="5" maxlength="5000" required></textarea>' +
@@ -3085,7 +3249,7 @@
     return m ? '#/' + m[1] : link;
   }
   async function viewNotifications(root, q) {
-    root.innerHTML = header('Notifications', 'Platform events for super admins: demo requests, payments, approvals, failures and security events.') + '<div id="ntTabs"></div>';
+    root.innerHTML = header('Notifications', 'Platform events for super admins: trial sign-ups, payments, approvals, failures and security events.') + '<div id="ntTabs"></div>';
     tabs($('#ntTabs', root), [['inbox', 'Inbox'], ['outbox', 'Email outbox'], ['config', 'Configuration']], q.tab || 'inbox', async function (key, el) {
       if (key === 'inbox') {
         var unread = q.unread === '1';
@@ -3110,7 +3274,7 @@
         listView(el, {
           url: function (p) { return '/api/super-admin/email-outbox' + qs({ page: p.page, limit: p.limit, status: p.status, kind: p.kind, q: p.q }); },
           filters: [{ key: 'q', label: 'Recipient or subject…' }, { key: 'status', type: 'select', label: 'Status', options: [['', 'All'], ['queued', 'Queued'], ['sent', 'Sent'], ['failed', 'Failed']] },
-            { key: 'kind', type: 'select', label: 'Kind', options: [['', 'All kinds'], ['password_reset', 'Password reset'], ['account_setup', 'Account setup'], ['invitation', 'Invitation'], ['demo', 'Demo'], ['generic', 'Generic']] }],
+            { key: 'kind', type: 'select', label: 'Kind', options: [['', 'All kinds'], ['password_reset', 'Password reset'], ['account_setup', 'Account setup'], ['invitation', 'Invitation'], ['email_verification', 'Email verification'], ['account_change', 'Account change'], ['demo_received', 'Trial sign-up received'], ['demo_approved', 'Free trial started'], ['demo_rejected', 'Trial sign-up rejected'], ['demo_cancelled', 'Free trial ended'], ['partner_application_received', 'Partner application'], ['generic', 'Other']] }],
           columns: [
             { label: 'To', render: function (m) { return esc(m.to); } },
             { label: 'Subject', render: function (m) { return '<span class="cell-main">' + esc(m.subject) + '</span><span class="cell-sub">' + esc(m.kind) + '</span>'; } },
@@ -3481,8 +3645,8 @@
     await flagsEditor($('#ffBody', root), ['features', 'platforms', 'maintenance']);
   }
   async function viewMaintenance(root) {
-    root.innerHTML = header('Maintenance', 'Maintenance mode blocks the customer app with a 503 page. Admin consoles, sign-in and health stay reachable.', adminLink('maintenance', 'Maintenance tools') + adminLink('settings', 'Global settings')) + '<div id="mtBody"></div>';
-    await flagsEditor($('#mtBody', root), ['maintenance']);
+    root.innerHTML = header('Maintenance', 'Maintenance mode blocks the customer app with a 503 page. Admin consoles, sign-in and health stay reachable.', adminLink('maintenance', 'Maintenance tools') + adminLink('settings', 'Global settings')) + '<div id="mtLc" style="margin-bottom:12px"></div><div id="mtBody"></div>';
+    await Promise.all([flagsEditor($('#mtBody', root), ['maintenance']), lifecycleCard($('#mtLc', root), 'It ends, marks past due and expires subscriptions and free trials over time.')]);
   }
 
   async function viewReports(root) {
@@ -3541,7 +3705,7 @@
   var EXT = '<svg class="sa-ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
   var MENU = [
     ['Overview', [['dashboard', 'Dashboard', 'dash']]],
-    ['Customers', [['organizations', 'Organizations', 'org'], ['admins', 'Admins', 'shield'], ['users', 'Users', 'users'], ['demo', 'Demo Management', 'gift', 'demo'], ['support', 'Support', 'msg', 'support']]],
+    ['Customers', [['organizations', 'Organizations', 'org'], ['admins', 'Admins', 'shield'], ['users', 'Users', 'users'], ['demo', 'Free trials', 'gift', 'demo'], ['support', 'Support', 'msg', 'support']]],
     ['Revenue', [['plans', 'Plans', 'layers'], ['pricing', 'Pricing', 'tag'], ['provider-keys', 'API keys', 'key', 'apikeys'], ['subscriptions', 'Subscriptions', 'repeat', 'queue'], ['payments', 'Payments', 'card'], ['tokens', 'Tokens & Usage', 'coin']]],
     ['LeadAI Operations', [['ops/agent', 'URL Search Agent', 'bolt'], ['ops/searches', 'Searches', 'search'], ['ops/jobs', 'Apify Jobs', 'cpu'], ['/admin#/pages', 'Pages', 'file'], ['/admin#/posts', 'Posts', 'msg'], ['/admin#/ci', 'Comments', 'msg'], ['ops/leads', 'Leads', 'star']]],
     ['Intelligence', [['ai', 'AI Management', 'brain'], ['industries', 'Industries', 'layers'], ['analytics', 'Analytics', 'chart']]],
@@ -3550,7 +3714,7 @@
   ];
   var ROUTES = {
     dashboard: [viewDashboard, 'Dashboard'], organizations: [viewOrganizations, 'Organizations', viewOrgDetail], admins: [viewAdmins, 'Admins'],
-    users: [viewUsers, 'Users', viewUserDetail], demo: [viewDemo, 'Demo Management'], plans: [viewPlans, 'Plans'], pricing: [viewPricing, 'Pricing'], 'provider-keys': [viewProviderKeys, 'API keys'],
+    users: [viewUsers, 'Users', viewUserDetail], demo: [viewDemo, 'Free trials'], plans: [viewPlans, 'Plans'], pricing: [viewPricing, 'Pricing'], 'provider-keys': [viewProviderKeys, 'API keys'],
     subscriptions: [viewSubscriptions, 'Subscriptions'], payments: [viewPayments, 'Payments'], tokens: [viewTokens, 'Tokens & Usage'],
     'ops/agent': [viewOpsAgent, 'URL Search Agent'], 'ops/searches': [viewOpsSearches, 'Searches'], 'ops/jobs': [viewOpsJobs, 'Apify Jobs'],
     'ops/leads': [viewOpsLeads, 'Leads'], 'ops/chain': [null, 'Investigation', viewChain],
@@ -3708,7 +3872,7 @@
   function wireSearch() {
     var inp = $('#saSearch'), pop = $('#saSearchPop'), t;
     try { new MutationObserver(function () { inp.setAttribute('aria-expanded', String(!pop.hidden)); }).observe(pop, { attributes: true, attributeFilter: ['hidden'] }); } catch (e) { /* old browser */ }
-    var labels = { organizations: 'Organizations', users: 'Users', searches: 'Search runs', demo_requests: 'Demo requests' };
+    var labels = { organizations: 'Organizations', users: 'Users', searches: 'Search runs', demo_requests: 'Trial sign-ups' };
     inp.addEventListener('input', function () {
       clearTimeout(t);
       var q = inp.value.trim();

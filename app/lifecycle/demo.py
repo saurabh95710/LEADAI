@@ -61,7 +61,10 @@ def create_demo_request(*, name: str, email: str, password: str, company: str,
                         phone: Optional[str] = None, message: Optional[str] = None,
                         ip: Optional[str] = None, source: str = "website",
                         industry: Optional[str] = None, requested_plan: Optional[str] = None,
-                        accepted_terms: bool = False) -> Dict[str, Any]:
+                        accepted_terms: bool = False, owner_knows_password: bool = True) -> Dict[str, Any]:
+    """``owner_knows_password=False`` (a partner onboarding a customer with a
+    temporary password): the owner gets the partner's set-your-password email
+    instead of a "sign in now" email."""
     db = _db()
     email = (email or "").strip().lower()
     name = (name or "").strip()
@@ -130,19 +133,25 @@ def create_demo_request(*, name: str, email: str, password: str, company: str,
           resource_type="user", resource_id=user_id, details={"company": company})
     audit("demo.requested", "lifecycle", user=who, ip=ip, organization_id=org_id,
           resource_type="demo_request", resource_id=req_id)
-    notify_super_admins("registration", "New registration", f"{name} <{email}> from {company}",
-                        link="/superadmin#/demo", data={"demo_request_id": req_id})
-    notify_super_admins("demo_requested", "New demo request", f"{company} — {name} <{email}>",
-                        severity="warning", link="/superadmin#/demo",
-                        data={"demo_request_id": req_id})
-    send_email(email, "We received your LeadAI demo request",
-               f"Hi {name},\n\nThanks for requesting a LeadAI demo for {company}. "
-               "Our team will review it shortly — you'll get another email as soon as "
-               "your demo is approved.\n\n— The LeadAI team", kind="demo_received",
-               organization_id=org_id)
     if cfg.get("auto_approve"):
-        approve(req_id, actor="system:auto_approve")
-    return {"id": req_id, "status": get_request(req_id)["status"], "organization_id": org_id}
+        # self-serve free trial: starts now, nobody has to approve it
+        notify_super_admins("registration", "New free trial",
+                            f"{name} <{email}> from {company} started a {cfg['duration_days']}-day free trial",
+                            link="/superadmin#/demo", data={"demo_request_id": req_id})
+        approve(req_id, actor="system:auto_approve", self_serve=True, email_owner=owner_knows_password)
+    else:
+        notify_super_admins("registration", "New registration", f"{name} <{email}> from {company}",
+                            link="/superadmin#/demo", data={"demo_request_id": req_id})
+        notify_super_admins("demo_requested", "New demo request", f"{company} — {name} <{email}>",
+                            severity="warning", link="/superadmin#/demo",
+                            data={"demo_request_id": req_id})
+        send_email(email, "We received your LeadAI demo request",
+                   f"Hi {name},\n\nThanks for requesting a LeadAI demo for {company}. "
+                   "Our team will review it shortly — you'll get another email as soon as "
+                   "your demo is approved.\n\n— The LeadAI team", kind="demo_received",
+                   organization_id=org_id)
+    return {"id": req_id, "status": get_request(req_id)["status"], "organization_id": org_id,
+            "user_id": user_id}
 
 
 def _load(req_id: str) -> Dict[str, Any]:
@@ -189,7 +198,7 @@ def _require(doc, allowed) -> None:
 
 
 def approve(req_id: str, *, actor: str, overrides: Optional[Dict[str, Any]] = None,
-            ip: Optional[str] = None) -> Dict[str, Any]:
+            ip: Optional[str] = None, self_serve: bool = False, email_owner: bool = True) -> Dict[str, Any]:
     db = _db()
     doc = _load(req_id)
     _require(doc, ("pending",))
@@ -210,15 +219,28 @@ def approve(req_id: str, *, actor: str, overrides: Optional[Dict[str, Any]] = No
                                          "demo_expires_at": expires, "granted_config": cfg})
     audit("demo.approved", "lifecycle", user=actor, ip=ip, organization_id=org_id,
           resource_type="demo_request", resource_id=req_id,
-          details={"tokens": cfg["tokens"], "expires_at": expires.isoformat()})
+          details={"tokens": cfg["tokens"], "expires_at": expires.isoformat(), "self_serve": self_serve})
+    if self_serve:
+        notify_user(user_id, "demo_approved", "Your free trial has started",
+                    f"You have {cfg['tokens']} tokens for {cfg['duration_days']} days.",
+                    organization_id=org_id, severity="success", link="/dashboard")
+        if email_owner:
+            send_email(doc["email"], "Your LeadAI free trial has started",
+                       f"Hi {doc['name']},\n\nWelcome to LeadAI! Your free trial for {doc['company']} is active: "
+                       f"{cfg['tokens']} tokens for {cfg['duration_days']} days.\n\n"
+                       f"Sign in any time here: {absolute_url('/login')}\n\n— The LeadAI team",
+                       kind="demo_approved", organization_id=org_id)
+        from app.partners.referrals import on_demo_approved
+        on_demo_approved(org_id)
+        return get_request(req_id)
     notify_super_admins("demo_approved", "Demo approved",
                         f"{doc['company']} ({doc['email']}) by {actor}", severity="success",
                         link="/superadmin#/demo", data={"demo_request_id": req_id})
-    notify_user(user_id, "demo_approved", "Your demo is ready",
+    notify_user(user_id, "demo_approved", "Your free trial is ready",
                 f"You have {cfg['tokens']} tokens for {cfg['duration_days']} days.",
                 organization_id=org_id, severity="success", link="/dashboard")
-    send_email(doc["email"], "Your LeadAI demo is approved",
-               f"Hi {doc['name']},\n\nYour LeadAI demo for {doc['company']} is approved. "
+    send_email(doc["email"], "Your LeadAI free trial is ready",
+               f"Hi {doc['name']},\n\nYour LeadAI free trial for {doc['company']} is approved and active. "
                f"You have {cfg['tokens']} tokens for {cfg['duration_days']} days.\n\n"
                f"Sign in here: {absolute_url('/login')}\n\n— The LeadAI team",
                kind="demo_approved", organization_id=org_id)
@@ -285,7 +307,7 @@ def extend(req_id: str, *, actor: str, days: int = 0, extra_tokens: int = 0,
           organization_id=doc["organization_id"], resource_type="demo_request",
           resource_id=req_id, details={"days": days, "tokens": extra_tokens,
                                        "expires_at": new_exp.isoformat()})
-    notify_user(doc["user_id"], "demo_extended", "Your demo was extended",
+    notify_user(doc["user_id"], "demo_extended", "Your free trial was extended",
                 f"New expiry: {new_exp.date().isoformat()}"
                 + (f", +{extra_tokens} tokens" if extra_tokens else ""),
                 organization_id=doc["organization_id"], severity="success")
@@ -308,8 +330,8 @@ def cancel(req_id: str, *, actor: str, reason: str = "", ip: Optional[str] = Non
     audit("demo.cancelled", "lifecycle", user=actor, ip=ip,
           organization_id=doc["organization_id"], resource_type="demo_request",
           resource_id=req_id, details={"reason": reason})
-    send_email(doc["email"], "Your LeadAI demo",
-               f"Hi {doc['name']},\n\nYour LeadAI demo for {doc['company']} has been "
+    send_email(doc["email"], "Your LeadAI free trial",
+               f"Hi {doc['name']},\n\nYour LeadAI free trial for {doc['company']} has been "
                + ("closed before approval." if was_pending else "ended.")
                + (f"\n\nReason: {reason}" if reason else "")
                + "\n\nReply to this email or use the contact page if you have questions."

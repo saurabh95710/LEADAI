@@ -23,12 +23,12 @@
     .pp-type p { color:var(--text-secondary); margin:0; line-height:1.6; }
     .pp-steps { counter-reset:s; list-style:none; padding:0; margin:18px 0 0; display:grid; gap:10px; }
     .pp-steps li { counter-increment:s; display:flex; gap:12px; align-items:flex-start; color:var(--text-secondary); line-height:1.55; }
-    .pp-steps li::before { content:counter(s); flex:0 0 28px; height:28px; border-radius:50%; display:grid; place-items:center; background:var(--primary-subtle, rgba(124,92,255,.15)); color:var(--text-link); font-weight:700; font-size:var(--text-sm); }
+    .pp-steps li::before { content:counter(s); flex:0 0 28px; height:28px; border-radius:50%; display:grid; place-items:center; background:var(--primary-soft); color:var(--text-link); font-weight:700; font-size:var(--text-sm); }
     .pp-legend { font-size:var(--text-sm); font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin:22px 0 10px; }
     .pp-legend:first-of-type { margin-top:0; }
     .pp-radio { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
     .pp-radio label { display:flex; gap:10px; align-items:flex-start; padding:12px; border:1px solid var(--border-subtle); border-radius:var(--radius-md); cursor:pointer; color:var(--text-secondary); }
-    .pp-radio label:has(input:checked) { border-color:var(--primary); background:var(--primary-subtle, rgba(124,92,255,.08)); }
+    .pp-radio label:has(input:checked) { border-color:var(--primary); background:var(--primary-soft); }
     .pp-radio b { color:var(--text-primary); display:block; }
     .pp-check { display:flex; gap:10px; align-items:flex-start; color:var(--text-secondary); font-size:var(--text-sm); line-height:1.5; margin-top:14px; }
     .pp-check input { margin-top:3px; }
@@ -69,7 +69,7 @@
         <ol class="pp-steps">
           <li>Apply below. Our team reviews every application, usually within a few business days.</li>
           <li>Once approved, sign in to the Partner Portal to get your referral link, campaign links and marketing kit.</li>
-          <li>Businesses you refer request a demo through your link — or, as a reseller, you onboard them yourself.</li>
+          <li id="pp-step-refer">Businesses you refer request a demo through your link — or, as a reseller, you onboard them yourself.</li>
           <li>When they subscribe and their payment is confirmed, you earn commission. Request a payout when your balance reaches the minimum.</li>
         </ol>
       </div>
@@ -157,14 +157,17 @@
   <footer class="site-footer" id="site-footer"></footer>
 </div>
 
-<script src="/static/website.js?v=apicov1"></script>
+<script src="/static/website.js?v=root1"></script>
 <script>
 (function () {
   'use strict';
   const S = window.LeadAISite;
   const UI = window.LeadAIUI;
   const $ = id => document.getElementById(id);
-  const money = (v) => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  // program amounts are in the platform currency (USD), like the Partner Portal
+  const money = (v) => { const n = Number(v || 0);
+    try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: n % 1 ? 2 : 0 }).format(n); }
+    catch (_) { return n.toLocaleString(undefined, { maximumFractionDigits: 2 }); } };
 
   function fact(value, label) {
     return S.h('div', { class: 'pp-fact' }, S.h('b', { text: value }), S.h('span', { text: label }));
@@ -172,6 +175,13 @@
 
   async function boot() {
     S.initChrome(null);
+    // self-serve free trial: referred businesses start a trial themselves
+    S.soft(S.api('/api/public/config')).then(cfg => {
+      const t = (cfg && cfg.trial) || {};
+      if (!t.self_serve) return;
+      $('pp-step-refer').textContent = 'Businesses you refer sign up through your link and start a free ' +
+        (t.days > 0 ? t.days + '-day ' : '') + 'trial at once — or, as a reseller, you onboard them yourself.';
+    });
     const res = await UI.api('/api/public/partners/program');
     const facts = S.clear($('pp-facts'));
     facts.removeAttribute('aria-busy');

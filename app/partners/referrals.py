@@ -417,7 +417,8 @@ def create_reseller_customer(partner: Dict[str, Any], data: Dict[str, Any], *,
                               phone=text(data.get("phone"), 30),
                               message=text(data.get("notes"), 2000), ip=ip,
                               source=f"partner:{partner['_id']}", industry=data.get("industry"),
-                              requested_plan=data.get("plan"), accepted_terms=True)
+                              requested_plan=data.get("plan"), accepted_terms=True,
+                              owner_knows_password=False)
     org_id = res["organization_id"]
     owner = db.users.find_one({"email": email})
     ref = create_referral(db, partner, organization_id=org_id,
@@ -425,7 +426,7 @@ def create_reseller_customer(partner: Dict[str, Any], data: Dict[str, Any], *,
                           company=company, source="reseller", signup_ip=None,
                           phone=data.get("phone"), managed=True, actor=partner["email"])
     if owner:
-        _send_setup_link(db, owner, partner)
+        _send_setup_link(db, owner, partner, trial_started=res.get("status") == "approved")
     paudit("partner.customer.created", str(partner["_id"]), actor=partner["email"], ip=ip,
            details={"organization_id": org_id, "company": company},
            resource_type="organization", resource_id=org_id)
@@ -433,7 +434,7 @@ def create_reseller_customer(partner: Dict[str, Any], data: Dict[str, Any], *,
             "referral_id": str(ref["_id"]) if ref else None}
 
 
-def _send_setup_link(db, owner: Dict[str, Any], partner: Dict[str, Any]) -> None:
+def _send_setup_link(db, owner: Dict[str, Any], partner: Dict[str, Any], *, trial_started: bool = False) -> None:
     """Single-use password link (the existing password-reset tokens, 7 days)."""
     import hashlib
     from app.events.email import absolute_url, send_email
@@ -449,8 +450,16 @@ def _send_setup_link(db, owner: Dict[str, Any], partner: Dict[str, Any]) -> None
                f"Hi {owner.get('name') or ''},\n\n{partner.get('company') or partner.get('name')} "
                "created a LeadAI workspace for you. Choose your password here (valid 7 days, "
                f"single use):\n{absolute_url('/reset-password?token=' + token)}\n\n"
-               "Your demo becomes usable once our team approves it.\n\n— The LeadAI team",
+               + (_trial_line() if trial_started else "Your demo becomes usable once our team approves it.")
+               + "\n\n— The LeadAI team",
                kind="partner_customer_setup")
+
+
+def _trial_line() -> str:
+    from app.lifecycle.config import get_demo_config
+    cfg = get_demo_config()
+    return (f"Your free {cfg.get('duration_days')}-day trial with {cfg.get('tokens')} tokens has already started — "
+            "sign in as soon as you've chosen your password.")
 
 
 def resend_setup_link(partner: Dict[str, Any], organization_id: str) -> None:
@@ -464,7 +473,8 @@ def resend_setup_link(partner: Dict[str, Any], organization_id: str) -> None:
         raise HTTPException(status_code=404, detail="Customer owner not found")
     if owner.get("last_login"):
         raise HTTPException(status_code=409, detail="This customer has already signed in")
-    _send_setup_link(db, owner, partner)
+    org = db.organizations.find_one({"_id": oid(organization_id)}, {"status": 1}) or {}
+    _send_setup_link(db, owner, partner, trial_started=org.get("status") == "demo")
     paudit("partner.customer.setup_resent", str(partner["_id"]), actor=partner["email"],
            details={"organization_id": str(organization_id)},
            resource_type="organization", resource_id=str(organization_id))

@@ -2233,6 +2233,13 @@ select.form-input {
   color: var(--on-primary);
   box-shadow: 0 2px 6px var(--primary-border);
 }
+/* comment the filter skipped: never scored by the AI */
+.score-pill.score-pill-none {
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border: 1px dashed var(--border-strong);
+  box-shadow: none;
+}
 
 /* Page link */
 .page-link {
@@ -3790,3 +3797,13 @@ div.toast-action { color: var(--text-dim); font-weight: 500; }
 .collect-all-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 8px; }
 .collect-all-line > span { min-width: 0; max-width: calc(100% - 30px); }
 .collect-all-line .collect-all-btn { font-size: 0.78rem; padding: 6px 14px; font-family: var(--font-ui); }
+
+/* Settings → Security: two-factor authentication */
+.twofa-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-3); align-items: center; }
+.twofa-row .field-hint { margin: 6px 0 0; }
+.twofa-form { display: grid; gap: var(--space-3); max-width: 520px; }
+.twofa-form .field-hint { margin: 0; }
+.twofa-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.twofa-key code { padding: 6px 10px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border); word-break: break-all; letter-spacing: .04em; }
+.twofa-uri { overflow-wrap: anywhere; }
+.twofa-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }

@@ -112,7 +112,7 @@
   <footer class="site-footer" id="site-footer"></footer>
 </div>
 
-<script src="/static/website.js?v=apicov1"></script>
+<script src="/static/website.js?v=root1"></script>
 <script>
 (function () {
   'use strict';
@@ -157,6 +157,11 @@
 
   const form = $('contact-form');
   const fields = { name: $('cf-name'), email: $('cf-email'), company: $('cf-company'), topic: $('cf-topic'), message: $('cf-message') };
+  // ?topic=partnership (Partner Portal, /partners, sign-in errors) preselects the topic
+  try {
+    const tp = new URLSearchParams(location.search).get('topic');
+    if (tp && Array.from(fields.topic.options).some(o => o.value === tp)) fields.topic.value = tp;
+  } catch (_) { /* no query string */ }
   fields.message.addEventListener('input', () => { $('cf-count').textContent = fields.message.value.length + ' / 2000'; });
   function showAlert(msg) { $('form-alert-text').textContent = msg; $('form-alert').hidden = !msg; }
 

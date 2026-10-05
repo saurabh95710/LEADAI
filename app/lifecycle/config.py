@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 COLLECTION = "platform_config"
 
 DEMO_CONFIG_SEED: Dict[str, Any] = {
-    "duration_days": 7,
+    "duration_days": 3,
     "tokens": 500,
     "max_searches": 10,
     "posts_per_search": 20,
@@ -33,7 +33,9 @@ DEMO_CONFIG_SEED: Dict[str, Any] = {
     "exports_enabled": False,
     "max_leads": 200,
     "max_users": 1,
-    "auto_approve": False,
+    # self-serve free trial: signing up on the website starts it at once
+    # (no Super Admin approval); off = every sign-up waits for approval
+    "auto_approve": True,
 }
 
 TOKEN_COSTS_SEED: Dict[str, int] = {
@@ -89,7 +91,34 @@ def _set(key: str, value: Dict[str, Any], actor: str) -> Dict[str, Any]:
     db[COLLECTION].update_one({"_id": key}, {"$set": {
         "value": value, "updated_at": utcnow(), "updated_by": actor}}, upsert=True)
     _cache.pop(key, None)
+    try:  # the website shows the trial's length and tokens
+        from app.settings.registry import invalidate_public_config_cache
+        invalidate_public_config_cache()
+    except Exception:
+        pass
     return copy.deepcopy(value)
+
+
+def migrate_self_serve_trial(db) -> bool:
+    """Once: switch stored demo settings to the self-serve 3-day free trial.
+    Later Super Admin changes are kept (the marker stops it running again)."""
+    if db is None:
+        return False
+    doc = db[COLLECTION].find_one({"_id": "demo"})
+    if doc is not None and "self_serve_trial_v1" in (doc.get("migrations") or []):
+        return False
+    if doc is not None:
+        db[COLLECTION].update_one({"_id": "demo"}, {
+            "$set": {"value.duration_days": 3, "value.auto_approve": True, "updated_at": utcnow(),
+                     "updated_by": "system:self_serve_trial"},
+            "$addToSet": {"migrations": "self_serve_trial_v1"}})
+    else:  # nothing stored yet: the seed already says 3 days, auto-approve
+        db[COLLECTION].update_one({"_id": "demo"}, {
+            "$setOnInsert": {"value": copy.deepcopy(DEMO_CONFIG_SEED), "updated_at": utcnow(),
+                             "updated_by": "system-seed"},
+            "$addToSet": {"migrations": "self_serve_trial_v1"}}, upsert=True)
+    _cache.pop("demo", None)
+    return True
 
 
 def get_demo_config() -> Dict[str, Any]:

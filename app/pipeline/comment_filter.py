@@ -49,6 +49,18 @@ STATUS_MATCHED = "MATCHED"
 STATUS_NOT_MATCHED = "NOT_MATCHED"
 STATUS_NO_FILTER = "NO_FILTER"
 
+
+def qualification_of(filter_status, analyzed: bool) -> str:
+    """Did a comment pass the organization's comment filter (and go to AI)?
+    qualified: matched the filter, or no filter applied, or already analyzed;
+    not_qualified: the filter skipped it (stored, never sent to AI);
+    pending: not checked yet (collection or analysis still running / failed)."""
+    if filter_status == STATUS_NOT_MATCHED:
+        return "not_qualified"
+    if filter_status in (STATUS_MATCHED, STATUS_NO_FILTER) or analyzed:
+        return "qualified"
+    return "pending"
+
 MATCH_MODES = ("any", "all", "category", "advanced")
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -893,16 +893,8 @@ async def collect_comments(post_id: str, request: Request,
 
 
 def _comment_qualification(filter_status: Any, analyzed: bool) -> str:
-    """Did the comment pass the organization's comment filter (and go to AI)?
-    qualified: matched the filter, or no filter applied, or already analyzed;
-    not_qualified: the filter skipped it (stored, never sent to AI);
-    pending: not checked yet (collection or analysis still running / failed)."""
-    from app.pipeline import comment_filter as cfilter
-    if filter_status == cfilter.STATUS_NOT_MATCHED:
-        return "not_qualified"
-    if filter_status in (cfilter.STATUS_MATCHED, cfilter.STATUS_NO_FILTER) or analyzed:
-        return "qualified"
-    return "pending"
+    from app.pipeline.comment_filter import qualification_of
+    return qualification_of(filter_status, analyzed)
 
 
 @router.get("/posts/{post_id}/comments")
@@ -966,10 +958,12 @@ async def list_post_comments(
                 if analysis.get(key) is not None:
                     c[key] = analysis[key]
         else:
-            # fallback score calculation if not yet passed through AI batch
-            c["lead_score"] = 50 if c["has_contact"] else 10
-            c["priority"] = "high" if c["has_contact"] else "low"
-            c["lead_quality"] = "warm" if c["has_contact"] else "none"
+            # never analysed (skipped by the comment filter, or not yet): no
+            # made-up AI score — only a visible phone / email makes it a lead
+            c["analysed"] = False
+            c["lead_score"] = None
+            c["priority"] = "high" if c["has_contact"] else None
+            c["lead_quality"] = "warm" if c["has_contact"] else None
             c["is_lead"] = c["has_contact"]
 
         docs.append(c)

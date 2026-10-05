@@ -97,7 +97,7 @@ def demo_plan_from_org(org: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]
     if cfg.get("exports_enabled"):
         features.append("csv_export")
     return {
-        "id": "demo", "name": "Demo", "slug": "demo", "is_demo": True,
+        "id": "demo", "name": "Free trial", "slug": "demo", "is_demo": True,
         "price_monthly": 0.0, "price_yearly": 0.0, "currency": "USD",
         "features": features,
         "limits": {

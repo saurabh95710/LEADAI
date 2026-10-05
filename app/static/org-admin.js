@@ -122,6 +122,7 @@
   const PLAT_NAME = Object.fromEntries(PLATFORMS);
   const plat = (p) => PLAT_NAME[String(p || '').toLowerCase()] || label(p);
   const LEAD_STATUSES = ['new', 'contacted', 'qualified', 'follow_up', 'converted', 'lost', 'disqualified', 'archived'];
+  const LEAD_TABS = [['#leads', 'All leads'], ['#leads/assigned', 'Assigned'], ['#pipeline', 'Lifecycle'], ['#rules', 'Keyword library']];
 
   // ── Icons (stroke SVG paths) ────────────────────────────────────────
   const IC = {
@@ -322,7 +323,9 @@
     return `<nav class="oa-tabs" aria-label="Section tabs">${items.map(([href, text]) => `<a href="${attr(href)}" ${href === active ? 'aria-current="page"' : ''}>${esc(text)}</a>`).join('')}</nav>`;
   }
   function kv(rows) { return `<dl class="oa-kv">${rows.filter(Boolean).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl>`; }
+  const UNLIMITED = 1e9; // the API's "no limit" value (entitlements.UNLIMITED)
   function meter(name, used, limit, pct) {
+    if (limit && Number(limit) >= UNLIMITED) return `<div class="oa-meter"><div class="oa-meter-top"><span>${esc(name)}</span><b>${num(used)} <span class="oa-muted" style="font-weight:500">· Unlimited</span></b></div></div>`;
     const p = pct !== undefined && pct !== null ? pct : (limit ? Math.min(100, used / limit * 100) : 0);
     const cls = p >= 100 ? 'danger' : p >= 80 ? 'warn' : '';
     return `<div class="oa-meter"><div class="oa-meter-top"><span>${esc(name)}</span><b>${num(used)}${limit ? ' / ' + num(limit) : ''}</b></div>
@@ -682,7 +685,7 @@
     { group: 'Overview', items: [['dashboard', 'Dashboard', 'home']] },
     { group: 'Organization', items: [['organization', 'Organization', 'building'], ['team', 'Team', 'users'], ['integrations', 'API keys & plan', 'key']] },
     { group: 'LeadAI', items: [['search', 'URL Search', 'search'], ['searches', 'Searches', 'list'], ['pages', 'Pages', 'file'], ['posts', 'Posts', 'message'], ['comments', 'Comments', 'chat']] },
-    { group: 'Lead management', items: [['leads', 'All leads', 'target'], ['leads/assigned', 'Assigned leads', 'userCheck'], ['pipeline', 'Lifecycle', 'flow'], ['rules', 'Lead rules', 'filter']] },
+    { group: 'Lead management', items: [['leads', 'All leads', 'target'], ['leads/assigned', 'Assigned leads', 'userCheck'], ['pipeline', 'Lifecycle', 'flow'], ['rules', 'Keyword library', 'filter']] },
     { group: 'Operations', items: [['apify', 'Apify jobs', 'cpu'], ['analytics', 'Analytics & reports', 'chart'], ['exports', 'Exports', 'download']] },
     { group: 'Account', items: [['subscription', 'Subscription', 'card'], ['notifications', 'Notifications', 'bell'], ['audit', 'Audit logs', 'shield'], ['support', 'Support', 'help'], ['profile', 'Profile & security', 'user']] },
   ];
@@ -735,6 +738,20 @@
     if (!S.org || force) S.org = (await api('/api/organizations/current')).organization;
     return S.org;
   }
+  // Free trial (organization status "demo", e.g. a self-serve website sign-up):
+  // its end date comes from GET /api/billing/usage → usage.demo.
+  async function getTrial() {
+    if (S.trial === undefined) { try { S.trial = ((await api('/api/billing/usage', { noGate: true })).usage || {}).demo || null; } catch (_) { S.trial = null; } }
+    return S.trial;
+  }
+  const isTrialOrg = () => !!((S.ctx && S.ctx.organization.status === 'demo') || (S.me && S.me.organization_status === 'demo'));
+  function trialLeft(t) {
+    if (!t) return 'Free trial';
+    if (t.expired) return 'Trial ended';
+    const n = Math.max(1, Math.ceil((Number(t.seconds_remaining) || 0) / 86400));
+    return n + ' day' + (n === 1 ? '' : 's') + ' left';
+  }
+  const trialEnds = (t) => t && t.expires_at ? (t.expired ? 'Ended ' : 'Ends ') + fmtDate(t.expires_at) : '';
   async function getMembers(force) {
     if (!S.members || force) {
       try { S.members = (await api('/api/org-admin/users?limit=100&sort=name')).items; } catch (_) { S.members = []; }
@@ -754,9 +771,10 @@
   // ── Dashboard ──────────────────────────────────────────────────────
   ROUTES.dashboard = {
     async render(v) {
-      const [d, bizSum] = await Promise.all([
+      const [d, bizSum, trial] = await Promise.all([
         api('/api/org-admin/overview'),
         api('/api/org-admin/business-summary').catch(() => ({ success: false })),
+        isTrialOrg() ? getTrial() : null,
       ]);
       if (!v.alive()) return;
       const sub = d.subscription || {};
@@ -764,7 +782,8 @@
       const tok = d.tokens;
       const metrics = (d.usage && d.usage.metrics) || {};
       const meterNames = { monthly_searches: 'Searches', team_members: 'Users', monthly_exports: 'Exports', monthly_ai_analyses: 'AI analyses', monthly_posts: 'Posts', monthly_comments: 'Comments' };
-      const alertHtml = (d.alerts || []).map(a => `<div class="alert alert-${attr(a.severity === 'danger' ? 'danger' : a.severity === 'info' ? 'info' : 'warning')}">${ico('alert', 'alert-icon')}<div class="alert-body">${esc(a.message)}</div></div>`).join('');
+      const trialAlert = trial ? `<div class="alert alert-${trial.expired ? 'danger' : 'info'}">${ico(trial.expired ? 'alert' : 'info', 'alert-icon')}<div class="alert-body"><div class="alert-title">${trial.expired ? 'Your free trial has ended' : 'You are on the free trial · ' + esc(trialLeft(trial))}</div>${esc(trialEnds(trial))}. ${trial.expired ? 'Choose a plan to keep running searches.' : 'Choose a plan any time to keep going without a break.'}${can('org_billing.view') ? '<div class="alert-actions"><a href="#subscription">See plans</a></div>' : ''}</div></div>` : '';
+      const alertHtml = trialAlert + (d.alerts || []).map(a => `<div class="alert alert-${attr(a.severity === 'danger' ? 'danger' : a.severity === 'info' ? 'info' : 'warning')}">${ico('alert', 'alert-icon')}<div class="alert-body">${esc(a.message)}</div></div>`).join('');
       const stat = (href, icon, lbl, value, meta) => `<a class="oa-card oa-stat" href="${attr(href)}"><span class="oa-stat-label">${ico(icon)}${esc(lbl)}</span><span class="oa-stat-value">${num(value)}</span><span class="oa-stat-meta">${meta}</span></a>`;
       const miniRuns = (list, empty) => list.length ? `<ul class="oa-feed">${list.map(r => `<li class="${r.status === 'error' || r.status === 'failed' ? 'fail' : ''}"><div class="oa-feed-main"><a class="oa-link" href="#searches/${attr(r.run_id)}">${esc(r.url || r.run_id)}</a><div class="oa-small oa-muted">${esc(r.user_email || '')} · ${pill(r.status)} ${r.error ? '· ' + esc(String(r.error).slice(0, 90)) : ''}</div></div>${timeTag(r.created_at)}</li>`).join('')}</ul>` : `<p class="oa-muted oa-small">${esc(empty)}</p>`;
 
@@ -803,11 +822,11 @@
         <div class="oa-grid oa-grid-3">
           <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Token usage</div><a class="oa-link oa-small" href="#subscription">Balance</a></div>${tok ? `${meter('Tokens used', tok.used, tok.allocated, tok.percentage)}<p class="oa-small oa-muted" style="margin-top:10px"><b style="color:var(--text-primary)">${num(tok.remaining)}</b> tokens remaining${tok.expires_at ? ' · expire ' + esc(fmtDate(tok.expires_at)) : ''}</p>` : '<p class="oa-muted oa-small">Your plan is not token-metered.</p>'}</div>
           <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Subscription</div><a class="oa-link oa-small" href="#subscription">Manage</a></div>
-            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span style="font-size:1.25rem;font-weight:800">${esc((d.plan && d.plan.name) || 'No plan')}</span>${pill(planStatus, planStatus === 'none' ? 'No subscription' : planStatus === 'active' ? 'Active' : label(planStatus))}</div>
-            <p class="oa-small oa-muted" style="margin-top:8px">${sub.current_period_end ? (sub.cancel_at_period_end ? 'Ends ' : 'Renews ') + esc(fmtDate(sub.current_period_end)) : (d.plan && d.plan.is_demo ? 'Demo plan' : 'No renewal date')}</p>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span style="font-size:1.25rem;font-weight:800">${esc(trial ? 'Free trial' : (d.plan && d.plan.name) || 'No plan')}</span>${trial ? pill(trial.expired ? 'expired' : 'trial', trialLeft(trial)) : pill(planStatus, planStatus === 'none' ? 'No subscription' : planStatus === 'active' ? 'Active' : planStatus === 'demo' ? 'Free trial' : label(planStatus))}</div>
+            <p class="oa-small oa-muted" style="margin-top:8px">${trial ? esc(trialEnds(trial) || 'Free trial') : sub.current_period_end ? (sub.cancel_at_period_end ? 'Ends ' : 'Renews ') + esc(fmtDate(sub.current_period_end)) : (d.plan && d.plan.is_demo ? 'Free trial' : 'No renewal date')}</p>
             ${d.pending_subscription ? '<p class="oa-small" style="margin-top:6px">' + pill('pending', 'Plan change pending confirmation') + '</p>' : ''}</div>
           <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Usage this period</div><a class="oa-link oa-small" href="#analytics">Details</a></div>
-            ${Object.keys(meterNames).filter(k => metrics[k] && metrics[k].limit).slice(0, 3).map(k => meter(meterNames[k], metrics[k].used, metrics[k].limit, metrics[k].percentage)).join('') || '<p class="oa-muted oa-small">No metered limits on your plan.</p>'}</div>
+            ${Object.keys(meterNames).filter(k => metrics[k] && metrics[k].limit && metrics[k].limit < UNLIMITED).slice(0, 3).map(k => meter(meterNames[k], metrics[k].used, metrics[k].limit, metrics[k].percentage)).join('') || '<p class="oa-muted oa-small">No metered limits on your plan.</p>'}</div>
         </div>
         <div class="oa-grid oa-grid-2">
           <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Recent searches</div><a class="oa-link oa-small" href="#searches">View all</a></div>${miniRuns(d.recent_searches || [], 'No searches yet — start one from URL Search.')}</div>
@@ -840,12 +859,13 @@
 
   // ── Organization ───────────────────────────────────────────────────
   ROUTES.organization = {
-    title: (p) => 'Organization · ' + ({ branding: 'Branding', settings: 'Settings', business: 'Business profile', apikeys: 'API keys & plan' }[p[1]] || 'Profile'),
+    title: (p) => 'Organization · ' + ({ branding: 'Branding', settings: 'Settings', business: 'Business profile', api: 'Developer API', apikeys: 'API keys & plan' }[p[1]] || 'Profile'),
     async render(v) {
       // the old "API Keys" tab moved to its own page
       if (v.parts[1] === 'apikeys') { history.replaceState(null, '', '#integrations'); return route(); }
-      const tab = ['profile', 'business', 'branding', 'settings'].indexOf(v.parts[1]) >= 0 ? v.parts[1] : 'profile';
+      const tab = ['profile', 'business', 'branding', 'settings', 'api'].indexOf(v.parts[1]) >= 0 ? v.parts[1] : 'profile';
       if (tab === 'business') return renderBusinessProfile(v);
+      if (tab === 'api') return renderDeveloperApi(v);
       const org = await getOrg(true);
       if (!v.alive()) return;
       const editable = can('settings.manage');
@@ -962,7 +982,7 @@
       });
     },
   };
-  const ORG_TABS = [['#organization/profile', 'Profile'], ['#organization/business', 'Business profile'], ['#organization/branding', 'Branding'], ['#organization/settings', 'Settings'], ['#integrations', 'API keys & plan']];
+  const ORG_TABS = [['#organization/profile', 'Profile'], ['#organization/business', 'Business profile'], ['#organization/branding', 'Branding'], ['#organization/settings', 'Settings'], ['#organization/api', 'Developer API'], ['#integrations', 'API keys & plan']];
   // Business profile: the industry and business description that LeadAI's
   // lead analysis (AI prompt, rule vocabulary, optional comment filter) uses.
   async function renderBusinessProfile(v) {
@@ -985,7 +1005,7 @@
         <div class="oa-field span-2">
           <span class="oa-label">Target Customer Types</span>
           <div class="target-customers-row" id="oaTargetCustomers" style="margin-top:6px">
-            ${TARGET_OPTIONS.map(t => `<span class="target-cust-chip ${curTargets.has(t) ? 'selected' : ''}" data-target="${attr(t)}">${esc(t)}</span>`).join('')}
+            ${TARGET_OPTIONS.map(t => `<span class="target-cust-chip ${curTargets.has(t) ? 'selected' : ''}" data-target="${attr(t)}" role="button" aria-pressed="${curTargets.has(t)}" ${edit ? 'tabindex="0"' : 'aria-disabled="true"'}>${esc(t)}</span>`).join('')}
           </div>
           <span class="oa-hint">Select the personas your organization actively seeks to acquire.</span>
         </div>
@@ -1021,7 +1041,9 @@
         } else {
           selTargets.add(val); chip.classList.add('selected');
         }
+        chip.setAttribute('aria-pressed', String(selTargets.has(val)));
       });
+      targetWrap.addEventListener('keydown', (e) => { const chip = e.target.closest('.target-cust-chip'); if (chip && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); chip.click(); } });
     }
 
     const syncInd = () => {
@@ -1068,6 +1090,75 @@
     });
   }
 
+  // ── Developer API: keys for LeadAI's public REST API (/api/v1) ─────
+  // A key is shown once, right after it is created; the list only has its prefix.
+  const API_SCOPES = [['leads:read', 'Read leads', 'GET /api/v1/leads'], ['leads:write', 'Add leads', 'POST /api/v1/leads'],
+    ['search:create', 'Run searches', 'POST /api/v1/search and GET /api/v1/search/{run_id}']];
+  async function renderDeveloperApi(v) {
+    const d = await api('/api/org-admin/api-keys'); if (!v.alive()) return;
+    const edit = can('settings.manage');
+    const items = d.items || [];
+    const base = location.origin + '/api/v1';
+    v.el.innerHTML = head('Organization', 'Your organization profile, workspace branding and settings.', edit ? `<button type="button" class="btn btn-primary" data-newkey>${ico('plus')} Create API key</button>` : '') + tabs(ORG_TABS, '#organization/api') +
+      `<div class="oa-note">${ico('info')}<span>Connect your CRM, Zapier or your own scripts to LeadAI. Send the key in the <code class="oa-mono">X-API-Key</code> header to <code class="oa-mono oa-break">${esc(base)}/…</code>. A key acts for the whole organization — keep it secret and revoke it if it leaks. These are not your Apify or Gemini keys; those are on <a class="oa-link" href="#integrations">API keys &amp; plan</a>.</span></div>
+      <div data-host></div>
+      <div class="oa-card" style="margin-top:16px"><div class="oa-card-head"><div class="oa-card-title">Endpoints</div><span class="oa-card-sub">Each needs the matching access on the key</span></div>
+        ${kv(API_SCOPES.map(([k, l, e]) => [l, `<code class="oa-mono oa-break">${esc(e)}</code> <span class="badge badge-muted">${esc(k)}</span>`]))}</div>
+      ${edit ? '' : readonlyNote()}`;
+    dataTable($('[data-host]', v.el), {
+      local: items, caption: 'API keys', key: 'oa-apikeys', export: false,
+      columns: [
+        { label: 'Name', render: r => `<b>${esc(r.name || 'API key')}</b>${r.prefix ? `<div class="oa-mono oa-small oa-muted">${esc(r.prefix)}</div>` : ''}`, csv: r => r.name },
+        { label: 'Access', render: r => (r.scopes || []).map(x => `<span class="badge badge-muted">${esc(x)}</span>`).join(' ') || '—' },
+        { label: 'Mode', render: r => esc(String(r.prefix || '').indexOf('lai_test_') === 0 ? 'Test' : 'Live') },
+        { label: 'Status', render: r => pill(r.is_active ? 'active' : 'revoked', r.is_active ? 'Active' : 'Revoked') },
+        { label: 'Last used', render: r => r.last_used_at ? timeTag(ikUtc(r.last_used_at)) : '<span class="oa-muted">Never</span>' },
+        { label: 'Created', render: r => `${esc(fmtDate(ikUtc(r.created_at)))}<div class="oa-small oa-muted">${esc(r.created_by || '')}</div>` },
+        { label: '', render: r => edit && r.is_active ? '<div class="oa-actions" style="justify-content:flex-end"><button type="button" class="btn btn-danger btn-sm" data-act="revoke">Revoke</button></div>' : '' },
+      ],
+      empty: { title: 'No API keys yet', desc: 'Create a key to use the LeadAI REST API from your own tools.', action: edit ? '<button type="button" class="btn btn-primary" data-newkey>Create API key</button>' : '' },
+      async onAction(act, r, btn) {
+        if (act !== 'revoke') return;
+        if (!(await confirmDialog('Revoke this API key?', `Anything using “${r.name || 'this key'}” stops working immediately. This cannot be undone.`, { danger: true, confirm: 'Revoke key' }))) return;
+        busy(btn, true, 'Revoking…');
+        try { await api('/api/org-admin/api-keys/' + encodeURIComponent(r.key_id || r.id), { method: 'DELETE' }); toast('API key revoked.', 'success'); route(); }
+        catch (e) { toast(e.message, 'error'); busy(btn, false); }
+      },
+    });
+    $$('[data-newkey]', v.el).forEach(b => b.onclick = () => createApiKeyModal());
+  }
+  function createApiKeyModal() {
+    openModal({
+      title: 'Create an API key',
+      body: `<form class="oa-form" data-f novalidate><div class="oa-field"><label for="ak-name">Name</label><input class="form-input" id="ak-name" name="name" maxlength="80" required placeholder="e.g. HubSpot sync" aria-describedby="ak-err"/><span class="oa-hint">So you recognise it later.</span></div>
+        <fieldset class="oa-field" style="border:0;padding:0;margin:0"><legend class="oa-label">Access</legend>${API_SCOPES.map(([k, l, e]) => `<label class="oa-check" style="margin-top:6px"><input type="checkbox" name="scope" value="${attr(k)}" ${k === 'leads:write' ? '' : 'checked'}/><span><b>${esc(l)}</b> <span class="oa-small oa-muted">${esc(e)}</span></span></label>`).join('')}</fieldset>
+        ${switchRow('test_mode', 'Test key', 'Starts with lai_test_ so you can tell it apart from live keys.', false, false)}
+        <span class="oa-err" id="ak-err" role="alert"></span><div data-result></div></form>`,
+      foot: '<button type="button" class="btn btn-secondary" data-close>Cancel</button><button type="button" class="btn btn-primary" data-go>Create key</button>',
+      onMount(root) {
+        const f = $('[data-f]', root), go = $('[data-go]', root), err = $('#ak-err', root);
+        const send = async () => {
+          const name = f.elements.name.value.trim(); const scopes = $$('input[name=scope]:checked', f).map(i => i.value);
+          if (!name) { err.textContent = 'Give the key a name.'; f.elements.name.focus(); return; }
+          if (!scopes.length) { err.textContent = 'Choose at least one kind of access.'; return; }
+          err.textContent = ''; busy(go, true, 'Creating…');
+          try {
+            const r = await api('/api/org-admin/api-keys', { method: 'POST', body: { name, scopes, test_mode: f.elements.test_mode.checked } });
+            $$('.oa-field, .oa-switch', f).forEach(x => { x.hidden = true; });
+            $('[data-result]', root).innerHTML = `<div class="alert alert-success">${ico('info', 'alert-icon')}<div class="alert-body"><div class="alert-title">Key “${esc(r.name || name)}” created</div><div class="oa-small">${esc(r.message || 'Copy this key now. It will not be shown again.')}</div>
+              <div class="oa-color" style="margin-top:8px"><input class="form-input oa-mono" readonly value="${attr(r.api_key || '')}" aria-label="New API key" data-newkey-value/><button type="button" class="btn btn-secondary btn-sm" data-copy>Copy</button></div></div></div>`;
+            const cp = $('[data-copy]', root); if (cp) cp.onclick = () => { if (navigator.clipboard) navigator.clipboard.writeText(r.api_key || '').then(() => toast('Key copied', 'success')); };
+            go.remove(); const c = $('.oa-modal-foot [data-close]', root); if (c) { c.textContent = 'Done'; c.className = 'btn btn-primary'; c.focus(); }
+            // the list refreshes once the dialog is closed (the raw key lives only in this dialog)
+            const obs = new MutationObserver(() => { if (!root.isConnected) { obs.disconnect(); if (location.hash.indexOf('#organization/api') === 0) route(); } });
+            obs.observe($('#oa-modal-root'), { childList: true });
+          } catch (e) { err.textContent = e.message; busy(go, false); }
+        };
+        go.onclick = send; f.addEventListener('submit', (e) => { e.preventDefault(); send(); });
+      },
+    });
+  }
+
   // ── API keys & plan ────────────────────────────────────────────────
   // Per external API (Apify, Google Gemini) the organization either uses
   // LeadAI's (included in the plan price) or brings its own key (lower price;
@@ -1098,11 +1189,11 @@
   ROUTES.integrations = {
     title: () => 'API keys & plan',
     async render(v) {
-      const d = await api('/api/org-admin/integrations/api-keys');
+      const [d, trial] = await Promise.all([api('/api/org-admin/integrations/api-keys'), isTrialOrg() ? getTrial() : null]);
       if (!v.alive()) return;
       const I = d.integrations || {};
       const st = { I, manage: !!d.can_manage, cycle: (I.subscription && I.subscription.billing_cycle) || 'monthly',
-        open: {}, err: {}, note: {}, intent: {} };
+        open: {}, err: {}, note: {}, intent: {}, trial };
       renderIntegrations(v, st);
     },
   };
@@ -1123,11 +1214,11 @@
       const summary = `<section class="oa-card oa-ik-summary" aria-labelledby="ik-sum-t">
         <div class="oa-ik-sum-head"><div><span class="oa-ik-fig-l">Your current choice</span><h2 class="oa-ik-choice" id="ik-sum-t">${esc(I.label || ikCovLabel(cov))}</h2>
           <span class="oa-small oa-muted">Apify: <b>${cov.apify === 'own' ? 'your own key' : 'LeadAI'}</b> · Gemini: <b>${cov.gemini === 'own' ? 'your own key' : 'LeadAI'}</b></span></div>
-          ${plan.is_demo ? pill('demo', 'Demo plan') : sub ? pill('active', 'Paid subscription') : pill('none', 'No paid subscription')}</div>
+          ${plan.is_demo ? pill(st.trial && st.trial.expired ? 'expired' : 'trial', st.trial ? 'Free trial · ' + trialLeft(st.trial) : 'Free trial') : sub ? pill('active', 'Paid subscription') : pill('none', 'No paid subscription')}</div>
         <div class="oa-ik-figs">
-          ${fig('Plan', esc(plan.name || 'No plan'), sub ? esc(cap(sub.billing_cycle)) + ' billing' : (plan.is_demo ? 'Demo' : 'No paid subscription'))}
+          ${fig('Plan', esc(plan.is_demo ? 'Free trial' : plan.name || 'No plan'), sub ? esc(cap(sub.billing_cycle)) + ' billing' : (plan.is_demo ? esc(trialEnds(st.trial) || 'Free trial') : 'No paid subscription'))}
           ${sub ? fig('You pay now', esc(ikPrice(sub.amount, cur, sub.billing_cycle)), sub.paid_for_label ? 'Paid for: ' + esc(sub.paid_for_label) : '', 'now')
-              : fig('You pay now', 'Nothing yet', plan.is_demo ? 'Demo plan' : 'Choose a plan on the Subscription page', 'now')}
+              : fig('You pay now', 'Nothing yet', plan.is_demo ? 'Free during your trial' : 'Choose a plan on the Subscription page', 'now')}
           ${sub ? fig('Next renewal', esc(ikPrice(sub.next_price, cur, sub.billing_cycle)), (cheaperNext ? '<span class="oa-ik-good">Lower price</span> · ' : '') + 'on ' + esc(fmtDate(ikUtc(sub.current_period_end))), 'next')
               : fig('Price with this choice', curOpt && Number(curOpt.price_monthly) ? esc(ikPrice(curOpt.price_monthly, cur, 'monthly')) : '—', curOpt && Number(curOpt.price_yearly) ? 'or ' + esc(ikPrice(curOpt.price_yearly, cur, 'yearly')) : '', 'next')}
         </div>
@@ -1135,7 +1226,7 @@
       </section>`;
 
       const notAllowed = allows ? '' : `<div class="alert alert-info oa-ik-alert">${ico('info', 'alert-icon')}<div class="alert-body"><div class="alert-title">Own API keys are available on paid plans</div>
-        <div>On the ${esc(plan.name || 'current')} plan LeadAI provides Apify and Google Gemini for you. Choose a paid plan to bring your own keys and pay less.</div><div class="alert-actions"><a href="#subscription">See plans</a></div></div></div>`;
+        <div>${plan.is_demo ? 'During the free trial' : 'On the ' + esc(plan.name || 'current') + ' plan'} LeadAI provides Apify and Google Gemini for you. Choose a paid plan to bring your own keys and pay less.</div><div class="alert-actions"><a href="#subscription">See plans</a></div></div></div>`;
 
       const card = (a) => {
         const m = IK[a], k = keys[a] || {}, own = cov[a] === 'own', ks = ikKeyState(k);
@@ -1171,7 +1262,7 @@
 
       const optCycle = st.cycle;
       const options = `<section class="oa-card" aria-labelledby="ik-opt-t">
-        <div class="oa-card-head"><div><h2 class="oa-card-title" id="ik-opt-t">Compare your options</h2><div class="oa-card-sub">${esc(plan.name || 'Your')} plan · price per ${ikPer(optCycle)}</div></div>
+        <div class="oa-card-head"><div><h2 class="oa-card-title" id="ik-opt-t">Compare your options</h2><div class="oa-card-sub">${esc(plan.is_demo ? 'Free trial' : (plan.name || 'Your') + ' plan')} · price per ${ikPer(optCycle)}</div></div>
           <div class="oa-seg" role="group" aria-label="Billing cycle"><button type="button" data-ik-cycle="monthly" aria-pressed="${optCycle === 'monthly'}">Monthly</button><button type="button" data-ik-cycle="yearly" aria-pressed="${optCycle === 'yearly'}">Yearly</button></div></div>
         ${opts.length ? `<ul class="oa-ik-opts">${opts.map(o => {
           const isCur = ikSame(o.coverage, cov);
@@ -1349,6 +1440,7 @@
             { label: 'Role', sort: 'role', render: r => roleTag(r.role) },
             { label: 'Status', sort: 'status', render: r => pill(r.status) },
             { label: 'Last login', sort: 'last_login', render: r => timeTag(r.last_login), csv: r => r.last_login || '' },
+            { label: 'Joined', sort: 'joined', render: r => esc(fmtDate(r.joined_at)), csv: r => r.joined_at || '' },
             { label: 'Searches', sort: 'searches', num: true, render: r => num(r.searches) },
             { label: 'Leads', sort: 'leads', num: true, render: r => num(r.leads) },
             { label: 'Assigned', num: true, render: r => num(r.assigned_leads) },
@@ -1768,7 +1860,7 @@
     { label: 'Author', render: r => `<b>${esc(r.author || 'Unknown')}</b>` },
     { label: 'Comment', cls: 'oa-trunc', render: r => `<span title="${attr(r.text)}">${esc(r.text || '')}</span>` },
     { label: 'Platform', render: r => esc(plat(r.platform)) },
-    { label: 'Lead', render: r => r.is_lead ? `${scoreTag(r.lead_score)} <a class="oa-link oa-small" href="#lead/${attr(r.lead_id)}">Open lead</a>` : (r.analysed ? '<span class="oa-muted oa-small">Not a lead</span>' : '<span class="oa-muted oa-small">Not analysed</span>') },
+    { label: 'Lead', render: r => r.is_lead ? `${scoreTag(r.lead_score)} <a class="oa-link oa-small" href="#lead/${attr(r.lead_id)}">Open lead</a>` : (r.analysed ? '<span class="oa-muted oa-small">Not a lead</span>' : r.qualification === 'not_qualified' ? '<span class="oa-muted oa-small" title="Skipped by your keyword filter — never sent to AI">Not qualified</span>' : '<span class="oa-muted oa-small" title="Not sent to AI analysis (filtered out by your keywords, or still running)">Not analysed</span>') },
     { label: 'Published', render: r => esc(r.published ? fmtDate(r.published) : '—') },
   ], [['published', 'Recently published'], ['reactions', 'Most reactions'], ['oldest', 'Oldest first']], null,
   (q, p) => '/api/org-admin/exports/comments.csv' + qs({ platform: p.platform, run_id: p.run_id, post_id: p.post_id, q: p.q }));
@@ -1787,7 +1879,7 @@
       const scoped = [v.query.owner ? 'leads found by ' + (finder ? (finder.name || finder.email) : 'one member') : '', v.query.run_id ? 'search ' + v.query.run_id : ''].filter(Boolean);
       v.el.innerHTML = head(assignedView ? 'Assigned leads' : 'All leads', (assignedView ? 'Leads assigned to members — they appear in each member\'s User Portal.' : 'Every lead found in your organization. Select leads to assign or move them in bulk, or open one for notes and history.') + (scoped.length ? ' Filtered to ' + scoped.join(', ') + '.' : ''),
         (scoped.length ? `<a class="btn btn-ghost" href="${assignedView ? '#leads/assigned' : '#leads'}">${ico('x')} Clear filter</a>` : '') + `<a class="btn btn-primary" href="#search">${ico('search')} New search</a>`) +
-        tabs([['#leads', 'All leads'], ['#leads/assigned', 'Assigned'], ['#pipeline', 'Lifecycle'], ['#rules', 'Rules']], assignedView ? '#leads/assigned' : '#leads') + '<div data-host></div>';
+        tabs(LEAD_TABS, assignedView ? '#leads/assigned' : '#leads') + '<div data-host></div>';
       const init = Object.assign({}, v.query);
       if (assignedView && !init.assignee) init.assignee = 'assigned';
       const t = dataTable($('[data-host]', v.el), {
@@ -1808,12 +1900,14 @@
           { name: 'assignee', label: 'Assignee', type: 'select', all: assignedView ? 'Any assignee' : 'Anyone', options: assigneeOpts },
           { name: 'platform', label: 'Platform', type: 'select', all: 'All platforms', options: PLATFORMS },
           { name: 'quality', label: 'Quality', type: 'select', all: 'Any quality', options: [['hot', 'Hot'], ['warm', 'Warm'], ['cold', 'Cold']] },
+          { name: 'priority', label: 'Priority', type: 'select', all: 'Any priority', options: [['high', 'High'], ['medium', 'Medium'], ['low', 'Low']] },
           { name: 'min_score', label: 'Min score', type: 'number' },
           { name: 'from', label: 'From date', type: 'date' }, { name: 'to', label: 'To date', type: 'date' }],
         columns: [
           { label: 'Lead', sort: 'name', dir: 'ascending', render: r => `<b>${esc(r.name)}</b><div class="oa-small oa-muted oa-trunc" style="max-width:280px">${esc(r.text)}</div>` },
           { label: 'Score', sort: 'score', render: r => scoreTag(r.score) },
           { label: 'Status', render: r => pill(r.status) },
+          { label: 'Priority', id: 'priority', hidden: true, render: r => esc(r.priority ? cap(r.priority) : '—') },
           { label: 'Source', render: r => `${esc(plat(r.platform))}<div class="oa-small oa-muted oa-trunc" style="max-width:160px">${esc(r.page_name || '')}</div>` },
           { label: 'Assignee', render: r => r.assigned_user_id ? esc(r.assigned_name || r.assigned_email) : '<span class="oa-muted">Unassigned</span>' },
           { label: 'Found', sort: 'newest', render: r => timeTag(r.created_at) },
@@ -1935,20 +2029,28 @@
       const d = await api('/api/org-admin/leads/pipeline'); if (!v.alive()) return;
       S.transitions = d.transitions;
       v.el.innerHTML = head('Lead lifecycle', 'Where your leads are in the pipeline. Click a stage to see its leads.') +
-        tabs([['#leads', 'All leads'], ['#leads/assigned', 'Assigned'], ['#pipeline', 'Lifecycle'], ['#rules', 'Rules']], '#pipeline') +
+        tabs(LEAD_TABS, '#pipeline') +
         (d.total ? `<div class="oa-pipeline">${Object.entries(d.statuses).map(([s, n]) => `<a class="oa-stage" href="#leads?status=${attr(s)}">${pill(s)}<b>${num(n)}</b><span class="oa-small oa-muted">${d.total ? Math.round(n / d.total * 100) : 0}% of leads</span></a>`).join('')}</div>
         <div class="oa-grid oa-grid-2">${hbars('Leads by owner', Object.fromEntries(d.owners.map(o => [o.name || o.email || 'Unknown', o.leads])))}
         <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Allowed transitions</div></div><ul class="oa-feed">${Object.entries(d.transitions).map(([k, arr]) => `<li><div class="oa-feed-main">${pill(k)} → ${arr.length ? arr.map(a => pill(a)).join(' ') : '<span class="oa-muted oa-small">final</span>'}</div><span></span></li>`).join('')}</ul></div></div>`
           : `<div class="oa-card">${stateHtml('empty', 'No leads yet', 'Once searches find leads you will see them move through the pipeline here.', '<a class="btn btn-primary" href="#search">Start a search</a>')}</div>`);
     },
   };
+  // Industries offered by the keyword generator (the organization's own industry is preselected).
+  const REC_INDUSTRIES = [['real_estate', 'Real Estate'], ['automotive', 'Automotive'], ['education', 'Education'], ['healthcare', 'Healthcare'], ['travel', 'Travel & Hospitality'], ['ecommerce', 'E-commerce & Retail'], ['saas', 'SaaS & Software'], ['wedding', 'Wedding & Events'], ['interior_design', 'Interior Design'], ['agency', 'Marketing & Digital Agency'], ['professional_services', 'Professional Services']];
   ROUTES.rules = {
-    title: () => 'Keyword Library',
+    title: () => 'Keyword library',
     async render(v) {
       const d = await api('/api/org-admin/keyword-library'); if (!v.alive()) return;
       const edit = d.can_edit;
       const sum = d.summary || {};
-      const allKws = d.keywords || [];
+      // the API lists each custom keyword twice (as active and as custom): one row per keyword + status
+      const seenKw = new Set();
+      const allKws = (d.keywords || []).filter(k => { const id = String(k.keyword).toLowerCase() + '|' + k.status; if (seenKw.has(id)) return false; seenKw.add(id); return true; });
+      // industry arrives as a key string plus industry_name (older shape: an object)
+      const ind = d.industry && typeof d.industry === 'object' ? d.industry : { key: d.industry || '', name: d.industry_name || '', business_type: d.business_type || '' };
+      const KW_STATUS = { active: ['active', 'Active'], suggested: ['info', 'Suggested'], excluded: ['disqualified', 'Excluded'] };
+      const inTab = (k, t) => t === 'all' || (t === 'active' ? k.status === 'active' : t === 'suggested' ? k.status === 'suggested' : t === 'custom' ? k.type === 'custom' && k.status === 'active' : k.status === 'excluded');
       // Summary tiles: [tab, icon, label, count, meta, value style]. Each opens its tab of the library.
       const KW_TABS = [['active', 'check', 'Active Keywords', sum.active_count, 'Used in comment analysis', 'color:var(--primary)'],
         ['suggested', 'cpu', 'Suggested Terms', sum.suggested_count, 'Ready to activate', ''],
@@ -1967,17 +2069,17 @@
 
       const renderView = () => {
         const filtered = allKws.filter(k => {
-          if (activeTab !== 'all' && k.type !== activeTab && !(activeTab === 'excluded' && k.status === 'excluded')) return false;
+          if (!inTab(k, activeTab)) return false;
           if (searchQuery && !k.keyword.toLowerCase().includes(searchQuery.toLowerCase())) return false;
           return true;
         });
 
-        v.el.innerHTML = head('Keyword Library', 'Manage organization-wide suggested, active, custom, and excluded keywords.') +
-          tabs([['#leads', 'All leads'], ['#leads/assigned', 'Assigned'], ['#pipeline', 'Lifecycle'], ['#rules', 'Keyword Library']], '#rules') +
+        v.el.innerHTML = head('Keyword library', 'Manage organization-wide suggested, active, custom, and excluded keywords.') +
+          tabs(LEAD_TABS, '#rules') +
           
           `<div class="alert ${d.using_defaults ? 'alert-info' : 'alert-success'}" style="margin-bottom:16px">${ico('info', 'alert-icon')}<div class="alert-body">
             <div class="alert-title">${d.using_defaults ? 'Using LeadAI Default Business Intelligence' : 'Custom Organization Keywords Active'}</div>
-            <span>${d.using_defaults ? 'Your organization currently uses standard AI lead signals for ' + esc((d.industry && d.industry.name) || 'your industry') + '. Add keywords or generate suggestions below to customize lead discovery.' : 'Searches run by any member in your organization prioritize these keywords for qualifying prospects.'}</span>
+            <span>${d.using_defaults ? 'Your organization currently uses standard AI lead signals for ' + esc(ind.name || 'your industry') + '. Add keywords or generate suggestions below to customize lead discovery.' : 'Searches run by any member in your organization prioritize these keywords for qualifying prospects.'}</span>
           </div></div>
 
           <!-- Stats Strip -->
@@ -1988,12 +2090,12 @@
           <!-- Library Main Card -->
           <div class="oa-card oa-kw-lib">
             <div class="oa-kw-lib-head">
-              <div class="oa-kw-tabs" role="tablist">
-                <button type="button" class="oa-kw-tab ${activeTab === 'all' ? 'active' : ''}" data-tab="all">All (${num(allKws.length)})</button>
-                <button type="button" class="oa-kw-tab ${activeTab === 'active' ? 'active' : ''}" data-tab="active">Active (${num(sum.active_count)})</button>
-                <button type="button" class="oa-kw-tab ${activeTab === 'suggested' ? 'active' : ''}" data-tab="suggested">Suggested (${num(sum.suggested_count)})</button>
-                <button type="button" class="oa-kw-tab ${activeTab === 'custom' ? 'active' : ''}" data-tab="custom">Custom (${num(sum.custom_count)})</button>
-                <button type="button" class="oa-kw-tab ${activeTab === 'excluded' ? 'active' : ''}" data-tab="excluded">Excluded (${num(sum.excluded_count)})</button>
+              <div class="oa-kw-tabs" role="group" aria-label="Keyword list">
+                <button type="button" class="oa-kw-tab ${activeTab === 'all' ? 'active' : ''}" data-tab="all" aria-pressed="${activeTab === 'all'}">All (${num(allKws.length)})</button>
+                <button type="button" class="oa-kw-tab ${activeTab === 'active' ? 'active' : ''}" data-tab="active" aria-pressed="${activeTab === 'active'}">Active (${num(sum.active_count)})</button>
+                <button type="button" class="oa-kw-tab ${activeTab === 'suggested' ? 'active' : ''}" data-tab="suggested" aria-pressed="${activeTab === 'suggested'}">Suggested (${num(sum.suggested_count)})</button>
+                <button type="button" class="oa-kw-tab ${activeTab === 'custom' ? 'active' : ''}" data-tab="custom" aria-pressed="${activeTab === 'custom'}">Custom (${num(sum.custom_count)})</button>
+                <button type="button" class="oa-kw-tab ${activeTab === 'excluded' ? 'active' : ''}" data-tab="excluded" aria-pressed="${activeTab === 'excluded'}">Excluded (${num(sum.excluded_count)})</button>
               </div>
               ${edit ? `
               <div class="oa-actions" style="flex-wrap:wrap">
@@ -2025,9 +2127,9 @@
                   ${filtered.length ? filtered.map(k => `
                     <tr>
                       <td><b>${esc(k.keyword)}</b></td>
-                      <td><span class="oa-pill ${k.type === 'suggested' ? 's-info' : k.type === 'custom' ? 's-brand' : 's-danger'}">${esc(cap(k.type))}</span></td>
+                      <td>${pill(k.type === 'suggested' ? 'info' : k.type === 'custom' ? 'demo' : 'disqualified', cap(k.type))}</td>
                       <td><span class="oa-muted oa-small">${esc(label(k.category || 'General'))}</span></td>
-                      <td>${pill(k.status === 'active' ? 'active' : 'disqualified', k.status === 'active' ? 'Active' : 'Excluded')}</td>
+                      <td>${pill((KW_STATUS[k.status] || KW_STATUS.suggested)[0], (KW_STATUS[k.status] || KW_STATUS.suggested)[1])}</td>
                       ${edit ? `<td style="text-align:right">
                         <div class="oa-actions" style="justify-content:flex-end">
                           ${k.status === 'active' ? `
@@ -2217,17 +2319,8 @@
               <div class="oa-field">
                 <label for="recIndustry">Industry</label>
                 <select class="form-select" id="recIndustry">
-                  <option value="${esc((d.industry && d.industry.key) || 'real_estate')}">${esc((d.industry && d.industry.name) || 'Real Estate')}</option>
-                  <option value="automotive">Automotive</option>
-                  <option value="education">Education</option>
-                  <option value="healthcare">Healthcare</option>
-                  <option value="travel">Travel & Hospitality</option>
-                  <option value="ecommerce">E-commerce & Retail</option>
-                  <option value="saas">SaaS & Software</option>
-                  <option value="wedding">Wedding & Events</option>
-                  <option value="interior_design">Interior Design</option>
-                  <option value="agency">Marketing & Digital Agency</option>
-                  <option value="professional_services">Professional Services</option>
+                  ${ind.key && !REC_INDUSTRIES.some(([k]) => k === ind.key) ? `<option value="${attr(ind.key)}" selected>${esc(ind.name || label(ind.key))}</option>` : ''}
+                  ${REC_INDUSTRIES.map(([k, n]) => `<option value="${attr(k)}" ${k === ind.key ? 'selected' : ''}>${esc(n)}</option>`).join('')}
                 </select>
               </div>
               <div class="oa-field">
@@ -2242,7 +2335,7 @@
               </div>
               <div class="oa-field span-2">
                 <label for="recBizType">Business Model / Type</label>
-                <input class="form-input" id="recBizType" type="text" placeholder="e.g. Residential Agency, Commercial Brokerage, Pre-owned Cars" value="${esc((d.industry && d.industry.business_type) || '')}"/>
+                <input class="form-input" id="recBizType" type="text" placeholder="e.g. Residential Agency, Commercial Brokerage, Pre-owned Cars" value="${attr(ind.business_type || '')}"/>
               </div>
             </div>
             <div style="margin:14px 0">
@@ -2262,6 +2355,7 @@
             const saveBtn = $('#btnSaveRecToOrg', root);
             const resArea = $('#recResultsArea', root);
             const groupsBox = $('#recGroupsContainer', root);
+            groupsBox.addEventListener('keydown', (e) => { const c = e.target.closest('[data-rkw],[data-exkw]'); if (c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); const k = c.dataset.rkw || c.dataset.exkw; c.click(); const n = $(`[data-${c.dataset.rkw ? 'rkw' : 'exkw'}="${CSS.escape(k)}"]`, groupsBox); if (n) n.focus(); } });
 
             runBtn.onclick = async () => {
               busy(runBtn, true, 'Generating…');
@@ -2292,12 +2386,12 @@
                   ];
                   map.forEach(([title, list]) => {
                     html += `<div style="margin-bottom:10px"><div style="font-size:0.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">${title}</div><div style="display:flex;flex-wrap:wrap;gap:6px">`;
-                    html += list.map(k => `<span class="kw-chip-add ${selRecommended.has(k) ? 'added' : ''}" data-rkw="${attr(k)}" style="cursor:pointer">${selRecommended.has(k) ? '✓ ' : '+ '}${esc(k)}</span>`).join('');
+                    html += list.map(k => `<span class="kw-chip-add ${selRecommended.has(k) ? 'added' : ''}" data-rkw="${attr(k)}" role="button" tabindex="0" aria-pressed="${selRecommended.has(k)}" style="cursor:pointer">${selRecommended.has(k) ? '✓ ' : '+ '}${esc(k)}</span>`).join('');
                     html += `</div></div>`;
                   });
                   if ((res.recommended_exclusions || []).length) {
                     html += `<div style="margin-bottom:10px"><div style="font-size:0.75rem;font-weight:700;color:var(--danger);text-transform:uppercase;margin-bottom:4px">⛔ Recommended Exclusions</div><div style="display:flex;flex-wrap:wrap;gap:6px">`;
-                    html += res.recommended_exclusions.map(k => `<span class="kw-chip-add ${selExclusions.has(k) ? 'added' : ''}" data-exkw="${attr(k)}" style="cursor:pointer;border-color:var(--danger)">${selExclusions.has(k) ? '✓ ' : '+ '}${esc(k)}</span>`).join('');
+                    html += res.recommended_exclusions.map(k => `<span class="kw-chip-add ${selExclusions.has(k) ? 'added' : ''}" data-exkw="${attr(k)}" role="button" tabindex="0" aria-pressed="${selExclusions.has(k)}" style="cursor:pointer;border-color:var(--danger)">${selExclusions.has(k) ? '✓ ' : '+ '}${esc(k)}</span>`).join('');
                     html += `</div></div>`;
                   }
                   groupsBox.innerHTML = html;
@@ -2510,16 +2604,22 @@
       };
       const metricNames = { team_members: 'Users', monthly_searches: 'Searches', monthly_posts: 'Posts', monthly_comments: 'Comments', monthly_ai_analyses: 'AI analyses', monthly_exports: 'Exports', api_requests: 'API requests' };
       const subState = sub.has_subscription ? (sub.status || 'none') : (sub.is_demo ? 'demo' : 'none');
-      const statusText = active ? 'Active' : subState === 'none' ? 'No subscription' : label(subState);
+      const trial = !sub.has_subscription && usage && usage.demo ? usage.demo : null;
+      const statusText = active ? 'Active' : subState === 'none' ? 'No subscription' : subState === 'demo' ? trialLeft(trial) : label(subState);
+      const planName = (slug) => { const m = plans.find(x => x.slug === slug); return m ? m.name : cap(label(slug || '—')); };
       v.el.innerHTML = head('Subscription', 'Your plan, usage against its limits, invoices and billing history.') +
         (pending ? `<div class="alert alert-warning" style="margin-bottom:16px">${ico('alert', 'alert-icon')}<div class="alert-body"><div class="alert-title">Plan change pending confirmation</div>${esc((pending.plan && pending.plan.name) || pending.plan_id)} (${esc(pending.billing_cycle || '')}${pending.api_coverage ? ' · ' + esc(ikCovLabel(pending.api_coverage)) : ''}) — status: ${pill(pending.status)}. ${pending.status === 'pending_payment' ? 'Complete the payment to continue.' : 'Our team confirms payments and activates your new plan shortly.'}${pending.checkout_session_id ? ` <a href="/billing/status?session=${encodeURIComponent(pending.checkout_session_id)}">View payment status</a>` : ''}</div></div>` : '') +
         `<div class="oa-grid oa-grid-3">
-          <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Current plan</div>${pill(subState === 'active' && !active ? 'pending' : subState, statusText)}</div>
-            <div style="font-size:1.5rem;font-weight:800">${esc(plan.name || 'No plan')}</div>
-            <div style="margin-top:12px">${kv([['Billing', esc(label(sub.billing_cycle || (sub.is_demo ? 'demo' : '—')))],
+          <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Current plan</div>${pill(subState === 'active' && !active ? 'pending' : trial && trial.expired ? 'expired' : subState, statusText)}</div>
+            <div style="font-size:1.5rem;font-weight:800">${esc(subState === 'demo' ? 'Free trial' : plan.name || 'No plan')}</div>
+            <div style="margin-top:12px">${kv(subState === 'demo' ? [['Billing', 'Free — no payment yet'],
+              ['API keys', `<a class="oa-link" href="#integrations">${esc(integ ? (integ.label || ikCovLabel(myCov)) : 'View')}</a>`],
+              [trial && trial.expired ? 'Ended' : 'Trial ends', esc(trial && trial.expires_at ? fmtDate(trial.expires_at) : '—')],
+              ['Time left', esc(trial ? trialLeft(trial) : '—')]] : [['Billing', esc(label(sub.billing_cycle || '—'))],
               ['API keys', `<a class="oa-link" href="#integrations">${esc(integ ? (integ.label || ikCovLabel(myCov)) : 'View')}</a>`],
               ['Started', esc(fmtDate(sub.started_at || sub.current_period_start))], [sub.cancel_at_period_end ? 'Ends' : 'Renews', esc(fmtDate(sub.current_period_end))], ['Amount', esc(sub.amount != null ? money(sub.amount, sub.currency) : '—')],
               isub && !sub.cancel_at_period_end ? ['Next renewal', esc(ikPrice(isub.next_price, (integ.plan || {}).currency, isub.billing_cycle)) + (Number(isub.next_price) < Number(isub.amount) ? ' <span class="oa-ik-good">· lower price</span>' : '')] : null])}</div>
+            ${subState === 'demo' ? `<p class="oa-hint" style="margin-top:12px">${trial && trial.expired ? 'Your free trial has ended. Choose a plan below to keep running searches.' : 'Choose a plan below any time — your searches, leads and settings carry over.'}</p>` : ''}
             ${sub.cancel_at_period_end ? `<div class="alert alert-warning" style="margin-top:12px">${ico('alert', 'alert-icon')}<div class="alert-body">Cancellation scheduled for the end of this period.</div></div>` : ''}
             ${manage && active ? `<div class="oa-actions" style="margin-top:14px">${sub.cancel_at_period_end ? '<button type="button" class="btn btn-secondary btn-sm" data-reactivate>Keep my subscription</button>' : (isOwner() ? '<button type="button" class="btn btn-danger btn-sm" data-cancel>Request cancellation</button>' : '<span class="oa-hint">Only the organization owner can cancel.</span>')}</div>` : ''}</div>
           <div class="oa-card" style="grid-column:span 2"><div class="oa-card-head"><div class="oa-card-title">Usage vs limits</div><span class="oa-card-sub">${usage && usage.period && usage.period.end ? 'Resets ' + esc(fmtDate(usage.period.end)) : ''}</span></div>
@@ -2572,7 +2672,7 @@
         filters: [{ name: 'q', label: 'Search', placeholder: 'Search plan' }, { name: 'status', label: 'Status', type: 'select', all: 'All statuses', options: Array.from(new Set((hist.items || []).map(h => h.status).filter(Boolean))).map(s => [s, cap(label(s))]) }],
         columns: [
           { label: 'Requested', id: 'requested', sortVal: h => ts(h.created_at), render: h => esc(fmtDate(h.created_at, true)) },
-          { label: 'Plan', sortVal: h => h.plan_id || '', render: h => esc(h.plan_id) },
+          { label: 'Plan', sortVal: h => h.plan_id || '', render: h => esc(planName(h.plan_id)), csv: h => planName(h.plan_id) },
           { label: 'Cycle', render: h => esc(label(h.billing_cycle || '—')) },
           { label: 'Amount', num: true, sortVal: h => Number(h.amount) || 0, render: h => esc(money(h.amount, h.currency)) },
           { label: 'Status', sortVal: h => h.status || '', render: h => pill(h.status) },
@@ -2925,10 +3025,17 @@
     const h = $('h1', g); if (h) { h.setAttribute('tabindex', '-1'); h.focus(); }
   }
   function showLockedGate() {
-    gate(`<div class="oa-state"><div class="oa-state-icon brand">${ico('lock')}</div><span class="oa-pill" data-tone="brand" data-status="demo">Demo organization</span><h1 class="oa-gate-title">Your Admin portal unlocks with a confirmed plan</h1>
-      <p>Team management, roles, analytics, exports and lead rules become available as soon as your subscription is confirmed. Your data and searches are safe in the meantime.</p>
-      <ol class="oa-steps"><li><b>Choose a plan</b><span>In the User Portal under Billing.</span></li><li><b>Complete payment</b><span>Card or bank transfer.</span></li><li><b>We confirm it</b><span>The Admin portal switches on automatically.</span></li></ol>
+    const onTrial = isTrialOrg();
+    gate(`<div class="oa-state"><div class="oa-state-icon brand">${ico('lock')}</div>${onTrial ? '<span class="oa-pill" data-tone="brand" data-status="trial" data-trial-pill>Free trial</span>' : '<span class="oa-pill" data-tone="warning" data-status="pending">Admin portal locked</span>'}<h1 class="oa-gate-title">Your Admin portal unlocks with a paid plan</h1>
+      <p>${onTrial ? 'You are on the free trial: searches and leads work in the User Portal. ' : ''}Team management, roles, analytics, exports and the keyword library become available as soon as your plan is confirmed. Your data and searches are safe in the meantime.</p>${onTrial ? '<p class="oa-small" data-trial-ends hidden></p>' : ''}
+      <ol class="oa-steps"><li><b>Choose a plan</b><span>In the User Portal under Plans &amp; billing.</span></li><li><b>Complete payment</b><span>Card or bank transfer.</span></li><li><b>We confirm it</b><span>The Admin portal switches on automatically.</span></li></ol>
       <div class="oa-actions"><a class="btn btn-primary" href="/dashboard#billing">Choose a plan</a><a class="btn btn-secondary" href="/dashboard">Open User Portal</a><button type="button" class="btn btn-ghost" data-logout>Sign out</button></div></div>`);
+    if (!onTrial) return;
+    getTrial().then((t) => {
+      const g = $('#oa-gate'); if (!t || !g || g.hidden) return;
+      const p = $('[data-trial-pill]', g); if (p) { p.textContent = 'Free trial · ' + trialLeft(t); if (t.expired) p.setAttribute('data-tone', 'neutral'); }
+      const e = $('[data-trial-ends]', g); if (e && t.expires_at) { e.textContent = (t.expired ? 'Your free trial ended on ' : 'Your free trial ends on ') + fmtDate(t.expires_at, true) + '.'; e.hidden = false; }
+    });
   }
   async function logout() {
     try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch (_) { /* */ }

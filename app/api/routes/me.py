@@ -71,7 +71,7 @@ NOTIFICATION_PREFERENCES: Dict[str, Dict[str, Any]] = {
                                    "job_failed", "leads_found", "new_leads")},
     "lead_assigned": {"label": "A lead is assigned to me", "default": True,
                       "types": ("lead_assigned",)},
-    "usage_warnings": {"label": "Token, usage & demo warnings", "default": True,
+    "usage_warnings": {"label": "Token, usage & free trial warnings", "default": True,
                        "types": ("high_token_usage", "tokens_low", "demo_expiring",
                                  "demo_expired", "quota_warning", "usage_threshold",
                                  "usage_warning")},
@@ -407,10 +407,10 @@ def _blockers(usage: Dict[str, Any], costs: Dict[str, int],
         out.append({"code": "ORGANIZATION_INACTIVE",
                     "message": f"Your workspace is {org_status}."})
     if demo and demo.get("expired"):
-        out.append({"code": "DEMO_EXPIRED", "message": "Your demo has ended."})
+        out.append({"code": "DEMO_EXPIRED", "message": "Your free trial has ended. Choose a plan to keep searching."})
     if tokens:
         if tokens.get("expired"):
-            out.append({"code": "TOKENS_EXPIRED", "message": "Your tokens have expired."})
+            out.append({"code": "TOKENS_EXPIRED", "message": "Your token allowance has expired. Choose a plan to get more."})
         elif costs.get("search") and int(tokens.get("remaining") or 0) < int(costs["search"]):
             out.append({"code": "TOKENS_EXHAUSTED",
                         "needed": costs["search"], "remaining": tokens.get("remaining"),
@@ -571,8 +571,8 @@ def _alerts(usage: Dict[str, Any], sub: Optional[Dict[str, Any]], counts: Dict[s
     if demo and not demo.get("expired"):
         days = int(demo.get("days_remaining") or 0)
         alerts.append({"level": "warning" if days <= 2 else "info", "code": "DEMO_ACTIVE",
-                       "message": (f"Demo ends in {days} day{'s' if days != 1 else ''}."
-                                   if days else "Your demo ends today."),
+                       "message": (f"Free trial ends in {days} day{'s' if days != 1 else ''}."
+                                   if days else "Your free trial ends today."),
                        "expires_at": demo.get("expires_at"), "action": "upgrade"})
     if tokens and not tokens.get("expired") and "TOKENS_EXHAUSTED" not in codes:
         allocated = int(tokens.get("allocated") or 0)

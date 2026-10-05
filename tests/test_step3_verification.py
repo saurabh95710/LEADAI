@@ -182,9 +182,13 @@ def _seed_tree(db, org_id, uid, email, tag):
     key = str(db.api_keys.insert_one({
         **common, "name": f"Key {tag}", "prefix": f"lai_live_{tag}", "key_hash": f"hash_{tag}",
         "scopes": ["leads:read"], "status": "active", "created_at": NOW}).inserted_id)
+    invoice = f"INV-{tag}-{ObjectId()}"
+    db.invoices.insert_one({"organization_id": common["organization_id"], "number": invoice, "status": "paid",
+                            "total": 99.0, "currency": "USD", "description": f"Subscription {tag}",
+                            "invoice_date": NOW, "paid_at": NOW, "created_at": NOW})
     return {"run": run_id, "page": page, "post": post, "comment": comment, "lead": lead,
             "export": export, "ticket": ticket, "notification": notification, "preset": preset,
-            "scan": scan, "rule": rule, "webhook": webhook, "key": key}
+            "scan": scan, "rule": rule, "webhook": webhook, "key": key, "invoice": invoice}
 
 
 def _seed_billing(db, org_id, tag, status="pending_payment", plan="pro"):
@@ -314,6 +318,7 @@ def _param_values(w, owner_key, rec_key, sub_key, cs_key, inv_key):
         "rule_id": rec["rule"],
         "webhook_id": rec["webhook"],
         "key_id": rec["key"],
+        "number": rec["invoice"],
     }
 
 

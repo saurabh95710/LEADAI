@@ -1001,7 +1001,7 @@ async def impersonate_organization(
         "success": True,
         "message": f"Now impersonating organization: {org.get('name')}",
         "expires_at": impersonated_user["impersonation_expires_at"],
-        "redirect": "/",
+        "redirect": "/user",
         "organization": {
             "id": str(org["_id"]),
             "name": org.get("name"),

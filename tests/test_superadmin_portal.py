@@ -290,7 +290,7 @@ class TestOtherPortalsUnaffected:
         assert resp.status_code == 200
 
     def test_root_requires_site_or_admin_session(self, client):
-        resp = client.get("/", follow_redirects=False)
+        resp = client.get("/user", follow_redirects=False)
         assert resp.status_code in (302, 303, 307)
         assert "login" in _location(resp)
 

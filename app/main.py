@@ -155,9 +155,19 @@ async def _run_startup_tasks():
                 await asyncio.to_thread(migrate_tenant_api_keys, _sdb())
             except Exception as e:
                 logger.warning("API key migration skipped: %s", e)
-            from app.cms.models import ensure_cms_indexes, seed_cms_defaults
+            # website sign-ups start a 3-day free trial at once (applied once)
+            try:
+                from app.lifecycle.config import migrate_self_serve_trial
+                await asyncio.to_thread(migrate_self_serve_trial, _sdb())
+            except Exception as e:
+                logger.warning("Self-serve trial settings migration skipped: %s", e)
+            from app.cms.models import ensure_cms_indexes, migrate_trial_copy, seed_cms_defaults
             await ensure_cms_indexes(adb)
             await seed_cms_defaults(adb)
+            try:  # once: shipped "request a demo" copy -> free-trial copy
+                await migrate_trial_copy(adb)
+            except Exception as e:
+                logger.warning("Website trial copy update skipped: %s", e)
 
         if sdb is not None:
             from app.db.models import utcnow
@@ -567,7 +577,7 @@ async def auth_gate(request: Request, call_next):
     # /superadmin/ and /admin/ take the same auth branch as their
     # canonical forms (previously they fell through to RedirectResponse("/login")).
     portal_path = path.rstrip("/") or "/"
-    _PUBLIC_PAGES = {"/signup", "/contact", "/website", "/features", "/pricing", "/about",
+    _PUBLIC_PAGES = {"/", "/signup", "/contact", "/website", "/features", "/pricing", "/about",
                      "/faq", "/privacy", "/terms", "/request-demo", "/demo-pending",
                      "/forgot-password", "/reset-password", "/403", "/404",
                      "/how-it-works", "/cookies", "/testimonials", "/sitemap.xml", "/robots.txt",
@@ -685,7 +695,7 @@ async def auth_gate(request: Request, call_next):
             # come back to the page that was asked for after signing in
             from urllib.parse import quote
             back = path + (("?" + request.url.query) if request.url.query else "")
-            target = "/login" if path in ("/", "/dashboard") else "/login?next=" + quote(back, safe="")
+            target = "/login" if path in ("/user", "/dashboard") else "/login?next=" + quote(back, safe="")
         return RedirectResponse(target, status_code=303)
     return await _call_as(request, call_next, user)
 
@@ -853,8 +863,16 @@ async def partner_program_page(request: Request):
 
 
 @app.get("/")
-@app.get("/dashboard")
 async def root(request: Request):
+    """The public website's home page (same as /website)."""
+    from app.api.routes.public_website import render_site_page
+    return await render_site_page(request, "website.html", "home")
+
+
+@app.get("/user")
+@app.get("/dashboard")
+async def user_panel(request: Request):
+    """The customer user panel (sign-in required, see auth_gate)."""
     return _serve_html_file("index.html", request)
 
 
