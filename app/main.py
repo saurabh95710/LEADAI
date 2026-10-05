@@ -511,15 +511,20 @@ static_dir = os.path.join(os.path.dirname(__file__), "static")
 
 
 class CachedStaticFiles(StaticFiles):
-    """Static file handler with long Cache-Control for immutable assets (CSS/JS/images/fonts)
-    and validation caching for HTML."""
+    """Static file handler: a year-long immutable cache only for assets requested
+    with a version tag (``?v=…``, changed whenever the file changes); every other
+    asset and HTML is revalidated on each use (a cheap 304), so a deploy is never
+    hidden behind a browser's or Cloudflare's old copy."""
 
     def file_response(self, *args, **kwargs) -> Response:
         resp = super().file_response(*args, **kwargs)
-        path = kwargs.get("path") or (args[0] if args else "")
+        path = kwargs.get("full_path") or kwargs.get("path") or (args[0] if args else "")
+        scope = kwargs.get("scope") or (args[2] if len(args) > 2 else None) or {}
+        versioned = b"v=" in (scope.get("query_string") or b"")
         ext = os.path.splitext(str(path))[1].lower()
         if ext in (".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".webp"):
-            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            resp.headers["Cache-Control"] = ("public, max-age=31536000, immutable" if versioned
+                                             else "no-cache, must-revalidate")
         elif ext in (".html", ".htm"):
             resp.headers["Cache-Control"] = "no-cache, must-revalidate"
         return resp

@@ -43,13 +43,31 @@ async def test_gzip_compression_middleware():
 
 @pytest.mark.asyncio
 async def test_static_asset_cache_control():
+    """Only version-tagged assets (?v=…) are cached for a year; untagged ones are
+    revalidated, so a deploy is never hidden behind an old cached copy."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get("/static/config.js?v=r1005")
+        assert res.status_code == 200
+        assert "public" in res.headers.get("cache-control", "")
+        assert "max-age=31536000" in res.headers.get("cache-control", "")
+        assert "immutable" in res.headers.get("cache-control", "")
         res = await ac.get("/static/config.js")
-        if res.status_code == 200:
-            assert "public" in res.headers.get("cache-control", "")
-            assert "max-age=31536000" in res.headers.get("cache-control", "")
-            assert "immutable" in res.headers.get("cache-control", "")
+        assert res.status_code == 200
+        assert "immutable" not in res.headers.get("cache-control", "")
+        assert "no-cache" in res.headers.get("cache-control", "")
+
+
+def test_every_page_tags_its_scripts_and_styles():
+    """A page linking a .js/.css without ?v= would keep serving browsers an old
+    copy after a deploy (the cream + mint theme stayed invisible this way)."""
+    import glob
+    import re
+    untagged = []
+    for page in glob.glob("app/static/*.html"):
+        text = open(page, encoding="utf-8").read()
+        untagged += [f"{page}: {m}" for m in re.findall(r'(?:src|href)="(/static/[^"?]+\.(?:js|css))"', text)]
+    assert not untagged, untagged
 
 
 @pytest.mark.asyncio
