@@ -55,10 +55,16 @@ def test_org_admin_cannot_reset_password_of_multi_org_member(env):
 
 def test_secret_env_vars_are_environment_only():
     from app.admin import envvars as ev
-    for name in ("SESSION_SECRET", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
-                 "RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET",
-                 "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"):
+    # Core system credentials must stay environment-only (never overridden in DB)
+    for name in ("SESSION_SECRET", "SUPERADMIN_EMAIL", "SUPERADMIN_PASSWORD"):
         assert ev.is_locked(name), name
+    # Gateway secrets can be configured by Super Admin and are sealed / encrypted at rest
+    for name in ("STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
+                 "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET",
+                 "SMTP_PASSWORD"):
+        assert name in ev._SEALED, name
+        assert ev.is_secret(name), name
+
 
 
 def test_manager_with_delegated_settings_cannot_share_workspace(env):
