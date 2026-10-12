@@ -176,7 +176,7 @@ def test_super_admin_row_of_the_access_matrix(env, site_account):
     assert sa.get("/pricing").status_code == 200
     assert sa.get("/superadmin").status_code == 200
     assert sa.get("/api/super-admin/organizations").status_code == 200
-    assert sa.get("/admin").status_code == 200
+    assert sa.get("/admin", follow_redirects=False).headers["location"] == "/superadmin"   # merged
     assert sa.get("/api/admin/dashboard").status_code in (200, 500)  # 500 = mongomock-only $convert gap
     # Customer API: the Super Admin issues a key for any organization
     r = sa.post("/api/super-admin/api-keys", json={"owner_type": "organization", "owner_id": org_id,

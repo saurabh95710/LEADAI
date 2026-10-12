@@ -326,53 +326,70 @@ def test_api_key_management_and_auth(mock_db):
 # ── 7. Razorpay Billing & Verified Webhooks ─────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_razorpay_billing_provider(mock_db):
-    from app.billing.provider import RazorpayBillingProvider
+async def test_razorpay_billing_provider(monkeypatch):
+    import httpx
 
-    provider = RazorpayBillingProvider(
+    from app.billing import provider as prov
+    from app.db.mongo import get_sync_db
+
+    orders = []
+
+    def razorpay_api(request):  # the Razorpay Orders API, mocked
+        orders.append(json.loads(request.content))
+        return httpx.Response(200, json={"id": "order_Phase6", "amount": orders[-1]["amount"],
+                                         "currency": orders[-1]["currency"], "status": "created"})
+    monkeypatch.setattr(prov, "_HTTP_TRANSPORT", httpx.MockTransport(razorpay_api))
+
+    provider = prov.RazorpayBillingProvider(
         key_id="rzp_test_key123",
         key_secret="rzp_secret_abc",
         webhook_secret="rzp_webhook_secret_xyz",
     )
 
+    db = get_sync_db()
     sub_id = ObjectId()
-    mock_db.subscriptions.insert_one({"_id": sub_id, "status": "pending_payment"})
+    db.subscriptions.insert_one({"_id": sub_id, "status": "pending_payment"})
 
-    with patch("app.billing.provider.get_async_db", return_value=mock_db):
-        checkout = await provider.create_checkout_session(
-            subscription={"_id": sub_id},
-            plan={"name": "Starter", "price_cents": 249900, "currency": "INR"},
-            customer_email="buyer@test.com",
-            success_url="/success",
-            cancel_url="/cancel",
-        )
-        assert checkout["provider"] == "razorpay"
-        assert checkout["currency"] == "INR"
-        assert checkout["amount"] == 249900
+    checkout = await provider.create_checkout_session(
+        subscription={"_id": sub_id},
+        plan={"name": "Starter", "price_cents": 249900, "currency": "INR"},
+        customer_email="buyer@test.com",
+        success_url="/success",
+        cancel_url="/cancel",
+    )
+    assert checkout["provider"] == "razorpay"
+    assert checkout["currency"] == "INR"
+    assert checkout["amount"] == 249900
+    # a real order was created and is the checkout reference
+    assert orders[0]["amount"] == 249900 and orders[0]["notes"]["subscription_id"] == str(sub_id)
+    assert checkout["order_id"] == "order_Phase6"
+    assert db.subscriptions.find_one({"_id": sub_id})["checkout_session_id"] == "order_Phase6"
 
-        # Webhook payload verification
-        event_payload = {
-            "event": "payment.captured",
-            "event_id": "evt_rzp_999",
-            "payload": {
-                "payment": {
-                    "entity": {
-                        "id": "pay_12345",
-                        "order_id": checkout["order_id"],
-                        "amount": 249900,
-                        "currency": "INR",
-                        "email": "buyer@test.com",
-                        "notes": {"subscription_id": str(sub_id)},
-                    }
+    # Webhook payload verification
+    event_payload = {
+        "event": "payment.captured",
+        "event_id": "evt_rzp_999",
+        "payload": {
+            "payment": {
+                "entity": {
+                    "id": "pay_12345",
+                    "order_id": checkout["order_id"],
+                    "amount": 249900,
+                    "currency": "INR",
+                    "email": "buyer@test.com",
+                    "notes": {"subscription_id": str(sub_id)},
                 }
             }
         }
-        body_bytes = json.dumps(event_payload).encode("utf-8")
-        expected_sig = hmac.new(b"rzp_webhook_secret_xyz", body_bytes, hashlib.sha256).hexdigest()
+    }
+    body_bytes = json.dumps(event_payload).encode("utf-8")
+    expected_sig = hmac.new(b"rzp_webhook_secret_xyz", body_bytes, hashlib.sha256).hexdigest()
 
-        verified = provider.verify_webhook(body_bytes, {"x-razorpay-signature": expected_sig})
-        assert verified["type"] == "checkout.session.completed"
-        assert verified["data"]["object"]["payment_status"] == "paid"
+    verified = provider.verify_webhook(body_bytes, {"x-razorpay-signature": expected_sig})
+    assert verified["type"] == "checkout.session.completed"
+    assert verified["data"]["object"]["payment_status"] == "paid"
+    assert verified["data"]["object"]["order_id"] == "order_Phase6"
+    assert verified["data"]["object"]["payment_intent"] == "pay_12345"
 
 
 # ── 8. Unit Economics & Margins ─────────────────────────────────────────────

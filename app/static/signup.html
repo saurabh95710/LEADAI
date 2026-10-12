@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-appconfig="brand-only">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -9,7 +9,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>"/>
   <link rel="stylesheet" href="/static/design/tokens.css?v=r1005"/>
   <link rel="stylesheet" href="/static/design/components.css?v=r1005"/>
-  <script src="/static/design/theme.js?v=r1005"></script>
+  <script src="/static/design/theme.js?v=r1006"></script>
   <style>
     .signup-card { max-width:980px; padding:0; display:grid; grid-template-columns:minmax(0,0.9fr) minmax(0,1.1fr); overflow:hidden; }
     .signup-aside {
@@ -130,12 +130,13 @@
               <select class="form-input" id="industry" name="industry" aria-describedby="industryHint">
                 <option value="">Select your industry</option>
               </select>
-              <div class="field-hint" id="industryHint">LeadAI works for any business — this tunes lead detection for yours.</div>
+              <div class="form-hint field-hint" id="industryHint">LeadAI works for any business — this tunes lead detection for yours.</div>
             </div>
             <div class="form-group">
-              <label class="form-label" for="phone">Phone <span class="optional">(optional)</span></label>
+              <label class="form-label" for="phone">Mobile number <span class="optional">(optional)</span></label>
               <input class="form-input" type="tel" id="phone" name="phone" autocomplete="tel" inputmode="tel" maxlength="30"
-                     aria-describedby="phoneError" data-error="phoneError"/>
+                     placeholder="+91 98765 43210" aria-describedby="phoneHint phoneError" data-error="phoneError"/>
+              <div class="form-hint field-hint" id="phoneHint">For your welcome text, sign-in alerts and resetting your password by SMS.</div>
               <div class="field-error" id="phoneError" aria-live="polite"></div>
             </div>
           </div>
@@ -176,6 +177,9 @@
             <span class="spinner" aria-hidden="true"></span><span class="btn-label">Request demo</span>
           </button>
         </form>
+        <div id="closedBox" style="display:none">
+          <a class="btn btn-primary btn-lg btn-block" href="/contact">Contact us</a>
+        </div>
         <p class="auth-alt"><span id="altText">Already approved?</span> <a class="link" href="/login">Sign in</a></p>
       </section>
     </div>
@@ -183,7 +187,7 @@
 
   <footer class="auth-footer">
     <nav aria-label="Footer"><a href="/website">Home</a><a href="/contact">Contact</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
-    <p style="margin-top:6px">© 2026 LeadAI</p>
+    <p style="margin-top:6px">© 2026 <span data-brand-name>LeadAI</span></p>
   </footer>
 </div>
 
@@ -225,7 +229,19 @@
   // Self-serve free trial (Super Admin → demo settings → auto-approve): the
   // account works the moment it's created, so the page says so.
   var trialMode = false;
+  // Sign-ups switched off (Global Settings → features.demo_registration): say
+  // so up front instead of a form the server would refuse
+  function showClosed() {
+    document.title = "Sign-ups are closed · LeadAI";
+    $("title").textContent = "Sign-ups are closed";
+    $("subtitle").textContent = "We're not taking new sign-ups right now. Contact us and we'll get back to you.";
+    $("signupForm").style.display = "none";
+    $("closedBox").style.display = "";
+    $("altText").textContent = "Already have an account?";
+    $("asideNote").textContent = "New accounts are paused for now. Existing customers can sign in as usual.";
+  }
   fetch("/api/public/config").then(function (r) { return r.ok ? r.json() : {}; }).then(function (d) {
+    if (d && d.features && d.features.demo_registration === false) { showClosed(); return; }
     var t = (d && (d.trial || (d.config && d.config.trial))) || {};
     if (!t.self_serve) return;
     trialMode = true;
@@ -365,5 +381,7 @@
   });
 })();
 </script>
+<script src="/static/config.js?v=brand2" defer></script>
+<script>window.addEventListener("DOMContentLoaded", function () { if (window.AppConfig) AppConfig.load(); });</script>
 </body>
 </html>

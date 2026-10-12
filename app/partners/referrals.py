@@ -396,12 +396,26 @@ def managed_limit_reached(db, partner: Dict[str, Any]) -> bool:
 
 # ── reseller customer onboarding ─────────────────────────────────────────────
 
+def _registrations_open() -> bool:
+    """Global Settings → features.demo_registration.enabled (unset = open),
+    read exactly like /api/auth/signup does."""
+    try:
+        from app.admin.settings import get_setting
+        val = get_setting("features.demo_registration.enabled")
+        return True if val is None else bool(val)
+    except Exception:
+        return True
+
+
 def create_reseller_customer(partner: Dict[str, Any], data: Dict[str, Any], *,
                              ip: Optional[str] = None) -> Dict[str, Any]:
     """A reseller onboards a customer through the EXISTING demo-request flow
     (organization + owner + pending demo); the owner sets their own password
     from an emailed link. The organization is attributed to the reseller."""
     db = db_or_503()
+    # same switch as the public /api/auth/signup: no new accounts while closed
+    if not _registrations_open():
+        raise HTTPException(status_code=403, detail="New registrations are currently closed")
     from app.lifecycle.demo import create_demo_request
     email = (data.get("email") or "").strip().lower()
     name, company = text(data.get("name"), 120), text(data.get("company"), 160)

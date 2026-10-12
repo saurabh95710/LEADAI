@@ -102,6 +102,11 @@ def mask(value: Any, keep: int = 4) -> Optional[str]:
     return ("•" * max(0, min(len(s) - keep, 8))) + s[-keep:] if len(s) > keep else "•" * len(s)
 
 
+def _e164(phone: Any) -> Optional[str]:
+    from app.messaging.phone import normalize_phone
+    return normalize_phone(phone)
+
+
 def paudit(action: str, partner_id: Optional[str], *, actor: Any = None,
            ip: Optional[str] = None, details: Optional[Dict[str, Any]] = None,
            resource_type: str = "partner", resource_id: Optional[str] = None,
@@ -624,6 +629,7 @@ def submit_application(data: Dict[str, Any], *, ip: Optional[str] = None) -> Dic
         validate_password(password)
         user_id = str(db.users.insert_one({
             "email": email, "name": fields["name"], "phone": fields["phone"],
+            "phone_e164": _e164(fields["phone"]),
             "password_hash": hash_password(password), "status": "active",
             "account_type": "partner", "is_platform_admin": False, "platform_role": None,
             "default_organization_id": None, "email_verified": False,

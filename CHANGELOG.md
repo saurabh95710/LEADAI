@@ -25,6 +25,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Marketing center with private file uploads, categories, per-partner visibility, email templates and download tracking.
   - Coupon and fraud notifications.
   - Partner API: an index endpoint, notifications readable with an API key, and key usage tracking.
+- **Payments with Razorpay and Stripe, and a working mail server setup** (`docs/PAYMENTS_AND_EMAIL.md`):
+  - **Razorpay is complete:**
+    - Checkout creates a real Razorpay order and opens Razorpay's payment window (UPI, cards, net banking, wallets).
+    - The payment is checked by its signature, and its webhook (`/api/billing/webhook/razorpay`) records payments, failures, refunds and disputes once each.
+    - Stripe has its own webhook address (`/api/billing/webhook/stripe`), and both keep working whichever provider is active.
+  - **Super Admin → Global Settings → Payments** chooses the provider (auto, Razorpay or Stripe) and shows each provider's keys, webhook URL and events to tick, the `.env` lines to add, and a **Check keys** button. Keys stay in the server's `.env` only.
+  - **Email & alerts** now has a Mail server panel:
+    - It shows what is set and missing, the outbox and the last error.
+    - It offers ready-made `.env` lines for Hostinger, Gmail, Zoho and Brevo, and a **Send test email** button.
+    - Email works over SSL (port 465, e.g. Hostinger) as well as STARTTLS (587).
+    - Failures say what to fix (wrong password, wrong port, server unreachable).
+  - **Fix:** values written only in `.env` were ignored: `PUBLIC_BASE_URL`, `SMTP_*`, `TRUST_PROXY_HEADERS`, `BILLING_WEBHOOK_SECRET`, the SMS settings and the new Razorpay keys. `.env` is now read at start-up (real environment variables still win).
+- **Global Settings reorganized, and every setting on it now works:**
+  - **Layout:**
+    - The tabs are grouped under four headings: Brand & website, Leads engine, Communication and Operations.
+    - Each tab opens with what it controls and links to related pages (Messaging, Feature Flags, AI Management…).
+    - Groups have a one-line explanation, and short fields sit two to a row.
+    - A number on each tab shows how many settings differ from the default.
+    - Lead scoring and comment detection have their own tabs, and every setting has a plain description of what it really does.
+  - **Settings that did nothing now work:**
+    - **Email:** the sender name, reply-to address and footer line apply to every email, and emails use the product name instead of "LeadAI".
+    - **Alerts and emails:** the alert-bell switch and the "search failed" / "new leads" email switches work.
+    - **Downloads:** row limit, leads-only default and the AI-reason column.
+    - **Leads:** "require a phone or email" and the starting status.
+    - **New organizations:** the default timezone and currency apply to them.
+    - **Default colour theme:** applies to visitors who haven't picked one.
+    - **Colours:** success, warning, danger, info and accent apply everywhere.
+    - **Footers:** help and legal links appear in the sign-in and app footers.
+    - **Large searches:** a warning appears before an unusually large search.
+    - **Website sign-up switch:** the website shows "Sign-ups are closed", and partner sign-ups respect it too.
+    - **Minimum Facebook comments:** applies without a restart.
+  - **Removed:** 30 settings that had no effect, duplicates and leftovers of the old `/admin` console; their saved values are kept. The two AI on/off switches are now one; a saved "off" is carried over.
+  - **Corrected labels:** "Stop on limit" actually limits searches running at once, and "Minimum comments" applies to Facebook posts.
+  - **Elsewhere:**
+    - Brand colours and font now also apply on the Super Admin, Admin and Partner portals.
+    - The user app's tab title shows your product name.
+    - Website colours set in Website / CMS apply.
+    - The misleading "Audit logging" switch is replaced by "Always on".
+    - A page link saved as an image is never sent to browsers.
+- **Global Settings fixes:** an image setting saved as a page address (e.g. `…/superadmin#/settings?tab=branding`) is flagged on the Branding tab instead of showing a broken logo, every image field has a **Clear** button, previews show only real images, and such a value is refused when typed (as on the server). A bad value you didn't touch never blocks saving other changes. On start, stored page-address logos and stray id-named setting entries are removed once, so the built-in defaults apply.
+- **Brand changes reach the website:** Super Admin → Global Settings (General: name, tagline; Branding: logo, favicon, colours) is now the one source for the public website too: header, page titles, favicon and colours (light and dark), as well as the apps and sign-in pages. Website settings keep those fields only as fallbacks and say where to change them. Saved changes show on the next page load (no 5-minute browser copy, website data revalidates). Image settings refuse page links, and garbled text from an earlier wrong-encoding save ("â€”") is repaired once.
+- **One platform portal: the old `/admin` console is merged into `/superadmin`.** Every feature of both is kept and each duplicate appears once:
+  - New pages: Operations (overview, jobs + failed jobs with retry, leads with notes, follow-ups, priority, assignment and bulk actions, platforms, pages, posts, comments, exports), Lead engine (Apify, actors, limits, usage & cost, lead scoring, keyword rules with custom categories), System (database, logs with statistics) and Settings (Global Settings with version history, import/export and live brand preview; Environment with the guard lock).
+  - Merged into the existing pages: plans, subscriptions (extend trial, grant credits), invoices, organizations (set plan, grant feature, impersonate a member), Security Center (staff accounts, security settings), feature flags, health checks, maintenance, analytics (leads & scraping tab), AI management (runtime settings, live test, analysis), audit.
+  - Platform staff (managers, viewers) use the same portal; the menu shows what their role allows, and everyone can change their own password from the profile menu. `/admin` and old `/admin#/…` links redirect to the matching page.
+  - Fixes found on the way: run filters for comments, leads and posts, the follow-ups CSV, export audit details, the log module parser, a wrong guard password no longer signs you out, and the Apify statistics no longer fail on databases without `$convert`.
+- **Messaging gateway: email + SMS** (`docs/MESSAGING.md`):
+  - SMS through Twilio, Fast2SMS (India) or a webhook to any other provider, set up in Super Admin → Messaging → Gateway (secrets stored encrypted), with a test send, an SMS outbox and daily spending limits (total and per number; reset codes have their own allowance).
+  - Automatic messages: a welcome text on sign-up and a "new sign-in" alert by email and SMS (at most every 10 minutes per person); each can be switched off.
+  - Forgotten password by phone: a 6-digit SMS code (10 minutes, 5 tries), next to the emailed link, on the reset page ("Email me a link" / "Text me a code").
+  - The Super Admin can message anyone (people, whole organizations, all organization admins, all users, all partners) and organization admins can message their own team (Team → Message team), by email and/or SMS, with delivery tracking per person.
+- **Interactive guides in every portal** (`docs/INTERACTIVE_GUIDES.md`): customer app, Org Admin, Super Admin and Partner Portal each have a welcome guide (starts once, on a person's first visit) and page guides, opened from the **? Guide** button. One shared engine (`app/static/design/tour.js` / `tour.css`): highlights each part of the screen, opens the right page, works with the keyboard and screen readers, light/dark and phones.
 - **Addresses:** `/` is now the public website (same as `/website`); the customer user panel is at **`/user`** (`/dashboard` still works); `/login` signs in to `/user`. Signed-in customers see "Open your dashboard" on the website. New `GET /api/auth/status` (always 200, no personal data).
 - **All-portal audit** (every page of every portal opened in a real browser, light/dark and phone width):
   - Super Admin: "Free trials" (was "Demo Management") with a "Trial settings (days & tokens)" tab; new Subscriptions → Lifecycle automation, Payments → Invoices & refunds, Record renewal; drawers close on navigation; trial wording throughout.

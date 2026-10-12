@@ -149,9 +149,8 @@ class TestSettingsRegistry:
         from app.settings.registry import CATEGORIES
         cat_ids = {c["id"] for c in CATEGORIES}
         expected = {
-            "general", "branding", "appearance", "ai", "limits",
-            "platforms", "features", "notifications", "leads",
-            "seo", "maintenance", "security",
+            "general", "branding", "seo", "ai", "scoring", "detection", "limits",
+            "platforms", "leads", "notifications", "security", "maintenance",
         }
         assert expected.issubset(cat_ids)
 
@@ -169,6 +168,10 @@ class TestSettingsRegistry:
             # Audit logging can no longer be disabled: the default is kept for
             # display only and is intentionally not an editable setting.
             if key == "security.audit_logging":
+                continue
+            # settings that did nothing were retired; internal state flags
+            from app.settings.registry import INTERNAL_KEYS, RETIRED_KEYS
+            if key in RETIRED_KEYS or key in INTERNAL_KEYS:
                 continue
             assert key in REGISTERED_KEYS, f"Default key {key} not in registry"
 

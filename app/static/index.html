@@ -7,8 +7,9 @@
   <meta name="description" content="AI-powered social lead intelligence — paste a Facebook, Instagram, YouTube or LinkedIn URL and uncover high-intent prospects through real Apify data.">
   <meta name="color-scheme" content="light dark">
   <script>
-    /* apply the saved colour mode before first paint (theme.js keeps it in sync) */
-    try { var m = localStorage.getItem('leadai_color_mode'); if (m === 'light' || m === 'dark') document.documentElement.setAttribute('data-theme', m); } catch (_) {}
+    /* colour mode before first paint: the visitor's choice, else the brand default
+       (Global Settings → branding.theme, remembered by config.js); theme.js keeps it in sync */
+    try { var m = localStorage.getItem('leadai_color_mode'), b = localStorage.getItem('leadai_brand_theme'); if (m !== 'light' && m !== 'dark') m = b === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : (b === 'dark' ? 'dark' : 'light'); document.documentElement.setAttribute('data-theme', m); } catch (_) {}
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,8 +19,9 @@
   <link rel="stylesheet" href="/static/design/tokens.css?v=r1005">
   <!-- shared components in a cascade layer: the portal's own (unlayered) rules always win -->
   <style id="dsLayer">@layer ds, ds-reset; @import url("/static/design/components.css?v=step4") layer(ds);</style>
-  <link rel="stylesheet" href="/static/styles.css?v=audit1">
+  <link rel="stylesheet" href="/static/styles.css?v=tour1">
   <link rel="stylesheet" href="/static/design/domain-keywords.css?v=1">
+  <link rel="stylesheet" href="/static/design/tour.css?v=tour1">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
 </head>
 <body>
@@ -115,7 +117,7 @@
 
         <!-- Notifications -->
         <div class="menu-wrap" id="notifWrap">
-          <button type="button" class="icon-btn" id="notifBtn" aria-haspopup="true" aria-expanded="false" aria-controls="notifPanel" aria-label="Notifications">
+          <button type="button" class="icon-btn" id="notifBtn" data-tour="notifications" aria-haspopup="true" aria-expanded="false" aria-controls="notifPanel" aria-label="Notifications">
             <svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg>
             <span class="notif-count hidden" id="notifCount" aria-hidden="true">0</span>
           </button>
@@ -167,26 +169,26 @@
           </div>
         </div>
 
-        <nav class="side-nav">
+        <nav class="side-nav" data-tour="sidebar-nav">
           <div class="side-nav-label">Workspace</div>
-          <button type="button" class="side-link" data-nav="dashboard"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg><span>Dashboard</span></button>
-          <button type="button" class="side-link" data-nav="search"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg><span>New search</span></button>
-          <button type="button" class="side-link" data-nav="results" id="navResults"><svg class="ico" aria-hidden="true"><use href="#i-layers"/></svg><span>Results</span></button>
+          <button type="button" class="side-link" data-nav="dashboard" data-tour="nav-dashboard"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg><span>Dashboard</span></button>
+          <button type="button" class="side-link" data-nav="search" data-tour="nav-search"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg><span>New search</span></button>
+          <button type="button" class="side-link" data-nav="results" id="navResults" data-tour="nav-results"><svg class="ico" aria-hidden="true"><use href="#i-layers"/></svg><span>Results</span></button>
 
           <div class="side-nav-label">Intelligence</div>
-          <button type="button" class="side-link" data-nav="leads"><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg><span>Leads</span><span class="side-badge hidden" id="navAssignedBadge" title="Assigned to me">0</span></button>
-          <button type="button" class="side-link" data-nav="history"><svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg><span>Search history</span></button>
-          <button type="button" class="side-link" data-nav="exports"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg><span>Exports</span></button>
+          <button type="button" class="side-link" data-nav="leads" data-tour="nav-leads"><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg><span>Leads</span><span class="side-badge hidden" id="navAssignedBadge" title="Assigned to me">0</span></button>
+          <button type="button" class="side-link" data-nav="history" data-tour="nav-history"><svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg><span>Search history</span></button>
+          <button type="button" class="side-link" data-nav="exports" data-tour="nav-exports"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg><span>Exports</span></button>
 
           <div class="side-nav-label">Account</div>
-          <button type="button" class="side-link" data-nav="usage"><svg class="ico" aria-hidden="true"><use href="#i-gauge"/></svg><span>Usage &amp; tokens</span></button>
-          <button type="button" class="side-link" data-nav="billing"><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg><span>Plans &amp; billing</span></button>
-          <button type="button" class="side-link" data-nav="settings"><svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg><span>Settings</span></button>
+          <button type="button" class="side-link" data-nav="usage" data-tour="nav-usage"><svg class="ico" aria-hidden="true"><use href="#i-gauge"/></svg><span>Usage &amp; tokens</span></button>
+          <button type="button" class="side-link" data-nav="billing" data-tour="nav-billing"><svg class="ico" aria-hidden="true"><use href="#i-card"/></svg><span>Plans &amp; billing</span></button>
+          <button type="button" class="side-link" data-nav="settings" data-tour="nav-settings"><svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg><span>Settings</span></button>
           <a class="side-link hidden" id="navAdminPortal" href="/org-admin"><svg class="ico" aria-hidden="true"><use href="#i-users"/></svg><span>Admin portal</span><svg class="ico ico-sm side-ext" aria-hidden="true"><use href="#i-external"/></svg></a>
         </nav>
 
         <!-- Token meter component (demo / plan tokens) -->
-        <div class="sidebar-token-card" id="sidebarTokenCard" aria-live="polite">
+        <div class="sidebar-token-card" id="sidebarTokenCard" data-tour="token-card" aria-live="polite">
           <div class="stc-head"><span>Tokens</span><span id="stcValue" class="stc-value"><span class="skeleton skeleton-inline"></span></span></div>
           <div class="quota-bar" role="progressbar" aria-label="Tokens used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="stcBar"><div class="quota-fill" id="stcFill" style="width:0%"></div></div>
           <div class="stc-note" id="stcNote"></div>
@@ -200,7 +202,7 @@
         <div id="portalBanner" class="portal-banner hidden" role="status"></div>
 
         <!-- ── Workflow navigation (Search → Pages → Posts → Comments) ── -->
-        <nav class="workflow-breadcrumb hidden" id="workflowBreadcrumb" aria-label="Lead workflow">
+        <nav class="workflow-breadcrumb hidden" id="workflowBreadcrumb" data-tour="workflow-steps" aria-label="Lead workflow">
           <div class="steps-track">
             <button type="button" class="breadcrumb-item active" data-view="search" onclick="navigateToView('search')">
               <span class="step-index" aria-hidden="true">1</span>
@@ -242,7 +244,7 @@
             <div id="dashAlerts" class="alert-stack" aria-live="polite"></div>
             <div id="dashError" class="hidden"></div>
 
-            <div class="kpi-grid" id="dashKpis">
+            <div class="kpi-grid" id="dashKpis" data-tour="dash-kpis">
               <!-- every KPI box is a link to the related view (app.js kpi() keeps href/data-nav in sync) -->
               <a class="kpi-card kpi-token box-link" id="kpiTokens" href="#usage" data-nav="usage">
                 <div class="kpi-label">Tokens</div>
@@ -295,21 +297,21 @@
           <!-- ══════════ NEW SEARCH (URL Search Agent) ══════════ -->
           <section id="view-search" class="workflow-view portal-view hidden">
 
-            <div class="hero">
+            <div class="hero" data-tour="search-hero">
               <div class="hero-badge"><span class="hero-badge-star" aria-hidden="true">✦</span> URL Search Agent</div>
               <h1 class="hero-title">Find your next <span class="grad-text">high-intent leads</span></h1>
               <p class="hero-sub">Paste a Facebook, Instagram, YouTube or LinkedIn link. The agent collects the page, its posts and comments, qualifies them and scores every lead with AI.</p>
             </div>
 
-            <div id="searchPermission" class="hidden"></div>
+            <div id="searchPermission" class="hidden" data-tour="search-permission"></div>
 
             <!-- ── Search card ── -->
             <!-- ── Search card ── -->
-            <div class="search-card glass-card" id="searchCard">
+            <div class="search-card glass-card" id="searchCard" data-tour="search-card">
               <div class="search-card-glow" aria-hidden="true"></div>
 
               <!-- Top Bar: Saved Searches / Presets -->
-              <div class="presets-bar" id="presetsBar">
+              <div class="presets-bar" id="presetsBar" data-tour="saved-searches">
                 <div class="presets-left">
                   <span class="presets-label"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-layers"/></svg> Saved Searches:</span>
                   <select id="searchPresetSelect" class="presets-select" aria-label="Load a saved search preset">
@@ -328,7 +330,7 @@
 
               <!-- Guided Stepper Navigation -->
               <div class="lead-stepper-wrap">
-                <ol class="lead-stepper" id="guidedStepper" aria-label="Guided search steps">
+                <ol class="lead-stepper" id="guidedStepper" data-tour="search-steps" aria-label="Guided search steps">
                   <li class="lead-step-item active" data-step="1" id="stepIndicator1">
                     <span class="lead-step-num">1</span>
                     <span class="lead-step-text">Industry</span>
@@ -344,12 +346,12 @@
                     <span class="lead-step-text">Keywords</span>
                   </li>
                   <li class="lead-step-connector"></li>
-                  <li class="lead-step-item" data-step="4" id="stepIndicator4">
+                  <li class="lead-step-item" data-step="4" id="stepIndicator4" data-tour="search-step-link">
                     <span class="lead-step-num">4</span>
                     <span class="lead-step-text">Social Link</span>
                   </li>
                   <li class="lead-step-connector"></li>
-                  <li class="lead-step-item" data-step="5" id="stepIndicator5">
+                  <li class="lead-step-item" data-step="5" id="stepIndicator5" data-tour="search-step-review">
                     <span class="lead-step-num">5</span>
                     <span class="lead-step-text">Review &amp; Search</span>
                   </li>
@@ -670,7 +672,7 @@
             </div>
 
             <!-- ── Recent searches ── -->
-            <section class="recent-section" aria-label="Recent searches">
+            <section class="recent-section" aria-label="Recent searches" data-tour="recent-searches">
               <div class="recent-head">
                 <h2 class="section-title">Recent searches</h2>
                 <div class="recent-filters" id="recentFilters" role="group" aria-label="Filter by platform">
@@ -772,7 +774,7 @@
               </div>
 
               <!-- Quick Filter Tabs / Pills -->
-              <div class="comment-filter-pills" id="commentFilterPills">
+              <div class="comment-filter-pills" id="commentFilterPills" data-tour="comment-filters">
                 <button class="filter-pill active" data-filter="all" onclick="setCommentFilterType('all', this)">
                   All comments <span class="pill-badge" id="countAll">0</span>
                 </button>
@@ -802,7 +804,7 @@
                 </div>
 
                 <div class="comments-toolbar-selects">
-                  <select id="commentsQualificationFilter" class="filter-select" onchange="renderCommentsScreen()" aria-label="Filter by comment qualification">
+                  <select id="commentsQualificationFilter" class="filter-select" data-tour="qualification-filter" onchange="renderCommentsScreen()" aria-label="Filter by comment qualification">
                     <option value="">Qualified + not qualified</option>
                     <option value="qualified">Qualified (went to AI)</option>
                     <option value="not_qualified">Not qualified (skipped by filter)</option>
@@ -825,7 +827,7 @@
               </div>
             </div>
 
-            <div id="commentsScreenStatus" class="page-search-summary hidden"></div>
+            <div id="commentsScreenStatus" class="page-search-summary hidden" data-tour="comments-summary"></div>
 
             <div id="commentsScrapeProgress" class="pipeline-progress hidden">
               <div class="processing-card">
@@ -855,12 +857,12 @@
                 <p class="page-sub">Leads found by your searches, plus leads an admin assigned to you.</p>
               </div>
             </div>
-            <div class="seg-tabs" role="tablist" aria-label="Lead views" id="leadsTabs">
+            <div class="seg-tabs" role="tablist" aria-label="Lead views" id="leadsTabs" data-tour="leads-tabs">
               <button type="button" role="tab" class="seg-tab active" data-leads-view="all" aria-selected="true">All <span class="seg-count" id="leadsCountAll">·</span></button>
               <button type="button" role="tab" class="seg-tab" data-leads-view="mine" aria-selected="false">Found by me <span class="seg-count" id="leadsCountMine">·</span></button>
               <button type="button" role="tab" class="seg-tab" data-leads-view="assigned" aria-selected="false">Assigned to me <span class="seg-count" id="leadsCountAssigned">·</span></button>
             </div>
-            <div class="toolbar" id="leadsToolbar">
+            <div class="toolbar" id="leadsToolbar" data-tour="leads-filters">
               <div class="toolbar-search">
                 <label class="sr-only" for="leadsSearch">Search leads</label>
                 <input type="search" id="leadsSearch" class="form-input" placeholder="Search name, comment, requirement, location…" autocomplete="off">
@@ -892,11 +894,11 @@
               <div class="toolbar-end">
                 <button type="button" class="btn-ghost tb-btn hidden" id="leadsClear" data-action="clear-lead-filters">Clear filters</button>
                 <div class="menu-wrap col-menu"><button type="button" class="btn-ghost tb-btn" data-col-toggle="leads" aria-haspopup="true" aria-expanded="false" aria-controls="colPanel-leads"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-columns"/></svg> Columns</button><div class="menu-panel col-panel hidden" id="colPanel-leads" role="group" aria-label="Visible columns"></div></div>
-                <button type="button" class="btn-ghost tb-btn" id="leadsExport" data-action="export-leads" data-server-export="leads" title="Download the leads matching these filters as CSV (uses your plan's export allowance)"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-download"/></svg> Export CSV</button>
+                <button type="button" class="btn-ghost tb-btn" id="leadsExport" data-tour="leads-export" data-action="export-leads" data-server-export="leads" title="Download the leads matching these filters as CSV (uses your plan's export allowance)"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-download"/></svg> Export CSV</button>
               </div>
             </div>
             <div class="panel">
-              <div class="panel-body flush" id="leadsList" aria-live="polite"></div>
+              <div class="panel-body flush" id="leadsList" aria-live="polite" data-tour="leads-list"></div>
               <div class="pager" id="leadsPager"></div>
             </div>
           </section>
@@ -934,7 +936,7 @@
               </div>
             </div>
             <div class="panel">
-              <div class="panel-body flush" id="historyList" aria-live="polite"></div>
+              <div class="panel-body flush" id="historyList" aria-live="polite" data-tour="history-list"></div>
               <div class="pager" id="historyPager"></div>
             </div>
           </section>
@@ -976,7 +978,7 @@
               </div>
             </div>
             <div id="usageBody"></div>
-            <section class="panel" aria-labelledby="ledgerTitle">
+            <section class="panel" aria-labelledby="ledgerTitle" data-tour="usage-ledger">
               <div class="panel-head panel-head-tools">
                 <h2 class="panel-title" id="ledgerTitle">My token activity</h2>
                 <div class="toolbar toolbar-inline">
@@ -1004,7 +1006,7 @@
 
             <div id="billingPending" class="hidden"></div>
 
-            <div class="billing-hero-card panel" id="billingHeroCard">
+            <div class="billing-hero-card panel" id="billingHeroCard" data-tour="billing-plan">
               <div class="billing-hero-row">
                 <div>
                   <div class="kpi-label">Current plan</div>
@@ -1029,7 +1031,7 @@
             </a>
 
             <h2 class="section-title section-gap">Monthly usage</h2>
-            <div class="quota-meter-grid" id="quotaMeterGrid">
+            <div class="quota-meter-grid" id="quotaMeterGrid" data-tour="billing-meters">
               <!-- meter tiles open the related view; app.js (loadBillingData) unlinks those the role can't open -->
               <a class="quota-tile panel box-link" id="meterSearchesTile" href="#history" data-nav="history" data-history-status="">
                 <div class="quota-tile-head"><span>Searches <span class="box-go" aria-hidden="true">→</span></span><span id="meterSearchesVal">—</span></div>
@@ -1049,7 +1051,7 @@
             <div id="billingPlanNotice"></div>
             <!-- who provides each external API (prices per choice come from /api/public/pricing; app.js renders them) -->
             <div class="billing-selectors">
-              <div class="cov-choices" id="billingCoverageChoices">
+              <div class="cov-choices" id="billingCoverageChoices" data-tour="billing-keys">
                 <div class="cov-choice">
                   <span class="cov-choice-label" id="covApifyLabel">Apify (scraping)</span>
                   <div class="seg-tabs" role="group" aria-labelledby="covApifyLabel">
@@ -1065,7 +1067,7 @@
                   </div>
                 </div>
               </div>
-              <div class="seg-tabs" id="billingCycleSegment" role="group" aria-label="Billing cycle">
+              <div class="seg-tabs" id="billingCycleSegment" role="group" aria-label="Billing cycle" data-tour="billing-cycle">
                 <button type="button" class="seg-tab active" data-cycle-mode="monthly" aria-pressed="true">Monthly</button>
                 <button type="button" class="seg-tab" data-cycle-mode="yearly" aria-pressed="false">Yearly <span class="cycle-save hidden" id="billingYearlySave"></span></button>
               </div>
@@ -1075,7 +1077,7 @@
             <div class="plans-grid" id="plansCatalogGrid"></div>
 
             <h2 class="section-title section-gap">Invoices &amp; payment history</h2>
-            <div class="table-shell panel">
+            <div class="table-shell panel" data-tour="billing-invoices">
               <table class="saas-table">
                 <thead>
                   <tr>
@@ -1101,14 +1103,14 @@
                 <p class="page-sub">Your profile, notification preferences and account security.</p>
               </div>
             </div>
-            <div class="seg-tabs" role="tablist" aria-label="Settings sections" id="settingsTabs">
+            <div class="seg-tabs" role="tablist" aria-label="Settings sections" id="settingsTabs" data-tour="settings-tabs">
               <button type="button" role="tab" class="seg-tab active" data-settings-tab="profile" aria-selected="true" aria-controls="settingsProfile">Profile</button>
               <button type="button" role="tab" class="seg-tab" data-settings-tab="notifications" aria-selected="false" aria-controls="settingsNotifications">Notifications</button>
               <button type="button" role="tab" class="seg-tab" data-settings-tab="security" aria-selected="false" aria-controls="settingsSecurity">Security</button>
             </div>
 
             <div class="settings-pane" id="settingsProfile" role="tabpanel">
-              <form class="panel form-panel" id="profileForm" novalidate>
+              <form class="panel form-panel" id="profileForm" novalidate data-tour="settings-profile">
                 <div class="panel-head"><h2 class="panel-title">Profile</h2></div>
                 <div class="panel-body" id="profileBody">
                   <div class="form-grid">
@@ -1141,7 +1143,7 @@
             </div>
 
             <div class="settings-pane hidden" id="settingsNotifications" role="tabpanel">
-              <form class="panel form-panel" id="prefsForm" novalidate>
+              <form class="panel form-panel" id="prefsForm" novalidate data-tour="settings-notifications">
                 <div class="panel-head"><h2 class="panel-title">Notification preferences</h2></div>
                 <div class="panel-body" id="prefsBody"></div>
                 <div class="panel-foot">
@@ -1152,7 +1154,7 @@
             </div>
 
             <div class="settings-pane hidden" id="settingsSecurity" role="tabpanel">
-              <form class="panel form-panel" id="passwordForm" novalidate>
+              <form class="panel form-panel" id="passwordForm" novalidate data-tour="settings-password">
                 <div class="panel-head"><h2 class="panel-title">Change password</h2></div>
                 <div class="panel-body">
                   <div class="form-grid">
@@ -1181,12 +1183,12 @@
                 </div>
               </form>
 
-              <section class="panel form-panel" aria-labelledby="twofaTitle">
+              <section class="panel form-panel" aria-labelledby="twofaTitle" data-tour="settings-2fa">
                 <div class="panel-head"><h2 class="panel-title" id="twofaTitle">Two-factor authentication</h2></div>
                 <div class="panel-body" id="twofaBody" aria-live="polite"></div>
               </section>
 
-              <section class="panel" aria-labelledby="sessionsTitle">
+              <section class="panel" aria-labelledby="sessionsTitle" data-tour="settings-sessions">
                 <div class="panel-head">
                   <h2 class="panel-title" id="sessionsTitle">Active sessions</h2>
                   <button type="button" class="btn-ghost" id="revokeOthersBtn">Sign out other sessions</button>
@@ -1198,10 +1200,11 @@
 
         </main>
 
-        <!-- ── Site footer (company + support from Global Settings) ── -->
+        <!-- ── Site footer (company, support contact and help / legal links from Global Settings) ── -->
         <footer class="site-footer">
           <span data-brand-company></span>
           <span data-brand-support></span>
+          <nav data-brand-links aria-label="Help and legal"></nav>
         </footer>
       </div>
     </div>
@@ -1364,9 +1367,10 @@
   <!-- ── Toast Container ── -->
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-  <script src="/static/config.js?v=r1005" defer></script>
-  <script src="/static/design/theme.js?v=r1005" defer></script>
+  <script src="/static/config.js?v=brand2" defer></script>
+  <script src="/static/design/theme.js?v=r1006" defer></script>
   <script src="/static/design/ui.js?v=step4" defer></script>
-  <script src="/static/app.js?v=audit1" defer></script>
+  <script src="/static/design/tour.js?v=tour1" defer></script>
+  <script src="/static/app.js?v=cfg1" defer></script>
 </body>
 </html>

@@ -9,7 +9,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>"/>
   <link rel="stylesheet" href="/static/design/tokens.css?v=r1005"/>
   <link rel="stylesheet" href="/static/design/components.css?v=r1005"/>
-  <script src="/static/design/theme.js?v=r1005"></script>
+  <script src="/static/design/theme.js?v=r1006"></script>
   <style>
     .status-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
     .status-head .pill { margin-top:6px; }
@@ -138,7 +138,7 @@
 
   <footer class="auth-footer">
     <nav aria-label="Footer"><a href="/website">Home</a><a href="/contact">Contact</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
-    <p style="margin-top:6px">© 2026 LeadAI</p>
+    <p style="margin-top:6px">© 2026 <span data-brand-name>LeadAI</span></p>
   </footer>
 </div>
 
@@ -342,6 +342,9 @@
     if (status === "active") { primary.textContent = "Go to dashboard"; primary.href = "/dashboard"; }
     else if (status === "cancelled" || status === "expired") { primary.textContent = "Choose a plan"; primary.href = "/dashboard#billing"; }
     else if (status === "suspended") { primary.textContent = "Contact support"; primary.href = "/contact"; }
+    else if (status === "pending_payment" && typeof co.pay_url === "string" && co.pay_url.indexOf("/billing/razorpay/") === 0) {
+      primary.textContent = "Complete payment"; primary.href = co.pay_url;
+    }
     else { primary.textContent = "Back to dashboard"; primary.href = "/dashboard"; }
 
     if (changed) {

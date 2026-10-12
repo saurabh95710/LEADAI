@@ -1,5 +1,27 @@
+import os
+import sys
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def load_env_file(path: str = ".env") -> bool:
+    """Put the .env values into the process environment.
+
+    Settings fields below read .env by themselves, but the variables that
+    aren't fields (SMTP_*, RAZORPAY_*, PUBLIC_BASE_URL, SMS_*, TRUST_PROXY_HEADERS,
+    BILLING_WEBHOOK_SECRET …, see app/admin/envvars.py) are read from the
+    process environment, so without this a value written in .env was ignored.
+    Real environment variables always win over the file."""
+    try:
+        from dotenv import load_dotenv
+        return bool(load_dotenv(path, override=False))
+    except Exception:
+        return False
+
+
+# tests never pick up a developer's mail server or payment keys
+if "pytest" not in sys.modules and not os.environ.get("LEADAI_SKIP_DOTENV"):
+    load_env_file()
 
 
 class Settings(BaseSettings):

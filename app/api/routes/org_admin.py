@@ -2627,3 +2627,68 @@ async def change_api_coverage(body: ApiCoverageBody, request: Request,
     res = await change_coverage(db, ctx.organization_id, requested, actor=ctx.audit_user(),
                                 request_meta=request_meta(request))
     return {"success": True, **res, "integrations": await coverage_summary(db, ctx.organization_id)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Messages to your team (email / SMS) — see docs/MESSAGING.md
+# ═══════════════════════════════════════════════════════════════════════════
+
+_ORG_MESSAGES_PER_DAY = 20
+
+
+class TeamMessageBody(BaseModel):
+    channels: list[str]
+    subject: str = ""
+    body: str
+    sms_body: str | None = None
+    user_ids: list[str] = []
+    all_members: bool = False
+
+
+@router.get("/messaging/people")
+async def team_people(q: str = "", ctx: TenantContext = Depends(require_portal(P.MEMBERS_VIEW))):
+    """Your organization's members for the message picker (phones masked)."""
+    from app.messaging.service import search_people
+    return {"success": True, "people": await asyncio.to_thread(
+        search_people, get_sync_db(), q, organization_id=ctx.organization_id, limit=100)}
+
+
+@router.post("/messages")
+async def send_team_message(body: TeamMessageBody, request: Request,
+                            ctx: TenantContext = Depends(require_portal(P.MEMBERS_UPDATE))):
+    """Email and/or text members of your own organization (never anyone else)."""
+    from app.messaging.service import CAMPAIGNS, resolve_recipients, start_campaign
+    db = get_sync_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    since = datetime.now(timezone.utc) - timedelta(days=1)
+    if db[CAMPAIGNS].count_documents({"organization_id": ctx.organization_id,
+                                      "created_at": {"$gte": since}}) >= _ORG_MESSAGES_PER_DAY:
+        raise HTTPException(status_code=429, detail=f"You can send {_ORG_MESSAGES_PER_DAY} messages a day. "
+                                                    "Try again tomorrow.")
+    from app.messaging.service import check_channels
+    try:
+        check_channels(body.channels)
+        people = resolve_recipients(db, user_ids=body.user_ids,
+                                    organization_ids=[ctx.organization_id] if body.all_members else [],
+                                    only_organization=ctx.organization_id)
+        res = start_campaign(db, people, channels=body.channels, subject=body.subject, body=body.body,
+                             sms_body=body.sms_body, scope="organization", organization_id=ctx.organization_id,
+                             sender={"email": ctx.email, "user_id": ctx.user_id, "role": ctx.org_role})
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    await _audit(ctx, request, "messaging.team_message_sent", "messaging", resource_type="message",
+                 resource_id=res["id"], details={"recipients": res["recipient_count"], "channels": res["channels"],
+                                                 "subject": body.subject[:120]})
+    return {"success": True, "message": res}
+
+
+@router.get("/messages")
+async def list_team_messages(ctx: TenantContext = Depends(require_portal(P.MEMBERS_VIEW))):
+    from app.messaging.service import CAMPAIGNS, campaign_view
+    db = get_sync_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    ids = [str(d["_id"]) for d in db[CAMPAIGNS].find({"organization_id": ctx.organization_id}, {"_id": 1})
+           .sort("created_at", -1).limit(50)]
+    return {"success": True, "messages": [campaign_view(db, i) for i in ids]}

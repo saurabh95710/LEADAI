@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-appconfig="brand-only">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -10,8 +10,9 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
   <link rel="stylesheet" href="/static/design/tokens.css?v=r1005"/>
   <link rel="stylesheet" href="/static/design/components.css?v=r1005"/>
-  <link rel="stylesheet" href="/static/org-admin.css?v=apicov1"/>
-  <script src="/static/design/theme.js?v=r1005" defer></script>
+  <link rel="stylesheet" href="/static/org-admin.css?v=msg1"/>
+  <link rel="stylesheet" href="/static/design/tour.css?v=tour1"/>
+  <script src="/static/design/theme.js?v=r1006" defer></script>
   <style>
     .pp-link { display:flex; gap:8px; align-items:center; }
     .pp-link input { flex:1; min-width:0; font-family:var(--font-mono); font-size:var(--text-xs); }
@@ -44,6 +45,17 @@
     .pp-stat-go { margin-left:auto; font-size:var(--text-sm); font-weight:700; letter-spacing:0; color:var(--text-link); opacity:.7; transition:transform var(--transition-fast), opacity var(--transition-fast); }
     a.pp-stat-link:hover .pp-stat-go, a.pp-stat-link:focus-visible .pp-stat-go { opacity:1; transform:translateX(3px); }
     @media (prefers-reduced-motion: reduce) { a.pp-stat-link:hover .pp-stat-go, a.pp-stat-link:focus-visible .pp-stat-go { transform:none; } }
+    .pp-price-rows { display:flex; flex-direction:column; gap:8px; }
+    /* Guide button (design/tour.js) in the top bar, sized like the icon buttons next to it */
+    .pp-guide { display:inline-flex; }
+    .pp-guide .lt-launch-btn { height:38px; padding:0 12px 0 8px; border-radius:var(--radius-md); border-color:var(--border); background:var(--surface); color:var(--text-secondary); font-size:var(--text-sm); }
+    .pp-guide .lt-launch-btn:hover, .pp-guide .lt-launch-btn[aria-expanded="true"] { color:var(--text-primary); border-color:var(--border-hover); background:var(--surface-hover, var(--surface)); }
+    .pp-guide .lt-launch-ico { width:20px; height:20px; font-size:12px; background:var(--primary-fill, var(--primary)); color:var(--on-primary); }
+    @media (max-width: 760px) {
+      .pp-guide .lt-launch { position:static; } /* the menu then hangs from the top bar and never runs off the left edge */
+      .pp-guide .lt-menu { right:12px; top:calc(100% + 6px); }
+    }
+    @media (max-width: 640px) { .pp-guide .lt-launch-btn { width:38px; padding:0; justify-content:center; } }
     @media (max-width: 900px) { .oa-grid-4 { grid-template-columns:repeat(2,minmax(0,1fr)); } .oa-grid-3, .oa-grid-2 { grid-template-columns:1fr; } }
   </style>
 </head>
@@ -81,11 +93,12 @@
         <div class="oa-crumb-title" id="oa-crumb-title">Dashboard</div>
       </div>
       <span style="flex:1"></span>
+      <span class="pp-guide" id="pp-guide" data-tour="pt-guide"></span>
       <button type="button" class="oa-icon-btn theme-toggle" data-theme-toggle aria-label="Switch theme">
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
-      <a class="oa-icon-btn" href="#/notifications" aria-label="Notifications" style="position:relative">
+      <a class="oa-icon-btn" href="#/notifications" aria-label="Notifications" style="position:relative" data-tour="pt-bell">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
         <span class="oa-badge-count" id="oa-bell-count" hidden>0</span>
       </a>
@@ -110,6 +123,10 @@
 
 <div id="oa-modal-root"></div>
 <div class="oa-toasts" id="oa-toasts" role="status" aria-live="polite"></div>
-<script src="/static/partner.js?v=audit1" defer></script>
+<script src="/static/design/tour.js?v=tour1" defer></script>
+<script src="/static/partner.js?v=tour1" defer></script>
+<!-- Global Settings brand colours / font / default colour mode (name, logo: theme.js) -->
+<script src="/static/config.js?v=brand2" defer></script>
+<script>window.addEventListener("DOMContentLoaded", function () { if (window.AppConfig) AppConfig.load(); });</script>
 </body>
 </html>

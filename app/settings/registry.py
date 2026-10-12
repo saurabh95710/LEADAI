@@ -22,30 +22,12 @@ _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 _URL_RE = re.compile(r"^(https?://|/static/)[^\s]+$")
 _JS_DANGER_RE = re.compile(r"<\s*script|on[a-z]+\s*=|javascript\s*:", re.IGNORECASE)
 
-# Admin views that may be re-labelled / re-ordered / hidden via nav overrides.
-KNOWN_VIEWS = {
-    "dashboard", "jobs", "failed", "leads", "analytics", "platforms", "apify",
-    "actors", "usage", "environment", "ai", "scoring", "ci", "keyword-rules",
-    "limits", "database", "logs", "health", "exports", "users", "security",
-    "features", "maintenance", "audit", "pages", "posts", "settings",
-}
-
-# Dashboard widgets that can be hidden / re-ordered from the dashboard.
-KNOWN_WIDGETS = {
-    "hero", "kpis", "activity", "leads_by_platform", "alerts",
-    "system_status", "keyword_filter", "recent_jobs",
-}
-
 FONT_OPTIONS = ["inter", "roboto", "manrope", "plus-jakarta-sans", "system"]
 THEME_OPTIONS = ["light", "dark", "system"]
-LEAD_STATUS_OPTIONS = ["New", "Contacted", "Qualified", "Converted", "Rejected", "Archived"]
-TEMPERATURE_OPTIONS = ["Hot", "Warm", "Cold"]
-EXPORT_FORMAT_OPTIONS = ["CSV", "XLSX", "JSON"]
-FILTER_MODE_OPTIONS = ["all", "preset", "custom"]
-DATE_FORMAT_OPTIONS = ["YYYY-MM-DD", "DD-MM-YYYY", "MM-DD-YYYY"]
-TIME_FORMAT_OPTIONS = ["24h", "12h"]
+BILLING_PROVIDER_OPTIONS = ["auto", "razorpay", "stripe"]
+LEAD_STATUS_OPTIONS = ["New", "Contacted", "Qualified", "Follow-up", "Converted", "Lost",
+                       "Disqualified", "Archived"]
 CURRENCY_OPTIONS = ["USD", "EUR", "GBP", "INR", "AUD", "CAD", "JPY", "AED", "SGD"]
-LANGUAGE_OPTIONS = ["en", "hi", "es", "fr", "de", "ar", "pt", "id"]
 
 
 @dataclass
@@ -85,359 +67,377 @@ def _s(key: str, category: str, group: str, type: str = "str",
 
 
 # ── The full registry ───────────────────────────────────────────────────────
-# Categories mirror the tabs of the admin "Global Settings" page. Existing
-# runtime keys (limits.*, ai.*, scoring.*, ci.*, features.*, maintenance.*,
-# security.*, platform.*.enabled) are folded in so the panel is the single
-# place where every non-secret setting can be edited, reset and versioned.
-# Secrets (apify.token) and internal keys (actor.*, security.session_epoch,
-# apify.last_test_*) are deliberately NOT registered here.
+# Categories mirror the tabs of Super Admin → Global Settings, in the order
+# below. Every registered key must take effect somewhere: a setting that does
+# nothing is retired (RETIRED_KEYS), not left on the page. Labels and
+# descriptions are what the Super Admin reads, so they say what really
+# happens. Secrets (apify.token) and internal keys (actor.*,
+# security.session_epoch, apify.last_test_*, lifecycle.preview_notified) are
+# deliberately NOT registered here.
 
 SETTINGS: List[SettingSpec] = [
+    # ══ Brand & website ══════════════════════════════════════════════════
     # ── General ──────────────────────────────────────────────────────────
-    _s("general.app.name", "general", "Application", "str",
-       label="Application name", is_public=True,
-       description="Shown in the browser tab, sidebar and login page.",
+    _s("general.app.name", "general", "Name & tagline", "str",
+       label="Product name", is_public=True,
+       description="Your product's name: browser tabs, website header, sign-in page, "
+                   "apps and emails.",
        placeholder="LeadAI"),
-    _s("general.app.short_name", "general", "Application", "str",
-       label="Short name", is_public=True,
-       description="Compact name for tight spaces (mobile, collapsed sidebar).",
-       placeholder="LeadAI"),
-    _s("general.app.tagline", "general", "Application", "str",
+    _s("general.app.tagline", "general", "Name & tagline", "str",
        label="Tagline", is_public=True,
-       description="The one-line description under the brand mark.",
+       description="The short line under the name on the website, sign-in page and apps.",
        placeholder="AI Lead Intelligence"),
-    _s("general.app.description", "general", "Application", "textarea",
-       label="Description", is_public=True,
-       description="Long-form description (meta description, about text).",
-       placeholder="AI-powered social lead intelligence platform…"),
-    _s("general.company.name", "general", "Company", "str",
+    _s("general.company.name", "general", "Company & support", "str",
        label="Company name", is_public=True,
-       description="The organization this deployment belongs to."),
-    _s("general.company.website", "general", "Company", "url",
-       label="Company website", is_public=True),
-    _s("general.contact.support_email", "general", "Contact", "email",
-       label="Support email", is_public=True),
-    _s("general.contact.support_phone", "general", "Contact", "str",
-       label="Support phone", is_public=True),
-    _s("general.contact.support_url", "general", "Contact", "url",
-       label="Support URL", is_public=True),
-    _s("general.links.privacy_url", "general", "Legal links", "url",
-       label="Privacy policy URL", is_public=True),
-    _s("general.links.terms_url", "general", "Legal links", "url",
-       label="Terms of service URL", is_public=True),
-    _s("general.links.docs_url", "general", "Legal links", "url",
-       label="Documentation URL", is_public=True),
-    _s("general.links.help_url", "general", "Legal links", "url",
-       label="Help / FAQ URL", is_public=True),
-
-    # ── Branding ─────────────────────────────────────────────────────────
-    _s("branding.logo_primary", "branding", "Logos", "path",
-       label="Primary logo", is_public=True,
-       description="Upload a logo or paste a /static/ path. Shown in the header, "
-                   "sidebar and login card. Leave empty to keep the built-in mark."),
-    _s("branding.logo_dark", "branding", "Logos", "path",
-       label="Logo (dark background)", is_public=True,
-       description="Used on dark surfaces (login page, dark theme)."),
-    _s("branding.logo_light", "branding", "Logos", "path",
-       label="Logo (light background)", is_public=True),
-    _s("branding.logo_compact", "branding", "Logos", "path",
-       label="Compact logo", is_public=True,
-       description="Small icon used when the sidebar is collapsed."),
-    _s("branding.logo_login", "branding", "Logos", "path",
-       label="Login logo", is_public=True,
-       description="Overrides the login-card logo when set."),
-    _s("branding.logo_email", "branding", "Logos", "path",
-       label="Email logo", is_public=True,
-       description="Used in email branding (forward-looking)."),
-    _s("branding.favicon", "branding", "Logos", "path",
-       label="Favicon", is_public=True,
-       description="Browser tab icon. PNG, SVG or ICO."),
-    _s("branding.apple_touch_icon", "branding", "Logos", "path",
-       label="Apple touch icon", is_public=True),
-    _s("branding.colors.primary", "branding", "Colors", "color",
-       label="Primary color", is_public=True,
-       description="The brand colour of the staff console (light mint green by default).",
-       placeholder="#2e9573"),
-    _s("branding.colors.accent", "branding", "Colors", "color",
-       label="Accent color", is_public=True,
-       description="The warm accent (value, lead highlights).",
-       placeholder="#d9a441"),
-    _s("branding.colors.success", "branding", "Colors", "color",
-       label="Success color", is_public=True, placeholder="#1fae6a"),
-    _s("branding.colors.warning", "branding", "Colors", "color",
-       label="Warning color", is_public=True, placeholder="#f0a531"),
-    _s("branding.colors.danger", "branding", "Colors", "color",
-       label="Danger color", is_public=True, placeholder="#e5484d"),
-    _s("branding.colors.info", "branding", "Colors", "color",
-       label="Info color", is_public=True, placeholder="#3b82f6"),
-    _s("branding.theme", "branding", "Theme", "select",
-       label="Default theme", is_public=True, options=THEME_OPTIONS,
-       description="Preferred theme for signed-out pages and default for the apps."),
-    _s("branding.font", "branding", "Theme", "select",
-       label="UI font", is_public=True, options=FONT_OPTIONS,
-       description="Applied to both the user app and the admin panel."),
-    _s("branding.white_label", "branding", "Theme", "bool",
-       label="White-label mode", is_public=True,
-       description="Suppresses 'Powered by' / product mentions so the platform "
-                   "can be sold as your own."),
-    _s("branding.login_heading", "branding", "Login card", "str",
-       label="Login heading", is_public=True, placeholder="Welcome Back"),
-    _s("branding.login_subtext", "branding", "Login card", "textarea",
-       label="Login subtext", is_public=True),
-    _s("branding.footer_text", "branding", "Login card", "str",
-       label="Footer text", is_public=True,
-       description="Shown at the bottom of the login card and user-app footer.",
-       placeholder="Protected by secure authentication · LeadAI © 2026"),
-
-    # ── Appearance (admin panel) ─────────────────────────────────────────
-    _s("appearance.sidebar_title", "appearance", "Sidebar", "str",
-       label="Sidebar title", is_public=True, placeholder="LeadAI"),
-    _s("appearance.sidebar_subtitle", "appearance", "Sidebar", "str",
-       label="Sidebar subtitle", is_public=True, placeholder="Admin Control Center"),
-    _s("appearance.sidebar_collapsed_default", "appearance", "Sidebar", "bool",
-       label="Collapse sidebar by default", is_public=True,
-       description="New visitors see the sidebar collapsed until they toggle it."),
-    _s("appearance.show_icons", "appearance", "Sidebar", "bool",
-       label="Show nav icons", is_public=True),
-    _s("appearance.show_section_labels", "appearance", "Sidebar", "bool",
-       label="Show nav section labels", is_public=True),
-    _s("appearance.show_footer_links", "appearance", "Sidebar", "bool",
-       label="Show footer links (app / docs)", is_public=True),
-    _s("appearance.nav_overrides", "appearance", "Navigation", "json",
-       label="Nav overrides", sensitive=True,
-       json_shape={"label": "str", "order": "int", "hidden": "bool"},
-       description="JSON: {\"view\": {\"label\": \"…\", \"order\": 2, \"hidden\": true}}. "
-                   "Re-labels, re-orders or hides admin nav items. Example: "
-                   "{\"usage\": {\"label\": \"Billing\", \"order\": 1}}"),
-    _s("appearance.dashboard_widgets", "appearance", "Dashboard", "json",
-       label="Dashboard widgets", sensitive=True,
-       json_shape={"show": "bool", "order": "int"},
-       description="JSON: {\"widget\": {\"show\": true, \"order\": 1}}. Widgets: "
-                   "hero, kpis, activity, leads_by_platform, alerts, system_status, "
-                   "keyword_filter, recent_jobs."),
-    _s("defaults.comment_filter_mode", "appearance", "User app defaults", "select",
-       label="Comment filter mode", is_public=True, options=FILTER_MODE_OPTIONS,
-       description="Default mode of the comment-filter panel on the search form."),
-    _s("defaults.keyword_preset", "appearance", "User app defaults", "str",
-       label="Keyword preset", is_public=True,
-       description="Preset id preselected when the filter mode is 'preset'."),
-    _s("defaults.theme", "appearance", "User app defaults", "select",
-       label="User app theme", is_public=True, options=THEME_OPTIONS),
-    _s("defaults.date_range", "appearance", "User app defaults", "int",
-       label="Default date range (days)", is_public=True, min=1, max=365),
-    _s("defaults.page_size", "appearance", "User app defaults", "int",
-       label="Default page size", is_public=True, min=5, max=200),
-
-    # ── AI & Intelligence ────────────────────────────────────────────────
-    _s("ai.enabled", "ai", "Gemini engine", "bool",
-       label="AI analysis enabled",
-       description="When off, comments are stored but never analyzed by the LLM."),
-    _s("ai.rule_fallback", "ai", "Gemini engine", "bool",
-       label="Rule fallback when AI fails",
-       description="Fall back to keyword rules when the Gemini call errors."),
-    _s("ai.max_calls_per_job", "ai", "Gemini engine", "int",
-       label="Max AI calls per job", min=1, max=10000),
-    _s("ai.model", "ai", "Gemini engine", "str",
-       label="Gemini model", placeholder="gemini-2.5-flash"),
-    _s("ai.temperature", "ai", "Gemini engine", "float",
-       label="Temperature", min=0, max=2),
-    _s("lifecycle.auto_apply", "security", "Lifecycle automation", "bool",
-       label="Apply billing-period / demo-expiry changes automatically",
-       description="Off = preview only (Super Admin → Subscriptions → Lifecycle automation)."),
-    _s("lifecycle.preview_notified", "security", "Lifecycle automation", "bool",
-       label="Pending-changes notice sent", description="Internal: the review notice was sent."),
-    _s("business.default_industry", "ai", "Business context", "str",
-       label="Default industry key",
-       description="Industry used for organizations that chose none "
-                   "(managed in Super Admin → Industries; unknown keys fall back to 'general').",
-       placeholder="general"),
-    _s("scoring.confidence_weight", "ai", "Lead scoring", "int",
-       label="Confidence weight", min=0, max=100),
-    _s("scoring.priority_weight", "ai", "Lead scoring", "int",
-       label="Priority weight", min=0, max=100),
-    _s("scoring.quality_weight", "ai", "Lead scoring", "int",
-       label="Quality weight", min=0, max=100),
-    _s("scoring.contact_phone", "ai", "Lead scoring", "int",
-       label="Contact signal: phone", min=0, max=100),
-    _s("scoring.contact_email", "ai", "Lead scoring", "int",
-       label="Contact signal: email", min=0, max=100),
-    _s("scoring.spam_penalty", "ai", "Lead scoring", "int",
-       label="Spam penalty", min=0, max=100),
-    _s("scoring.phone", "ai", "Lead scoring", "int",
-       label="Signal weight: phone", min=0, max=100),
-    _s("scoring.email", "ai", "Lead scoring", "int",
-       label="Signal weight: email", min=0, max=100),
-    _s("scoring.budget", "ai", "Lead scoring", "int",
-       label="Signal weight: budget", min=0, max=100),
-    _s("scoring.urgency", "ai", "Lead scoring", "int",
-       label="Signal weight: urgency", min=0, max=100),
-    _s("scoring.location", "ai", "Lead scoring", "int",
-       label="Signal weight: location", min=0, max=100),
-    _s("scoring.buying_intent", "ai", "Lead scoring", "int",
-       label="Signal weight: buying intent", min=0, max=100),
-    _s("scoring.hot_min", "ai", "Lead scoring", "int",
-       label="Hot threshold (min score)", min=0, max=100),
-    _s("scoring.warm_min", "ai", "Lead scoring", "int",
-       label="Warm threshold (min score)", min=0, max=100),
-    _s("scoring.derive_quality", "ai", "Lead scoring", "bool",
-       label="Derive quality from score"),
-    _s("ci.detect_phone", "ai", "Comment intelligence", "bool",
-       label="Detect phone numbers"),
-    _s("ci.detect_email", "ai", "Comment intelligence", "bool",
-       label="Detect email addresses"),
-    _s("ci.detect_budget", "ai", "Comment intelligence", "bool",
-       label="Detect budget mentions"),
-    _s("ci.detect_location", "ai", "Comment intelligence", "bool",
-       label="Detect locations"),
-    _s("ci.detect_urgency", "ai", "Comment intelligence", "bool",
-       label="Detect urgency"),
-    _s("ci.detect_buying_intent", "ai", "Comment intelligence", "bool",
-       label="Detect buying intent"),
-    _s("ci.detect_selling_intent", "ai", "Comment intelligence", "bool",
-       label="Detect selling intent"),
-    _s("ci.ignore_emoji_only", "ai", "Comment intelligence", "bool",
-       label="Ignore emoji-only comments"),
-    _s("ci.ignore_spam", "ai", "Comment intelligence", "bool",
-       label="Ignore spam comments"),
-    _s("ci.ignore_low_value", "ai", "Comment intelligence", "bool",
-       label="Ignore low-value comments"),
-    _s("ci.min_lead_score", "ai", "Comment intelligence", "int",
-       label="Minimum lead score", min=0, max=100),
-
-    # ── Scraping & Limits ────────────────────────────────────────────────
-    _s("limits.min_comments", "limits", "Limits", "int",
-       label="Minimum comments", min=1, max=100000,
-       description="Below this, a scrape is treated as low-value."),
-    _s("limits.max_posts_default", "limits", "Limits", "int",
-       label="Max posts (default)", min=1, max=100000),
-    _s("limits.max_posts_cap", "limits", "Limits", "int",
-       label="Max posts (hard cap)", min=1, max=100000),
-    _s("limits.max_comments_per_post_default", "limits", "Limits", "int",
-       label="Max comments per post (default)", min=1, max=100000),
-    _s("limits.max_comments_per_post_cap", "limits", "Limits", "int",
-       label="Max comments per post (hard cap)", min=1, max=100000),
-    _s("limits.global_max_comments", "limits", "Limits", "int",
-       label="Global max comments", min=1, max=1000000),
-    _s("cost.stop_on_limit", "limits", "Cost protection", "bool",
-       label="Stop on limit",
-       description="Abort a scrape when the global comment limit is reached."),
-    _s("cost.warn_before_expensive", "limits", "Cost protection", "bool",
-       label="Warn before expensive scrapes"),
-
-    # ── Platforms ────────────────────────────────────────────────────────
-    _s("platform.facebook.enabled", "platforms", "Platforms", "bool",
-       label="Facebook enabled"),
-    _s("platform.instagram.enabled", "platforms", "Platforms", "bool",
-       label="Instagram enabled"),
-    _s("platform.youtube.enabled", "platforms", "Platforms", "bool",
-       label="YouTube enabled"),
-    _s("platform.linkedin.enabled", "platforms", "Platforms", "bool",
-       label="LinkedIn enabled"),
-
-    # ── Features ─────────────────────────────────────────────────────────
-    _s("features.url_search.enabled", "features", "Features", "bool",
-       label="URL search enabled", is_public=True),
-    _s("features.exports.enabled", "features", "Features", "bool",
-       label="Exports enabled", is_public=True),
-    _s("features.demo_registration.enabled", "features", "Features", "bool",
-       label="Demo registration enabled", is_public=True,
-       description="When off, the public website stops accepting new demo requests."),
-    _s("features.ai_analysis.enabled", "features", "Features", "bool",
-       label="AI analysis enabled", is_public=True,
-       description="Global kill switch for AI comment analysis (rules still run)."),
-
-    # ── Notifications & Email ────────────────────────────────────────────
-    # Forward-looking: no mail backend exists yet — registered so the panel
-    # is the single source of truth when one ships.
-    _s("notifications.alerts_enabled", "notifications", "Notifications", "bool",
-       label="In-app alerts enabled",
-       description="Master switch for the admin alert bell."),
-    _s("notifications.job_failed_email", "notifications", "Email", "bool",
-       label="Email on job failure",
-       description="Requires the email sender below (not wired yet — see report)."),
-    _s("notifications.new_lead_email", "notifications", "Email", "bool",
-       label="Email on new hot lead",
-       description="Requires the email sender below (not wired yet — see report)."),
-    _s("email.sender_name", "notifications", "Email", "str",
-       label="Sender name"),
-    _s("email.reply_to", "notifications", "Email", "email",
-       label="Reply-to address"),
-    _s("email.company_name", "notifications", "Email", "str",
-       label="Company name in emails"),
-    _s("email.logo", "notifications", "Email", "path",
-       label="Email logo (path)"),
-    _s("email.footer_text", "notifications", "Email", "str",
-       label="Email footer text"),
-
-    # ── Leads & Exports ──────────────────────────────────────────────────
-    _s("leads.duplicate_detection", "leads", "Leads", "bool",
-       label="Duplicate detection",
-       description="Merge/dedupe leads that share a phone or email."),
-    _s("leads.retention_days", "leads", "Leads", "int",
-       label="Lead retention (days)", min=1, max=3650),
-    _s("leads.default_status", "leads", "Leads", "select",
-       label="Default lead status", options=LEAD_STATUS_OPTIONS),
-    _s("leads.default_temperature", "leads", "Leads", "select",
-       label="Default temperature", options=TEMPERATURE_OPTIONS),
-    _s("leads.require_phone_or_email", "leads", "Leads", "bool",
-       label="Require phone or email",
-       description="Only store leads that carry a reachable contact."),
-    _s("exports.default_format", "leads", "Exports", "select",
-       label="Default export format", options=EXPORT_FORMAT_OPTIONS),
-    _s("exports.max_records", "leads", "Exports", "int",
-       label="Max records per export", min=1, max=1000000),
-    _s("exports.include_leads_only", "leads", "Exports", "bool",
-       label="Export leads only by default"),
-    _s("exports.include_ai_summary", "leads", "Exports", "bool",
-       label="Include AI summary column"),
-
-    # ── SEO & Localization ───────────────────────────────────────────────
-    _s("seo.meta_description", "seo", "SEO", "textarea",
-       label="Meta description", is_public=True),
-    _s("seo.og_title", "seo", "SEO", "str",
-       label="Social share title", is_public=True),
-    _s("seo.og_image", "seo", "SEO", "path",
-       label="Social share image", is_public=True),
-    _s("localization.timezone", "seo", "Localization", "select",
-       label="Timezone", is_public=True,
+       description="Your company's name, shown in the sign-in page and app footers."),
+    _s("general.contact.support_email", "general", "Company & support", "email",
+       label="Support email", is_public=True,
+       description="Where customers can reach you; shown in the sign-in page and app "
+                   "footers. Empty = hidden."),
+    _s("general.contact.support_phone", "general", "Company & support", "str",
+       label="Support phone", is_public=True,
+       description="Shown next to the support email. Empty = hidden."),
+    _s("general.contact.support_url", "general", "Company & support", "url",
+       label="Support page", is_public=True,
+       description="Link to your help desk or contact page. Empty = hidden."),
+    _s("general.links.privacy_url", "general", "Help & legal links", "url",
+       label="Privacy policy", is_public=True,
+       description="Link in the sign-in page and app footers. Empty = hidden.",
+       placeholder="/privacy"),
+    _s("general.links.terms_url", "general", "Help & legal links", "url",
+       label="Terms of service", is_public=True,
+       description="Link in the sign-in page and app footers. Empty = hidden.",
+       placeholder="/terms"),
+    _s("general.links.docs_url", "general", "Help & legal links", "url",
+       label="Documentation", is_public=True,
+       description="Link in the sign-in page and app footers. Empty = hidden."),
+    _s("general.links.help_url", "general", "Help & legal links", "url",
+       label="Help / FAQ", is_public=True,
+       description="Link in the sign-in page and app footers. Empty = hidden."),
+    _s("localization.timezone", "general", "Regional defaults", "select",
+       label="Default timezone", is_public=True,
        options=["auto", "UTC", "America/New_York", "America/Chicago",
                 "America/Los_Angeles", "Europe/London", "Europe/Paris",
                 "Europe/Berlin", "Asia/Dubai", "Asia/Kolkata",
                 "Asia/Singapore", "Asia/Tokyo", "Asia/Shanghai",
                 "Australia/Sydney", "Africa/Lagos", "Africa/Johannesburg",
                 "America/Sao_Paulo", "America/Mexico_City"],
-       description="Display timezone for timestamps ('auto' = browser local)."),
-    _s("localization.date_format", "seo", "Localization", "select",
-       label="Date format", is_public=True, options=DATE_FORMAT_OPTIONS),
-    _s("localization.time_format", "seo", "Localization", "select",
-       label="Time format", is_public=True, options=TIME_FORMAT_OPTIONS),
-    _s("localization.currency", "seo", "Localization", "select",
-       label="Currency", is_public=True, options=CURRENCY_OPTIONS),
-    _s("localization.language", "seo", "Localization", "select",
-       label="Language", is_public=True, options=LANGUAGE_OPTIONS),
+       description="Timezone given to new organizations, from the website or created "
+                   "here ('auto' = UTC). Existing organizations keep theirs."),
+    _s("localization.currency", "general", "Regional defaults", "select",
+       label="Default currency", is_public=True, options=CURRENCY_OPTIONS,
+       description="Currency given to new organizations. Existing organizations keep theirs."),
 
-    # ── Maintenance ──────────────────────────────────────────────────────
+    # ── Branding ─────────────────────────────────────────────────────────
+    _s("branding.logo_primary", "branding", "Logos & icons", "path",
+       label="Main logo", is_public=True,
+       description="Logo in the apps and on the sign-in page. Empty = the built-in mark."),
+    _s("branding.logo_light", "branding", "Logos & icons", "path",
+       label="Website logo", is_public=True,
+       description="Logo in the public website header. Empty = the main logo."),
+    _s("branding.logo_login", "branding", "Logos & icons", "path",
+       label="Sign-in logo", is_public=True,
+       description="Logo on the sign-in card only. Empty = the main logo."),
+    _s("branding.favicon", "branding", "Logos & icons", "path",
+       label="Favicon", is_public=True,
+       description="The small icon in the browser tab, on every page. PNG, SVG or ICO."),
+    _s("branding.apple_touch_icon", "branding", "Logos & icons", "path",
+       label="Home-screen icon", is_public=True,
+       description="Icon used when someone adds the site to a phone home screen "
+                   "(180×180 PNG works best)."),
+    _s("branding.colors.primary", "branding", "Colours", "color",
+       label="Brand colour", is_public=True,
+       description="Buttons, links and highlights on the website, sign-in page and apps.",
+       placeholder="#2e9573"),
+    _s("branding.colors.accent", "branding", "Colours", "color",
+       label="Accent colour", is_public=True,
+       description="Second colour for highlights such as lead values and badges.",
+       placeholder="#d9a441"),
+    _s("branding.colors.success", "branding", "Colours", "color",
+       label="Success colour", is_public=True,
+       description="Positive states: saved, connected, completed.", placeholder="#1fae6a"),
+    _s("branding.colors.warning", "branding", "Colours", "color",
+       label="Warning colour", is_public=True,
+       description="Needs-attention states: limits close, trial ending.", placeholder="#f0a531"),
+    _s("branding.colors.danger", "branding", "Colours", "color",
+       label="Danger colour", is_public=True,
+       description="Errors and destructive actions: failed, delete.", placeholder="#e5484d"),
+    _s("branding.colors.info", "branding", "Colours", "color",
+       label="Info colour", is_public=True,
+       description="Neutral notices and tips.", placeholder="#3b82f6"),
+    _s("branding.theme", "branding", "Look & feel", "select",
+       label="Default theme", is_public=True, options=THEME_OPTIONS,
+       description="Light or dark for visitors who haven't picked one themselves "
+                   "('system' follows their device)."),
+    _s("branding.font", "branding", "Look & feel", "select",
+       label="Font", is_public=True, options=FONT_OPTIONS,
+       description="Typeface of the website, sign-in page and apps."),
+    _s("branding.login_heading", "branding", "Sign-in page", "str",
+       label="Heading", is_public=True, placeholder="Welcome Back",
+       description="The big heading on the customer sign-in card."),
+    _s("branding.login_subtext", "branding", "Sign-in page", "textarea",
+       label="Text under the heading", is_public=True,
+       description="One or two sentences under the heading."),
+    _s("branding.footer_text", "branding", "Sign-in page", "str",
+       label="Footer line", is_public=True,
+       description="Small line at the bottom of the sign-in card.",
+       placeholder="Protected by secure authentication"),
+
+    # ── SEO & sharing ────────────────────────────────────────────────────
+    _s("seo.meta_description", "seo", "Search & social sharing", "textarea",
+       label="Meta description", is_public=True,
+       description="Search-engine summary of the app and sign-in pages. The public "
+                   "website's pages are set in Website / CMS → SEO."),
+    _s("seo.og_title", "seo", "Search & social sharing", "str",
+       label="Share title", is_public=True,
+       description="Title shown when an app link is shared on social media or chat. "
+                   "Empty = the product name."),
+    _s("seo.og_image", "seo", "Search & social sharing", "path",
+       label="Share image", is_public=True,
+       description="Picture shown with shared links (1200×630 PNG or JPG works best)."),
+
+    # ══ Leads engine ═════════════════════════════════════════════════════
+    # ── AI engine ────────────────────────────────────────────────────────
+    _s("ai.enabled", "ai", "Gemini analysis", "bool",
+       label="Analyse comments with AI",
+       description="Read every collected comment with Gemini to find leads. Off = only "
+                   "the keyword rules run (free, less accurate)."),
+    _s("ai.rule_fallback", "ai", "Gemini analysis", "bool",
+       label="Use rules when AI fails",
+       description="If a Gemini call fails, score that comment with the keyword rules "
+                   "instead of leaving it unanalysed."),
+    _s("ai.max_calls_per_job", "ai", "Gemini analysis", "int",
+       label="AI calls per search", min=1, max=10000,
+       description="Most Gemini calls one search may make; the rest of its comments "
+                   "are scored by the rules. Caps the AI cost of a single search."),
+    _s("ai.model", "ai", "Gemini analysis", "str",
+       label="Gemini model", placeholder="gemini-2.5-flash",
+       description="Model name. An active prompt in AI Management that names its own "
+                   "model takes priority."),
+    _s("ai.temperature", "ai", "Gemini analysis", "float",
+       label="Creativity (temperature)", min=0, max=2,
+       description="Lower = more consistent answers. 0.1 is recommended for lead scoring."),
+    _s("business.default_industry", "ai", "Business context", "str",
+       label="Default industry",
+       description="Industry key used for organizations that haven't chosen one "
+                   "(see Industries; unknown keys fall back to 'general').",
+       placeholder="general"),
+
+    # ── Lead scoring ─────────────────────────────────────────────────────
+    _s("scoring.confidence_weight", "scoring", "Lead score", "int",
+       label="AI confidence", min=0, max=100,
+       description="Points for how sure the AI is (confidence 0–1 × this)."),
+    _s("scoring.priority_weight", "scoring", "Lead score", "int",
+       label="High priority", min=0, max=100,
+       description="Points when the AI rates the comment high priority (half for medium)."),
+    _s("scoring.quality_weight", "scoring", "Lead score", "int",
+       label="Hot lead", min=0, max=100,
+       description="Points when the AI rates the lead hot (half for warm)."),
+    _s("scoring.contact_phone", "scoring", "Lead score", "int",
+       label="Phone found", min=0, max=100,
+       description="Points when a phone, mobile or WhatsApp number is found."),
+    _s("scoring.contact_email", "scoring", "Lead score", "int",
+       label="Email found", min=0, max=100,
+       description="Points when an email, Telegram or website is found."),
+    _s("scoring.spam_penalty", "scoring", "Lead score", "int",
+       label="Spam penalty", min=0, max=100,
+       description="Points taken off for spam (spam likelihood 0–1 × this)."),
+    _s("ci.min_lead_score", "scoring", "Lead score", "int",
+       label="Minimum lead score", min=0, max=100,
+       description="Comments scoring below this are never leads. An organization's own "
+                   "minimum applies when it is higher."),
+    _s("scoring.phone", "scoring", "Signal score", "int",
+       label="Mentions a phone number", min=0, max=100),
+    _s("scoring.email", "scoring", "Signal score", "int",
+       label="Mentions an email", min=0, max=100),
+    _s("scoring.budget", "scoring", "Signal score", "int",
+       label="Mentions a budget", min=0, max=100),
+    _s("scoring.urgency", "scoring", "Signal score", "int",
+       label="Sounds urgent", min=0, max=100),
+    _s("scoring.location", "scoring", "Signal score", "int",
+       label="Mentions a location", min=0, max=100),
+    _s("scoring.buying_intent", "scoring", "Signal score", "int",
+       label="Wants to buy", min=0, max=100),
+    _s("scoring.derive_quality", "scoring", "Hot / warm from the signal score", "bool",
+       label="Label leads from the signal score",
+       description="When the AI gives no hot/warm/cold label, set one from the signal "
+                   "score using the two thresholds below."),
+    _s("scoring.hot_min", "scoring", "Hot / warm from the signal score", "int",
+       label="Hot from", min=0, max=100,
+       description="Signal score at or above this = hot."),
+    _s("scoring.warm_min", "scoring", "Hot / warm from the signal score", "int",
+       label="Warm from", min=0, max=100,
+       description="Signal score at or above this (and below hot) = warm."),
+
+    # ── Comment detection ────────────────────────────────────────────────
+    _s("ci.detect_phone", "detection", "What to look for", "bool",
+       label="Phone numbers", description="Find phone, mobile and WhatsApp numbers."),
+    _s("ci.detect_email", "detection", "What to look for", "bool",
+       label="Email addresses", description="Find email addresses."),
+    _s("ci.detect_budget", "detection", "What to look for", "bool",
+       label="Budgets", description="Spot amounts and price ranges (\"under 50 lakh\")."),
+    _s("ci.detect_location", "detection", "What to look for", "bool",
+       label="Locations", description="Spot places and areas the person mentions."),
+    _s("ci.detect_urgency", "detection", "What to look for", "bool",
+       label="Urgency", description="Spot words like \"urgent\", \"asap\", \"today\"."),
+    _s("ci.detect_buying_intent", "detection", "What to look for", "bool",
+       label="Buying intent", description="Spot people who want to buy or ask for prices."),
+    _s("ci.detect_selling_intent", "detection", "What to look for", "bool",
+       label="Sellers and brokers",
+       description="Spot people selling or promoting, so they aren't counted as buyers."),
+    _s("ci.ignore_emoji_only", "detection", "What to skip", "bool",
+       label="Emoji-only comments",
+       description="Mark comments with only emoji as not useful, without an AI call."),
+    _s("ci.ignore_spam", "detection", "What to skip", "bool",
+       label="Link-only comments",
+       description="Mark comments that are just a link as spam, without an AI call."),
+    _s("ci.ignore_low_value", "detection", "What to skip", "bool",
+       label="Very short or thank-you comments",
+       description="Skip comments under three words or only thanks (\"nice\", \"thank you\"), "
+                   "without an AI call."),
+
+    # ── Search limits ────────────────────────────────────────────────────
+    _s("limits.max_posts_default", "limits", "Posts per search", "int",
+       label="Default", min=1, max=100000,
+       description="Posts collected when the user doesn't choose a number."),
+    _s("limits.max_posts_cap", "limits", "Posts per search", "int",
+       label="Maximum", min=1, max=100000,
+       description="Most posts any one search may collect, whatever the plan or request."),
+    _s("limits.max_comments_per_post_default", "limits", "Comments per post", "int",
+       label="Default", min=1, max=100000,
+       description="Comments collected from each post when the user doesn't choose."),
+    _s("limits.max_comments_per_post_cap", "limits", "Comments per post", "int",
+       label="Maximum", min=1, max=100000,
+       description="Most comments collected from any one post."),
+    _s("limits.global_max_comments", "limits", "Comments per post", "int",
+       label="Platform-wide ceiling", min=1, max=1000000,
+       description="An extra ceiling on comments per post for every search (the lower "
+                   "of this and the maximum applies). A link search also stops once its "
+                   "total reaches this, or 500 if higher."),
+    _s("limits.min_comments", "limits", "Comments per post", "int",
+       label="Facebook posts worth collecting", min=1, max=100000,
+       description="In Facebook page searches, a post needs at least this many comments "
+                   "to count as worth collecting; smaller posts are marked as not "
+                   "qualifying."),
+    _s("cost.stop_on_limit", "limits", "Cost protection", "bool",
+       label="Limit searches running at once",
+       description="Each organization can run at most 5 searches at the same time; "
+                   "more are refused until one finishes."),
+    _s("cost.warn_before_expensive", "limits", "Cost protection", "bool",
+       label="Warn before big searches",
+       description="Ask users to confirm before starting a search much bigger than "
+                   "the defaults above."),
+
+    # ── Platforms & features ─────────────────────────────────────────────
+    _s("platform.facebook.enabled", "platforms", "Platforms", "bool",
+       label="Facebook", description="Let users search Facebook. Off = Facebook links are refused."),
+    _s("platform.instagram.enabled", "platforms", "Platforms", "bool",
+       label="Instagram", description="Let users search Instagram. Off = Instagram links are refused."),
+    _s("platform.youtube.enabled", "platforms", "Platforms", "bool",
+       label="YouTube", description="Let users search YouTube. Off = YouTube links are refused."),
+    _s("platform.linkedin.enabled", "platforms", "Platforms", "bool",
+       label="LinkedIn", description="Let users search LinkedIn. Off = LinkedIn links are refused."),
+    _s("features.url_search.enabled", "platforms", "Features", "bool",
+       label="Search by link", is_public=True,
+       description="Let users find leads by pasting a post or page link."),
+    _s("features.exports.enabled", "platforms", "Features", "bool",
+       label="Lead downloads", is_public=True,
+       description="Let users download their leads (CSV / Excel). Off = downloads are refused."),
+    _s("features.demo_registration.enabled", "platforms", "Features", "bool",
+       label="Website sign-ups", is_public=True,
+       description="Let new customers sign up for the free trial on the website. "
+                   "Off = sign-up is closed (existing customers can still sign in)."),
+
+    # ── Leads & exports ──────────────────────────────────────────────────
+    _s("leads.require_phone_or_email", "leads", "New leads", "bool",
+       label="Require a phone or email",
+       description="A comment becomes a lead only when it includes a phone, WhatsApp "
+                   "number or email. Applies to comments analysed from now on."),
+    _s("leads.default_status", "leads", "New leads", "select",
+       label="Starting status", options=LEAD_STATUS_OPTIONS,
+       description="Status given to leads created from now on."),
+    _s("exports.max_records", "leads", "Downloads", "int",
+       label="Most rows per download", min=1, max=1000000,
+       description="The most rows one download can contain (user app, Admin portal, "
+                   "platform console, Excel). Bigger downloads are cut and say so."),
+    _s("exports.include_leads_only", "leads", "Downloads", "bool",
+       label="Leads only by default",
+       description="When a download could hold every analysed comment and nobody chose, "
+                   "include only leads."),
+    _s("exports.include_ai_summary", "leads", "Downloads", "bool",
+       label="Include the AI reason",
+       description="Add the AI's reason for each lead as a column in the user app's "
+                   "\"My leads\" download."),
+
+    # ══ Communication ════════════════════════════════════════════════════
+    _s("notifications.alerts_enabled", "notifications", "Admin alerts", "bool",
+       label="Live operations alerts",
+       description="Show live alerts (failed searches, quota warnings) in the admin "
+                   "alert bell. Off = no live alerts; stored notices still show."),
+    _s("notifications.job_failed_email", "notifications", "Automatic emails", "bool",
+       label="Search failed",
+       description="Email an organization when one of its searches fails. Off = nobody "
+                   "gets it; the in-app notice still shows. On = each organization's own "
+                   "settings decide."),
+    _s("notifications.new_lead_email", "notifications", "Automatic emails", "bool",
+       label="New leads found",
+       description="Email an organization when a search finds new leads. Off = nobody "
+                   "gets it; the in-app notice still shows. On = each organization's own "
+                   "settings decide."),
+    _s("email.sender_name", "notifications", "Email sender", "str",
+       label="Sender name",
+       description="Name shown as the sender of every email. Empty = the name in the "
+                   "mail server settings, otherwise the product name."),
+    _s("email.reply_to", "notifications", "Email sender", "email",
+       label="Reply-to address",
+       description="Where replies to platform emails go. Empty = the sending address."),
+    _s("email.footer_text", "notifications", "Email sender", "str",
+       label="Footer line",
+       description="Added as the last paragraph of every email the platform sends "
+                   "(e.g. your address)."),
+
+    # ══ Operations ═══════════════════════════════════════════════════════
+    _s("security.login_protection", "security", "Sign-in protection", "bool",
+       label="Limit sign-in attempts",
+       description="Slow down password guessing by limiting how often one network "
+                   "address can try to sign in. Off = no limit."),
+    _s("security.lockout_threshold", "security", "Sign-in protection", "int",
+       label="Wrong passwords before lock", min=1, max=50,
+       description="Wrong passwords in a row that lock that account for a while."),
+    _s("security.lockout_minutes", "security", "Sign-in protection", "int",
+       label="Lock lasts (minutes)", min=1, max=1440),
+    _s("security.session_timeout_hours", "security", "Sessions", "int",
+       label="Admin idle sign-out (hours)", min=1, max=8760,
+       description="Admin staff are signed out after this long without activity."),
+    _s("security.impersonation_minutes", "security", "Sessions", "int",
+       label="Support view time limit (minutes)", min=5, max=240,
+       description="When staff open a customer's account to help them, the session "
+                   "ends after this time."),
+
+    _s("billing.provider", "payments", "Payment provider", "select",
+       label="Take payments with", options=BILLING_PROVIDER_OPTIONS,
+       description="'auto' = Razorpay when its keys are set, else Stripe, else the test-only "
+                   "mock page. A provider whose keys are missing is never used."),
+
     _s("maintenance.enabled", "maintenance", "Maintenance mode", "bool",
        label="Maintenance mode",
-       description="Blocks the user app with a maintenance page; the admin "
-                   "panel and signed-in admins stay reachable."),
+       description="Show a maintenance page instead of the user app. Admin portals "
+                   "and signed-in admins keep working."),
     _s("maintenance.message", "maintenance", "Maintenance mode", "textarea",
-       label="Maintenance message", is_public=True),
-
-    # ── Security ─────────────────────────────────────────────────────────
-    _s("security.session_timeout_hours", "security", "Sessions", "int",
-       label="Session timeout (hours)", min=1, max=8760,
-       description="Hard idle timeout on top of the cookie lifetime."),
-    _s("security.login_protection", "security", "Sessions", "bool",
-       label="Login protection (rate limiting)"),
-    _s("security.lockout_threshold", "security", "Sessions", "int",
-       label="Failed logins before lockout", min=1, max=50,
-       description="Consecutive failed sign-ins that lock an account."),
-    _s("security.lockout_minutes", "security", "Sessions", "int",
-       label="Lockout duration (minutes)", min=1, max=1440),
-    _s("security.impersonation_minutes", "security", "Sessions", "int",
-       label="Impersonation time limit (minutes)", min=5, max=240,
-       description="Support impersonation sessions end automatically after this time."),
+       label="Message", is_public=True,
+       description="What users see on the maintenance page."),
+    _s("lifecycle.auto_apply", "maintenance", "Automation", "bool",
+       label="Apply plan and trial changes automatically",
+       description="End finished billing periods and expired trials on schedule. "
+                   "Off = they are only listed for review (Subscriptions → Lifecycle "
+                   "automation)."),
+    _s("appearance.dashboard_widgets", "maintenance", "Operations overview layout", "json",
+       label="Overview cards", sensitive=True,
+       json_shape={"show": "bool", "order": "int"},
+       description="Show, hide and order the cards on Operations overview. "
+                   "JSON: {\"kpis\": {\"show\": true, \"order\": 1}}. Cards: hero, kpis, "
+                   "activity, leads_by_platform, alerts, system_status, keyword_filter, "
+                   "recent_jobs."),
 ]
 
 SPEC_BY_KEY: Dict[str, SettingSpec] = {spec.key: spec for spec in SETTINGS}
@@ -450,19 +450,111 @@ REGISTERED_KEYS: set = set(SPEC_BY_KEY)
 # ── Categories (tab order for the admin UI) ─────────────────────────────────
 
 CATEGORIES: List[Dict[str, Any]] = [
-    {"id": "general", "label": "General", "icon": "🏷"},
-    {"id": "branding", "label": "Branding", "icon": "🎨"},
-    {"id": "appearance", "label": "Appearance", "icon": "🧭"},
-    {"id": "ai", "label": "AI & Intelligence", "icon": "🧠"},
-    {"id": "limits", "label": "Scraping & Limits", "icon": "⏱"},
-    {"id": "platforms", "label": "Platforms", "icon": "🌐"},
-    {"id": "features", "label": "Features", "icon": "🚩"},
-    {"id": "notifications", "label": "Notifications & Email", "icon": "📨"},
-    {"id": "leads", "label": "Leads & Exports", "icon": "💼"},
-    {"id": "seo", "label": "SEO & Localization", "icon": "🌍"},
-    {"id": "maintenance", "label": "Maintenance", "icon": "🛠"},
-    {"id": "security", "label": "Security", "icon": "🔐"},
+    {"id": "general", "label": "General", "icon": "🏷", "section": "Brand & website",
+     "description": "Your product name, company, support contacts and the links shown in "
+                    "footers.",
+     "links": [["Website / CMS", "#/website"]]},
+    {"id": "branding", "label": "Branding", "icon": "🎨", "section": "Brand & website",
+     "description": "Logos, colours, font and the sign-in page. Changes show on the website, "
+                    "the sign-in page and every app on the next page load.",
+     "links": [["Website / CMS", "#/website"]]},
+    {"id": "seo", "label": "SEO & sharing", "icon": "🌍", "section": "Brand & website",
+     "description": "How the app and sign-in pages look in search results and when a link "
+                    "is shared.",
+     "links": [["Website SEO", "#/website"]]},
+    {"id": "ai", "label": "AI engine", "icon": "🧠", "section": "Leads engine",
+     "description": "How comments are read: Gemini analysis, its cost limit and the "
+                    "fallback rules.",
+     "links": [["AI Management", "#/ai"], ["Industries", "#/industries"],
+               ["API keys", "#/provider-keys"]]},
+    {"id": "scoring", "label": "Lead scoring", "icon": "🎯", "section": "Leads engine",
+     "description": "Which comments become leads and how hot they are. Every analysed "
+                    "comment gets a 0–100 lead score: with a phone or email it needs 20+, "
+                    "without one 35+ and real buying intent.",
+     "links": [["Keyword rules", "#/keyword-rules"]]},
+    {"id": "detection", "label": "Comment detection", "icon": "🔎", "section": "Leads engine",
+     "description": "What is picked out of each comment, and which comments are skipped "
+                    "before any AI cost.",
+     "links": [["Keyword rules", "#/keyword-rules"]]},
+    {"id": "limits", "label": "Search limits", "icon": "⏱", "section": "Leads engine",
+     "description": "How much one search collects. Plans can allow less, never more than "
+                    "the maximums here.",
+     "links": [["Plans", "#/plans"], ["Usage & cost", "#/usage"]]},
+    {"id": "platforms", "label": "Platforms & features", "icon": "🌐",
+     "section": "Leads engine",
+     "description": "Switch social platforms and product features on or off for everyone.",
+     "links": [["Feature Flags", "#/flags"], ["Free trials", "#/demo"]]},
+    {"id": "leads", "label": "Leads & downloads", "icon": "💼", "section": "Leads engine",
+     "description": "How new leads start out and what lead downloads contain.",
+     "links": [["Reports / Exports", "#/reports"]]},
+    {"id": "notifications", "label": "Email & alerts", "icon": "📨",
+     "section": "Communication",
+     "description": "The mail server every email goes out through, the alert bell, automatic "
+                    "emails and how emails are signed. SMS and welcome / sign-in messages are on "
+                    "the Messaging page.",
+     "links": [["Messaging", "#/messaging"], ["Environment", "#/environment"]]},
+    {"id": "payments", "label": "Payments", "icon": "💳", "section": "Operations",
+     "description": "Which provider customers pay through, and whether its keys and webhook "
+                    "are set up. Keys live in the server's .env file, never in the app.",
+     "links": [["Payments", "#/payments"], ["Subscriptions", "#/subscriptions"]]},
+    {"id": "security", "label": "Security", "icon": "🔐", "section": "Operations",
+     "description": "Sign-in protection and session limits.",
+     "links": [["Security Center", "#/security"], ["Admins", "#/admins"]]},
+    {"id": "maintenance", "label": "Operations", "icon": "🛠", "section": "Operations",
+     "description": "Maintenance mode, scheduled plan and trial changes, and the Operations "
+                    "overview layout.",
+     "links": [["Subscriptions", "#/subscriptions"], ["Operations overview", "#/operations"]]},
 ]
+
+# Old tab ids (bookmarks, guides) → where those settings live now.
+CATEGORY_ALIASES: Dict[str, str] = {"appearance": "maintenance", "features": "platforms"}
+
+# One line under a group's title.
+GROUP_INFO: Dict[Tuple[str, str], str] = {
+    ("general", "Regional defaults"): "Starting values for new organizations.",
+    ("branding", "Logos & icons"): "Upload a file or paste an https:// or /static/ address, "
+                                   "then save. An empty field uses the default.",
+    ("scoring", "Lead score"): "Points that add up to the 0–100 lead score, which decides "
+                               "who is a lead.",
+    ("scoring", "Signal score"): "A second 0–100 score shown next to each lead: points for "
+                                 "what the comment mentions.",
+    ("scoring", "Hot / warm from the signal score"): "Optional: label leads the AI left "
+                                                     "unlabelled.",
+    ("detection", "What to skip"): "Skipped comments cost nothing: no AI call is made.",
+    ("limits", "Posts per search"): "Users can ask for less, never more than the maximum.",
+    ("limits", "Comments per post"): "Users can ask for less, never more than the maximum.",
+    ("notifications", "Automatic emails"): "Platform-wide switches over each organization's "
+                                           "own notification settings.",
+    ("notifications", "Email sender"): "Applies to every email: sign-up, password reset, "
+                                       "alerts and messages. The product name replaces "
+                                       "\"LeadAI\" in all of them.",
+    ("maintenance", "Automation"): "Review what would change first in Subscriptions → "
+                                   "Lifecycle automation.",
+}
+
+# Settings that did nothing and were taken off the page. Stored values and
+# defaults are kept (harmless), so nothing breaks for older data.
+RETIRED_KEYS = frozenset({
+    "general.app.short_name", "general.app.description", "general.company.website",
+    "branding.logo_dark", "branding.logo_compact", "branding.logo_email",
+    "appearance.sidebar_title", "appearance.sidebar_subtitle",
+    "appearance.sidebar_collapsed_default", "appearance.show_icons",
+    "appearance.show_section_labels", "appearance.show_footer_links",
+    "appearance.nav_overrides",
+    "defaults.comment_filter_mode", "defaults.keyword_preset", "defaults.theme",
+    "defaults.date_range", "defaults.page_size",
+    "email.company_name", "email.logo",
+    "localization.date_format", "localization.time_format", "localization.language",
+    "features.ai_analysis.enabled",
+    # no lead de-duplication, retention job or format choice exists for these;
+    # lead temperature always comes from the AI or the score
+    "leads.duplicate_detection", "leads.retention_days", "leads.default_temperature",
+    "exports.default_format",
+    # nothing says "Powered by"; every page already shows your own name and logo
+    "branding.white_label",
+})
+# Internal state kept in system_settings but never edited by hand.
+INTERNAL_KEYS = frozenset({"lifecycle.preview_notified"})
 
 
 def category_specs(category: str) -> List[SettingSpec]:
@@ -491,6 +583,7 @@ def schema_categories() -> List[Dict[str, Any]]:
             groups.append({
                 "id": group,
                 "label": group,
+                "description": GROUP_INFO.get((cat["id"], group), ""),
                 "specs": [
                     {"key": spec.key, "type": spec.type, "label": spec.label,
                      "description": spec.description, "options": spec.options,
@@ -583,6 +676,8 @@ def validate_value(spec: SettingSpec, value: Any) -> Tuple[Any, Optional[str]]:
         text = str(value).strip()
         if text and not _URL_RE.match(text):
             return value, "Must be an https:// URL or a /static/ path"
+        if "#" in text:   # e.g. a pasted page address like …/superadmin#/settings
+            return value, "Must point to an image or file, not to a page — upload the file or paste its address"
         return text, None
     if t == "email":
         text = str(value).strip()
@@ -696,6 +791,11 @@ async def build_public_config(get: Optional[Callable[[str], Any]] = None,
         value = g(key)
         return str(value) if value is not None and str(value) != "" else fallback
 
+    def img(key: str) -> str:
+        """An image address only, never a page link saved by mistake."""
+        text = s(key).strip()
+        return text if text and "#" not in text and _URL_RE.match(text) else ""
+
     payload = {
         "app": {
             "name": s("general.app.name", "LeadAI"),
@@ -720,14 +820,14 @@ async def build_public_config(get: Optional[Callable[[str], Any]] = None,
             "help_url": s("general.links.help_url"),
         },
         "branding": {
-            "logo_primary": s("branding.logo_primary"),
-            "logo_dark": s("branding.logo_dark"),
-            "logo_light": s("branding.logo_light"),
-            "logo_compact": s("branding.logo_compact"),
-            "logo_login": s("branding.logo_login"),
-            "logo_email": s("branding.logo_email"),
-            "favicon": s("branding.favicon"),
-            "apple_touch_icon": s("branding.apple_touch_icon"),
+            "logo_primary": img("branding.logo_primary"),
+            "logo_dark": img("branding.logo_dark"),
+            "logo_light": img("branding.logo_light"),
+            "logo_compact": img("branding.logo_compact"),
+            "logo_login": img("branding.logo_login"),
+            "logo_email": img("branding.logo_email"),
+            "favicon": img("branding.favicon"),
+            "apple_touch_icon": img("branding.apple_touch_icon"),
             "colors": {
                 "primary": s("branding.colors.primary", "#2e9573"),
                 "accent": s("branding.colors.accent", "#d9a441"),
@@ -760,14 +860,16 @@ async def build_public_config(get: Optional[Callable[[str], Any]] = None,
         "seo": {
             "meta_description": s("seo.meta_description"),
             "og_title": s("seo.og_title"),
-            "og_image": s("seo.og_image"),
+            "og_image": img("seo.og_image"),
         },
         "features": {
             "url_search": bool(g("features.url_search.enabled", True)),
             "exports": bool(g("features.exports.enabled", True)),
             "demo_registration": bool(g("features.demo_registration.enabled", True)),
-            "ai_analysis": bool(g("features.ai_analysis.enabled", True)),
+            "ai_analysis": bool(g("ai.enabled", True)),
         },
+        # the user app asks before a search much bigger than the defaults
+        "cost": {"warn_before_expensive": bool(g("cost.warn_before_expensive", True))},
         "trial": _trial_summary(),
         "maintenance": {
             "enabled": bool(g("maintenance.enabled", False)),

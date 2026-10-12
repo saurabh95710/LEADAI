@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-appconfig="brand-only">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/static/design/tokens.css?v=r1005"/>
   <link rel="stylesheet" href="/static/design/components.css?v=r1005"/>
   <link rel="stylesheet" href="/static/website.css?v=apicov1"/>
-  <script src="/static/design/theme.js?v=r1005"></script>
+  <script src="/static/design/theme.js?v=r1006"></script>
   <style>
     .pp-facts { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin-top:8px; }
     .pp-fact { background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:var(--radius-lg); padding:18px; text-align:center; }
@@ -157,7 +157,7 @@
   <footer class="site-footer" id="site-footer"></footer>
 </div>
 
-<script src="/static/website.js?v=root1"></script>
+<script src="/static/website.js?v=brand2"></script>
 <script>
 (function () {
   'use strict';
@@ -274,5 +274,7 @@
   boot();
 })();
 </script>
+<script src="/static/config.js?v=brand2" defer></script>
+<script>window.addEventListener("DOMContentLoaded", function () { if (window.AppConfig) AppConfig.load(); });</script>
 </body>
 </html>

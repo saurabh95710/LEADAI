@@ -61,7 +61,8 @@ def test_database_super_admin_records_are_never_super_admin(env):
     cookie = _cookie({"user_id": uid, "email": "dbsuper@leadai.example", "name": "x",
                       "scope": "admin", "role": "super_admin", "platform_role": "super_admin"})
     assert client.get("/api/super-admin/dashboard", cookies=cookie).status_code == 403
-    assert client.get("/superadmin", cookies=cookie, follow_redirects=False).status_code == 303
+    # platform staff open the one platform portal; the Super Admin APIs stay closed (above)
+    assert client.get("/superadmin", cookies=cookie, follow_redirects=False).status_code == 200
 
 
 def test_staff_accounts_cannot_be_created_as_super_admin(env):

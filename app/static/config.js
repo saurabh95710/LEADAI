@@ -6,9 +6,20 @@
    remapping (colors/theme/font), brand name / tagline / logo / footer text
    on every element carrying a data-brand-* attribute, plus SEO meta tags.
 
-   Used by: index.html, admin.html, login.html, maintenance.html,
-   url_report.html. Pages call AppConfig.load() once (fire-and-forget); the
-   admin panel awaits it in boot() for nav overrides / widget config.
+   Used by: index.html, login.html, maintenance.html, url_report.html, the
+   public website pages and (brand-only) the admin consoles. Pages call
+   AppConfig.load() once (fire-and-forget). A page with
+   <html data-appconfig="brand-only"> (the public website, which renders its
+   own titles and SEO server-side, and the admin consoles, whose name / logo
+   come from design/theme.js) only takes the brand colours, default colour
+   mode, favicon and font.
+
+   AppConfig.get() returns the whole payload: DEFAULTS fill the gaps, and keys
+   DEFAULTS doesn't list (features.demo_registration, trial, cost, ...) are kept.
+
+   Freshness: the last config is shown at once (sessionStorage), then the
+   current one is always fetched and applied, so a Global Settings change shows
+   on the next page load.
    ═══════════════════════════════════════════════════════════════════════ */
 (function () {
   "use strict";
@@ -42,16 +53,15 @@
       nav_overrides: {}, dashboard_widgets: {},
     },
     seo: { meta_description: "", og_title: "", og_image: "" },
-    features: { url_search: true, exports: true },
+    features: { url_search: true, exports: true, demo_registration: true, ai_analysis: true },
+    trial: {},
+    cost: { warn_before_expensive: false },   // off until the server sends it
     maintenance: { enabled: false, message: "" },
     localization: {
       timezone: "auto", date_format: "YYYY-MM-DD", time_format: "24h",
       currency: "USD", language: "en",
     },
-    defaults: {
-      comment_filter_mode: "all", keyword_preset: "", theme: "system",
-      date_range: 30, page_size: 20,
-    },
+    defaults: { date_range: 30, page_size: 20 },
   };
 
   var FONT_LINKS = {
@@ -72,14 +82,22 @@
   var cfg = null;
   var loaded = null;
 
+  function isPlainObject(v) { return v !== null && typeof v === "object" && !Array.isArray(v); }
+
+  // DEFAULTS fill what the payload lacks; payload keys DEFAULTS doesn't know are kept
   function mergeDeep(base, extra) {
     var out = {};
     Object.keys(base).forEach(function (k) {
-      var b = base[k], e = extra && extra[k];
-      out[k] = (e !== undefined && e !== null && typeof b === "object" && !Array.isArray(b))
+      var b = base[k], e = isPlainObject(extra) ? extra[k] : undefined;
+      out[k] = (e !== undefined && e !== null && isPlainObject(b))
         ? mergeDeep(b, e)
         : (e !== undefined && e !== null ? e : b);
     });
+    if (isPlainObject(extra)) {
+      Object.keys(extra).forEach(function (k) {
+        if (!(k in out) && extra[k] !== undefined && extra[k] !== null) out[k] = extra[k];
+      });
+    }
     return out;
   }
 
@@ -132,21 +150,37 @@
     }
   }
 
+  function tint(hex, amount) {          // mix with white (dark-theme variant)
+    var h = String(hex).replace("#", "");
+    var n = parseInt(h, 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    var mix = function (v) { return Math.round(v + (255 - v) * amount); };
+    return "#" + [mix(r), mix(g), mix(b)].map(function (v) { return ("0" + v.toString(16)).slice(-2); }).join("");
+  }
+  function tokenSet(p) {
+    return {
+      "--primary": p, "--primary-hover": shade(p, 0.88), "--primary-dark": shade(p, 0.8),
+      "--primary-fill": p, "--primary-fill-hover": shade(p, 0.88), "--primary-text": shade(p, 0.72),
+      "--primary-soft": hexToRgba(p, 0.13), "--primary-light": hexToRgba(p, 0.15),
+      "--primary-border": hexToRgba(p, 0.36),
+    };
+  }
+  // one colour role (--success, --success-text, -soft, -border) as tokens.css
+  // names it; dark mode gets a lighter base / text so it stays readable
+  function roleSet(name, c, dark) {
+    var set = {};
+    set["--" + name] = dark ? tint(c, 0.15) : c;
+    set["--" + name + "-text"] = dark ? tint(c, 0.4) : shade(c, 0.62);
+    set["--" + name + "-soft"] = hexToRgba(c, dark ? 0.13 : 0.1);
+    set["--" + name + "-border"] = hexToRgba(c, dark ? 0.34 : 0.3);
+    return set;
+  }
+  function assign(target, set) { Object.keys(set).forEach(function (k) { target[k] = set[k]; }); }
+  function decl(set) { return Object.keys(set).map(function (k) { return k + ":" + set[k] + ";"; }).join(""); }
+
   function applyVars() {
     var c = cfg.branding.colors;
+    // raw brand values (for custom CSS); the pages themselves read the design tokens below
     var vars = {
-      "--violet": c.primary,
-      "--violet-deep": shade(c.primary, 0.82),
-      "--violet-soft": hexToRgba(c.primary, 0.12),
-      "--amber": c.accent,
-      "--amber-deep": shade(c.accent, 0.82),
-      "--amber-soft": hexToRgba(c.accent, 0.12),
-      "--green": c.success,
-      "--green-soft": hexToRgba(c.success, 0.12),
-      "--red": c.danger,
-      "--red-soft": hexToRgba(c.danger, 0.12),
-      "--blue": c.info,
-      "--blue-soft": hexToRgba(c.info, 0.12),
       "--brand-primary": c.primary,
       "--brand-accent": c.accent,
       "--brand-success": c.success,
@@ -154,15 +188,46 @@
       "--brand-danger": c.danger,
       "--brand-info": c.info,
     };
-    var font = FONT_FAMILIES[cfg.branding.font] || FONT_FAMILIES.inter;
-    vars["--font-ui"] = font;
-    var css = ":root{" + Object.keys(vars).map(function (k) {
-      return k + ":" + vars[k] + ";";
-    }).join("") + "}" +
+    // The design tokens (design/tokens.css; styles.css and login.html alias
+    // --violet / --amber / --green / --red / --blue to them) follow every
+    // colour CHANGED from its default, in light and dark; a default keeps the
+    // designed palette exactly. accent = the gold --secondary role.
+    var changed = function (k) {
+      return /^#[0-9a-f]{6}$/i.test(c[k] || "") && c[k].toLowerCase() !== DEFAULTS.branding.colors[k];
+    };
+    var light = {}, dark = {};
+    if (changed("primary")) { assign(light, tokenSet(c.primary)); assign(dark, tokenSet(tint(c.primary, 0.45))); }
+    if (changed("accent")) {
+      assign(light, roleSet("secondary", c.accent, false));
+      assign(dark, roleSet("secondary", c.accent, true));
+      light["--secondary-hover"] = shade(c.accent, 0.92);
+      dark["--secondary-hover"] = tint(c.accent, 0.3);
+    }
+    ["success", "warning", "danger", "info"].forEach(function (k) {
+      if (!changed(k)) return;
+      assign(light, roleSet(k, c[k], false));
+      assign(dark, roleSet(k, c[k], true));
+      light["--" + k + "-fill"] = dark["--" + k + "-fill"] = shade(c[k], 0.9);
+    });
+    var tokenCss = "";
+    if (Object.keys(light).length) {
+      // same selectors as design/tokens.css (dark is the base, light is
+      // [data-theme="light"] or the system preference), declared after it
+      tokenCss = ":root,:root[data-theme=\"dark\"]{" + decl(dark) + "}" +
+        ":root[data-theme=\"light\"]{" + decl(light) + "}" +
+        "@media (prefers-color-scheme: light){:root:not([data-theme=\"dark\"]){" + decl(light) + "}}";
+    }
+    // a changed UI font beats the pages' own :root:root font aliases
+    var fontKey = cfg.branding.font || "inter";
+    var fontCss = (fontKey !== "inter" && FONT_FAMILIES[fontKey])
+      ? ":root:root:root{--font-ui:" + FONT_FAMILIES[fontKey] + ";--font-sans:" + FONT_FAMILIES[fontKey] + ";}"
+      : "";
+    var css = ":root{" + decl(vars) + "}" + tokenCss + fontCss +
       ".brand-img{max-width:100%;max-height:100%;object-fit:contain;display:block}" +
       "[data-brand-logo].has-img{background:transparent!important;border:none!important;box-shadow:none!important}" +
       ".logo-badge.has-img{width:auto;height:56px;padding:4px 8px}" +
-      "[data-brand-company]:empty,[data-brand-support]:empty{display:none}";
+      "[data-brand-company]:empty,[data-brand-support]:empty,[data-brand-links]:empty{display:none}" +
+      "[data-brand-links] a+a::before{content:\"\\00b7\";display:inline-block;margin:0 .5em;opacity:.6}";
     var style = document.getElementById("brand-vars");
     if (!style) {
       style = document.createElement("style");
@@ -170,6 +235,16 @@
       document.head.appendChild(style);
     }
     style.textContent = css;
+  }
+
+  // branding.theme is the colour mode for visitors who haven't picked one
+  // (a stored choice from the theme toggle still wins). design/theme.js owns
+  // the mode; the value is remembered so the next page paints in it at once.
+  function applyThemeDefault() {
+    var t = cfg.branding.theme;
+    if (t !== "light" && t !== "dark" && t !== "system") return;
+    try { localStorage.setItem("leadai_brand_theme", t); } catch (_) {}
+    if (window.LeadAITheme && window.LeadAITheme.setDefault) window.LeadAITheme.setDefault(t);
   }
 
   function applyFont() {
@@ -201,19 +276,22 @@
     el.setAttribute("content", content);
   }
 
+  // http(s), mailto: or a same-site path; anything else (javascript:, data:) is dropped
+  function safeLink(url) {
+    var u = String(url || "").trim();
+    if (!u) return "";
+    if (/^(https?:\/\/|mailto:)/i.test(u)) return u;
+    if (u.charAt(0) === "/" && u.charAt(1) !== "/" && u.charAt(1) !== "\\") return u;
+    return "";
+  }
+
   function applyBrandMarkers() {
     document.querySelectorAll("[data-brand-name]").forEach(function (el) {
       if (cfg.app.name) el.textContent = cfg.app.name;
     });
     document.querySelectorAll("[data-brand-sub]").forEach(function (el) {
       var kind = el.getAttribute("data-brand-sub");
-      if (kind === "sidebar") {
-        if (cfg.appearance.sidebar_title && document.querySelector("[data-brand-name]")) {
-          el.textContent = cfg.appearance.sidebar_subtitle || "Admin Control Center";
-        } else if (cfg.app.tagline) {
-          el.textContent = cfg.app.tagline;
-        }
-      } else if (kind === "company") {
+      if (kind === "company") {
         if (cfg.company.name) el.textContent = cfg.company.name;
       } else if (cfg.app.tagline) {
         el.textContent = cfg.app.tagline;
@@ -258,15 +336,26 @@
         p.textContent = cfg.contact.support_phone;
         parts.push(p);
       }
-      if (cfg.contact.support_url) {
-        var u = document.createElement("a");
-        u.href = cfg.contact.support_url;
-        u.textContent = cfg.contact.support_url;
-        parts.push(u);
-      }
       parts.forEach(function (node, i) {
         if (i > 0) el.appendChild(document.createTextNode(" · "));
         el.appendChild(node);
+      });
+    });
+    // Help / Docs / Support / Privacy / Terms links (General settings); each
+    // shows only when set, and the row hides when none is
+    document.querySelectorAll("[data-brand-links]").forEach(function (el) {
+      el.textContent = "";
+      if (cfg.appearance.show_footer_links === false) return;
+      var links = cfg.links || {};
+      [[links.help_url, "Help"], [links.docs_url, "Docs"], [cfg.contact.support_url, "Support"],
+       [links.privacy_url, "Privacy"], [links.terms_url, "Terms"]].forEach(function (pair) {
+        var href = safeLink(pair[0]);
+        if (!href) return;
+        var a = document.createElement("a");
+        a.href = href;
+        a.textContent = pair[1];
+        if (/^https?:/i.test(href)) { a.target = "_blank"; a.rel = "noopener"; }
+        el.appendChild(a);
       });
     });
     document.querySelectorAll("[data-brand-login-heading]").forEach(function (el) {
@@ -281,12 +370,16 @@
   }
 
   function apply() {
-    applyTitle();
+    var brandOnly = document.documentElement.getAttribute("data-appconfig") === "brand-only";
+    if (!brandOnly) applyTitle();
     applyFavicon();
     applyVars();
+    applyThemeDefault();
     applyFont();
-    applyMeta();
-    applyBrandMarkers();
+    if (!brandOnly) {
+      applyMeta();
+      applyBrandMarkers();
+    }
   }
 
   var CONFIG_CACHE_KEY = "leadai_public_config_v1";
@@ -295,33 +388,36 @@
   function load() {
     if (loaded) return loaded;
 
-    // Check sessionStorage cache first
+    // Show the last known config at once (no flash of the default brand)…
+    var shown = null;
     try {
       var cached = sessionStorage.getItem(CONFIG_CACHE_KEY);
       if (cached) {
         var parsed = JSON.parse(cached);
         if (parsed && parsed.ts && (Date.now() - parsed.ts < CONFIG_CACHE_TTL) && parsed.data) {
+          shown = JSON.stringify(parsed.data);
           cfg = mergeDeep(DEFAULTS, parsed.data);
           apply();
-          loaded = Promise.resolve(cfg);
-          return loaded;
         }
       }
     } catch (_) {}
 
+    // …then always fetch the current one, so a saved change shows on the next page load
     loaded = fetch("/api/public/config", {
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json" }, cache: "no-cache",
     })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
+        if (!data && cfg) return cfg;                     // offline: keep what is shown
         cfg = mergeDeep(DEFAULTS, data || {});
         try {
           sessionStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: data }));
         } catch (_) {}
-        apply();
+        if (JSON.stringify(data) !== shown) apply();
         return cfg;
       })
       .catch(function () {
+        if (cfg) return cfg;
         cfg = mergeDeep(DEFAULTS, {});
         apply();
         return cfg;

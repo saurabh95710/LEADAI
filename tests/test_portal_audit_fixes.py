@@ -76,7 +76,7 @@ def test_super_admin_sets_and_changes_the_environment_guard_password(env):
     assert sa.get("/api/admin/env/lock-status").json()["guard_set"] is True
     assert sa.post("/api/admin/env/unlock", json={"password": "Guard-Pass-2026"}).status_code == 200
     # changing it needs the current one
-    assert sa.put("/api/admin/env/guard", json={"new_password": "Other-Pass-2026"}).status_code == 401
+    assert sa.put("/api/admin/env/guard", json={"new_password": "Other-Pass-2026"}).status_code == 403
     assert sa.put("/api/admin/env/guard", json={"new_password": "Other-Pass-2026",
                                                 "current_password": "Guard-Pass-2026"}).status_code == 200
     assert db.audit_logs.find_one({"action": "env.guard.set"})

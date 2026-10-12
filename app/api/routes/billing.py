@@ -8,11 +8,15 @@ Endpoints:
   - POST /api/billing/checkout              choose plan -> PENDING_PAYMENT + provider checkout
   - GET  /api/billing/checkout/{session}    status of a checkout (polled by the status page)
   - POST /api/billing/checkout/{session}/mock-pay   dev mock provider "payment"
+  - GET  /api/billing/razorpay/{order}      what the Razorpay pay page needs (public key id, amount)
+  - POST /api/billing/razorpay/verify       Razorpay Checkout success handler -> signature check
   - POST /api/billing/portal                provider billing portal link
   - POST /api/billing/cancel                schedule cancellation at period end
   - POST /api/billing/reactivate            undo a scheduled cancellation
   - GET  /api/billing/invoices              invoice history
-  - POST /api/billing/webhook               signature-verified provider webhook
+  - POST /api/billing/webhook               signature-verified webhook of the ACTIVE provider
+  - POST /api/billing/webhook/razorpay      Razorpay webhook (whichever provider is active)
+  - POST /api/billing/webhook/stripe        Stripe webhook (whichever provider is active)
 
 No endpoint here can make a subscription ACTIVE: payment verification moves
 it to PENDING_ADMIN_CONFIRMATION and only a Super Admin confirms.
@@ -21,7 +25,7 @@ import logging
 from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.admin.audit import request_meta
 from app.auth.permissions import ORG_BILLING_MANAGE, ORG_BILLING_VIEW
@@ -31,10 +35,14 @@ from app.billing.invoices import list_organization_invoices
 from app.billing.plans import get_all_plans
 from app.billing.provider import (
     WebhookSignatureError,
+    BillingProvider,
     complete_mock_checkout,
     get_billing_provider,
+    get_provider_by_name,
     mock_payments_enabled,
     process_billing_webhook,
+    razorpay_checkout_config,
+    verify_razorpay_checkout,
 )
 from app.billing.subscriptions import (
     customer_view,
@@ -61,6 +69,13 @@ class CheckoutRequest(BaseModel):
 
 class MockPayRequest(BaseModel):
     succeed: bool = True
+
+
+class RazorpayVerifyRequest(BaseModel):
+    """What Razorpay Checkout hands its success handler."""
+    razorpay_order_id: str = Field(..., min_length=1, max_length=64)
+    razorpay_payment_id: str = Field(..., min_length=1, max_length=64)
+    razorpay_signature: str = Field(..., min_length=1, max_length=256)
 
 
 
@@ -148,6 +163,10 @@ async def checkout_status(session_id: str, request: Request,
         "status": sub["status"], "payment_status": (payment or {}).get("status"),
         "plan": {"name": (plan or {}).get("name"), "slug": sub.get("plan_id")},
         "mock": sub.get("provider") == "mock" and mock_payments_enabled(),
+        "provider": sub.get("provider"),
+        # an unpaid Razorpay checkout can be paid (again) on its pay page
+        "pay_url": (f"/billing/razorpay/{session_id}"
+                    if sub.get("provider") == "razorpay" and sub["status"] == "pending_payment" else None),
     }}
 
 
@@ -162,6 +181,48 @@ async def mock_pay(session_id: str, body: MockPayRequest, request: Request,
             await _log_foreign_checkout_probe(get_async_db(), request, ctx, session_id)
         raise
     return {"success": True, **res}
+
+
+@router.get("/razorpay/{session_id}")
+async def razorpay_checkout(session_id: str, request: Request,
+                            ctx: TenantContext = Depends(require_org_permission(ORG_BILLING_MANAGE))):
+    """Razorpay Checkout options for the pay page (/billing/razorpay/{order_id};
+    the order id is the checkout session id). Only this organization's
+    checkouts; the key id is public by design. A checkout that is paid or
+    not a Razorpay one answers with its status only (the page then shows
+    the status page)."""
+    try:
+        cfg = await razorpay_checkout_config(session_id, ctx.tenant_id, ctx.email)
+    except HTTPException as e:
+        if e.status_code == 404:
+            await _log_foreign_checkout_probe(get_async_db(), request, ctx, session_id)
+        raise
+    return {"success": True, "checkout": cfg}
+
+
+@router.post("/razorpay/verify")
+async def razorpay_verify(body: RazorpayVerifyRequest, request: Request,
+                          ctx: TenantContext = Depends(require_org_permission(ORG_BILLING_MANAGE))):
+    """Razorpay Checkout's success handler: check the payment signature
+    (HMAC of order|payment with the key secret) for an order of the caller's
+    organization. Moves the subscription at most to PENDING_ADMIN_CONFIRMATION;
+    the webhook reporting the same payment later changes nothing."""
+    try:
+        res = await verify_razorpay_checkout(
+            order_id=body.razorpay_order_id, payment_id=body.razorpay_payment_id,
+            signature=body.razorpay_signature, organization_id=ctx.tenant_id)
+    except WebhookSignatureError as e:
+        from app.events.security import security_event_from_request
+        security_event_from_request(request, "invalid_payment_signature", "high", ctx=ctx,
+                                    details={"provider": "razorpay", "reason": e.detail,
+                                             "order_id": body.razorpay_order_id[:64]})
+        raise
+    except HTTPException as e:
+        if e.status_code == 404:
+            await _log_foreign_checkout_probe(get_async_db(), request, ctx, body.razorpay_order_id)
+        raise
+    return {"success": True, **res,
+            "status_url": f"/billing/status?session={body.razorpay_order_id}"}
 
 
 @router.post("/portal")
@@ -248,11 +309,8 @@ async def download_receipt(number: str, request: Request,
         "Content-Disposition": f'inline; filename="{inv["number"]}-receipt.html"', "Cache-Control": "no-store"})
 
 
-@router.post("/webhook")
-async def billing_webhook(request: Request):
-    """Signature-verified provider webhook (public, no session)."""
+async def _verified_webhook(request: Request, provider: BillingProvider):
     body = await request.body()
-    provider = get_billing_provider()
     headers = {k.lower(): v for k, v in request.headers.items()}
     try:
         event = provider.verify_webhook(body, headers)
@@ -262,3 +320,22 @@ async def billing_webhook(request: Request):
                                     details={"provider": provider.name, "reason": e.detail})
         raise
     return await process_billing_webhook(event, provider_name=provider.name)
+
+
+@router.post("/webhook")
+async def billing_webhook(request: Request):
+    """Signature-verified webhook of the ACTIVE provider (public, no session).
+    Kept for existing setups; prefer the per-provider URLs below."""
+    return await _verified_webhook(request, get_billing_provider())
+
+
+# One URL per provider, verified with THAT provider whichever is active
+# (renewals / refunds of the other provider keep working).
+@router.post("/webhook/razorpay")
+async def razorpay_webhook(request: Request):
+    return await _verified_webhook(request, get_provider_by_name("razorpay"))
+
+
+@router.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    return await _verified_webhook(request, get_provider_by_name("stripe"))

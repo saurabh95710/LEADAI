@@ -565,11 +565,14 @@ async def dashboard(days: int = Query(30, ge=1, le=365),
 
 @router.get("/alerts", dependencies=[Depends(require_viewer)])
 async def alerts():
-    """Notifications for the topbar bell: last-24h window."""
+    """Notifications for the topbar bell: last-24h window. Empty (with
+    ``disabled: true``) while Global Settings → In-app alerts is off."""
+    if not await s.aget_setting("notifications.alerts_enabled"):
+        return {"alerts": [], "disabled": True, "checked_at": utcnow().isoformat()}
     db = await _db()
     now = datetime.now(timezone.utc)
     start = now - timedelta(days=1)
-    return {"alerts": await _derive_alerts(db, start, now),
+    return {"alerts": await _derive_alerts(db, start, now), "disabled": False,
             "checked_at": utcnow().isoformat()}
 
 
@@ -877,11 +880,14 @@ async def list_leads(
     q: Optional[str] = Query(None),
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
+    run_id: Optional[str] = Query(None, description="only leads of this search run"),
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=200),
 ):
     db = await _db()
     query: Dict[str, Any] = {}
+    if run_id and isinstance(run_id, str):
+        query["search_run_id"] = run_id
     if only_leads:
         query["is_lead"] = True
     if platform and isinstance(platform, str):
@@ -1425,7 +1431,7 @@ async def env_set_guard(body: EnvGuardBody):
     Super Admin only; changing an existing one needs the current one."""
     if ev._guard_hash() and not ev.verify_guard_password(body.current_password or ""):
         await a.aaudit("env.guard.change_failed", "env", success=False)
-        raise HTTPException(status_code=401, detail="The current guard password is wrong")
+        raise HTTPException(status_code=403, detail="The current guard password is wrong")
     if len(body.new_password or "") < 8:
         raise HTTPException(status_code=422, detail="Use at least 8 characters")
     if not ev.set_guard_password(body.new_password, by="super_admin"):
@@ -1440,7 +1446,7 @@ async def env_unlock(body: EnvUnlockRequest, response: Response,
     password = body.password
     if not ev.verify_guard_password(password):
         await a.aaudit("env.unlock.failed", "env", success=False)
-        raise HTTPException(status_code=401, detail="Wrong password")
+        raise HTTPException(status_code=403, detail="Wrong password")
     from app.auth.service import set_env_unlock_cookie
     set_env_unlock_cookie(response)
     await a.aaudit("env.unlock", "env")
@@ -1754,11 +1760,14 @@ async def list_comments(
     q: Optional[str] = Query(None),
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
+    run_id: Optional[str] = Query(None, description="only comments of this search run"),
     offset: int = Query(0, ge=0),
     limit: int = Query(25, ge=1, le=200),
 ):
     db = await _db()
     query: Dict[str, Any] = {}
+    if run_id and isinstance(run_id, str):
+        query["search_run_id"] = run_id
     if platform and isinstance(platform, str):
         query["platform"] = platform
     if intent and isinstance(intent, str):
@@ -1920,14 +1929,17 @@ async def list_admin_posts(
 ):
     db = await _db()
     query: Dict[str, Any] = {}
+    ands: List[Dict[str, Any]] = []      # run filter and text search both apply
     if run_id:
-        query["$or"] = [{"collection_run_id": run_id}, {"search_run_id": run_id}]
+        ands.append({"$or": [{"collection_run_id": run_id}, {"search_run_id": run_id}]})
     if platform:
         query["platform"] = platform
     if q:
-        query["$or"] = [{"caption": {"$regex": re.escape(q), "$options": "i"}},
-                        {"description": {"$regex": re.escape(q), "$options": "i"}},
-                        {"page_name": {"$regex": re.escape(q), "$options": "i"}}]
+        ands.append({"$or": [{"caption": {"$regex": re.escape(q), "$options": "i"}},
+                             {"description": {"$regex": re.escape(q), "$options": "i"}},
+                             {"page_name": {"$regex": re.escape(q), "$options": "i"}}]})
+    if ands:
+        query["$and"] = ands
     if from_date or to_date:
         query["published_date"] = _date_filter(from_date, to_date).get("created_at", {})
     offset, limit = _pagination(offset, limit)
@@ -1952,8 +1964,11 @@ async def list_admin_posts(
 # FEATURES
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+# "AI analysis" is ai.enabled (the old features.ai_analysis.enabled duplicate
+# is merged into it at startup: app.pipeline.comment_ai.merge_legacy_ai_flag)
 _FEATURES_KEYS = [k for k in s.SETTING_DEFAULTS
-                  if k.startswith(("features.", "platform."))]
+                  if k.startswith(("features.", "platform."))
+                  and k != "features.ai_analysis.enabled"] + ["ai.enabled"]
 
 
 @router.get("/features", dependencies=[Depends(require_viewer)])
@@ -2187,7 +2202,7 @@ async def admin_export(
     scope: str,
     request: Request,
     platform: Optional[str] = Query(None),
-    only_leads: bool = Query(True),
+    only_leads: Optional[bool] = Query(None),
     q: Optional[str] = Query(None),
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
@@ -2195,6 +2210,9 @@ async def admin_export(
     from app.api.routes.search import (_csv_response, PAGES_CSV, POSTS_CSV,
                                        COMMENTS_CSV, _resolve_platform,
                                        _split_date_time)
+    if only_leads is None:  # not chosen: Global Settings → Export leads only by default
+        from app.settings.effective import export_leads_only_default
+        only_leads = export_leads_only_default()
     db = await _db()
     stamp = datetime.now().strftime("%Y%m%d")
     exported = 0
@@ -2219,7 +2237,8 @@ async def admin_export(
             row["platform"] = _resolve_platform(row)
         response = _csv_response(rows, POSTS_CSV, f"admin_posts_{stamp}.csv")
     elif scope == "leads":
-        query = {"is_lead": only_leads}
+        # leads only, or every analysed comment (leads included)
+        query = {"is_lead": True} if only_leads else {}
         if platform:
             query["platform"] = platform
         if q:
@@ -2271,10 +2290,10 @@ async def admin_export(
                     "platform": lead.get("platform", ""),
                     "lead_status": lead.get("lead_status", ""),
                     "lead_score": lead.get("lead_score", 0),
-                    "title": fu.get("title", ""),
+                    "title": fu.get("title") or fu.get("note") or "",
                     "due_at": fu.get("due_at", ""),
                     "status": fu.get("status", ""),
-                    "notes": fu.get("notes", ""),
+                    "notes": fu.get("notes") or fu.get("note") or "",
                     "created_by": fu.get("created_by", ""),
                     "created_at": fu.get("created_at", ""),
                     "completed_at": fu.get("completed_at", ""),
@@ -2290,7 +2309,9 @@ async def admin_export(
                    user=current_admin_for_audit(request),
                    ip=request.client.host if request.client else None,
                    details={"scope": scope, "format": "csv", "rows": exported,
-                            "platform": platform or None})
+                            "platform": platform or None, "q": q or None,
+                            "from_date": from_date or None, "to_date": to_date or None,
+                            "only_leads": only_leads})
     return response
 
 
@@ -2526,7 +2547,7 @@ async def change_password(body: ChangePasswordRequest,
     await a.aaudit("security.change_password", "security", user=admin,
                    details={"email": email})
     return {"success": True,
-            "message": "Password updated. Sign in again with the new password."}
+            "message": "Password updated. Use it the next time you sign in."}
 
 
 def _login_protection_active() -> bool:
@@ -2757,6 +2778,8 @@ async def create_organization(body: CreateOrgRequest, request: Request):
     plan = await get_plan_by_slug_or_id(body.plan_id, db=db) if body.plan_id else None
     if body.plan_id and not plan:
         raise HTTPException(status_code=422, detail="Unknown plan")
+    from app.settings.effective import org_locale_defaults
+    org_tz, org_currency = org_locale_defaults()
 
     doc = {
         "name": name_clean,
@@ -2765,8 +2788,9 @@ async def create_organization(body: CreateOrgRequest, request: Request):
         "plan_id": plan["slug"] if plan else None,
         "website": _org_website(body.website),
         "admin_portal_enabled": True,
-        "timezone": "UTC",
-        "currency": "USD",
+        # Global Settings → Localization (no choice is made at creation)
+        "timezone": org_tz,
+        "currency": org_currency,
         "settings": {"auto_export": True, "shared_workspace": False},
         "metadata": {"created_by_admin": actor.get("email")},
         "created_at": utcnow(),

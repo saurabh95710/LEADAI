@@ -54,12 +54,12 @@
     var ov = (await api(B + '/overview')).overview;
     var totals = ov.commission_totals || {}, cur = Object.keys(totals)[0] || 'USD', t = totals[cur] || {};
     root.innerHTML = K.header('Partners & resellers', 'Applications, partners, commissions and payouts. Customers they bring are ordinary organizations; commissions come from confirmed subscription payments.') +
-      '<div class="sa-grid sa-kpis">' +
+      '<div class="sa-grid sa-kpis" data-tour="pt-kpis">' +
       K.kpi('Applications to review', K.fmtN(ov.applications_pending), K.fmtN(ov.applications_changes) + ' awaiting changes', { href: '#/partners?tab=applications&status=pending', icon: 'list', tone: ov.applications_pending ? 'warn' : '' }) +
       K.kpi('Active partners', K.fmtN(ov.partners_active), K.fmtN(ov.affiliates) + ' affiliates · ' + K.fmtN(ov.resellers) + ' resellers', { href: '#/partners?tab=partners&status=active', icon: 'handshake' }) +
       K.kpi('Referred customers', K.fmtN(ov.customers), K.fmtN(ov.referrals) + ' referrals in total', { href: '#/partners?tab=referrals&stage=customer', icon: 'users' }) +
       K.kpi('Commission (' + cur + ')', money((t.pending || 0) + (t.qualified || 0) + (t.approved || 0) + (t.payable || 0) + (t.processing || 0), cur), 'unpaid · ' + money(t.paid, cur) + ' paid · ' + K.fmtN(ov.payouts_open) + ' payouts open', { href: '#/partners?tab=commissions', icon: 'coin' }) +
-      '</div><div id="ptTabs" style="margin-top:14px"></div>';
+      '</div><div id="ptTabs" data-tour="pt-tabs" style="margin-top:14px"></div>';
     K.tabs($('#ptTabs', root), [['applications', 'Applications'], ['analytics', 'Analytics'], ['activity', 'Activity log'], ['partners', 'Partners'], ['tasks', 'Tasks'], ['deals', 'Deals'], ['referrals', 'Customers & referrals'],
       ['commissions', 'Commissions'], ['reversals', 'Refunds & reversals'], ['wallets', 'Wallets'], ['payouts', 'Payouts'],
       ['fraud', 'Fraud review'], ['rules', 'Commission rules'], ['tiers', 'Tiers'], ['pricing', 'Partner pricing'],

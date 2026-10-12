@@ -698,10 +698,49 @@ async def get_website_settings(db) -> Dict[str, Any]:
     return result
 
 
+# The brand (name, tagline, logo, favicon) has ONE source: Super Admin →
+# Global Settings › Branding. The website uses it, so a change there shows on
+# the website too; the website's own fields are only a fallback.
+BRAND_FROM_GLOBAL = {"brand_name", "tagline", "logo_url", "favicon_url"}
+
+
+def _image_ref(value: Any) -> str:
+    """An uploaded file or image address, never a page link ("…#/settings")."""
+    text = str(value or "").strip()
+    if not text or "#" in text or not (text.startswith("/static/") or text.startswith(("https://", "http://"))):
+        return ""
+    return text
+
+
+def global_brand() -> Dict[str, str]:
+    """Name / tagline / logo / favicon from Global Settings (empty = not set).
+
+    Name and tagline count only once changed from the built-in default, so a
+    name set under Website settings still shows until Global Settings has one."""
+    try:
+        from app.admin.settings import SETTING_DEFAULTS, get_setting
+
+        def changed(key: str) -> str:
+            v = str(get_setting(key) or "").strip()
+            return "" if v == str(SETTING_DEFAULTS.get(key) or "").strip() else v
+
+        return {
+            "brand_name": changed("general.app.name"),
+            "tagline": changed("general.app.tagline"),
+            "logo_url": _image_ref(get_setting("branding.logo_light")) or _image_ref(get_setting("branding.logo_primary")),
+            "favicon_url": _image_ref(get_setting("branding.favicon")),
+        }
+    except Exception:
+        return {}
+
+
 async def public_settings(db) -> Dict[str, Any]:
     s = await get_website_settings(db)
     defaults = {d["key"]: d["value"] for d in DEFAULT_WEBSITE_SETTINGS}
     out = {k: s.get(k, defaults.get(k, "")) for k in PUBLIC_SETTING_KEYS}
+    for k, v in global_brand().items():
+        if v:
+            out[k] = v
     out["announcement_enabled"] = bool(out.get("announcement_enabled"))
     return out
 

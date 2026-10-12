@@ -185,7 +185,8 @@
   function applySeo(page, settings) {
     const seo = (page && page.seo) || {};
     const brand = (settings && settings.brand_name) || 'LeadAI';
-    const title = seo.title || (page && page.title ? page.title + ' · ' + brand : brand);
+    let title = seo.title || (page && page.title ? page.title + ' · ' + brand : brand);
+    if (brand !== 'LeadAI') title = title.replace(/LeadAI/g, brand);   // titles written with the old name follow a renamed brand
     document.title = title;
     setMeta('name', 'description', seo.description || (settings && settings.tagline) || '');
     setMeta('name', 'robots', seo.robots || 'index,follow');
@@ -483,7 +484,7 @@
     return box;
   };
   let cycle = 'monthly';
-  let siteTrial = false;   // self-serve free trial on (public config), see trialLabels()
+  let siteTrial = false;   // self-serve free trial on (public config), see signupLinks()
   // Who provides each external API: 'leadai' (included in the price) or 'own'
   // (the customer's own key: cheaper, they pay Apify / Google directly).
   // Prices always come from the API's coverage_options, never computed here.
@@ -682,24 +683,40 @@
         actions ? h('div', { class: 'cta-row' }, actions) : null));
   }
 
-  // Self-serve free trial (Super Admin → demo settings → auto-approve): sign-up
-  // starts a trial at once, so "Request a demo" links (code or CMS content) say
-  // "Start free trial" — including ones rendered later.
-  (function trialLabels() {
+  // Sign-up links ("Request a demo", in code or CMS content, including ones
+  // rendered later) follow Global Settings:
+  //  - sign-ups closed (features.demo_registration off): they become
+  //    "Contact us" → /contact, never a form the server would refuse;
+  //  - self-serve free trial (demo settings → auto-approve): "Start free trial".
+  (function signupLinks() {
     const DEMO_TEXT = /^\s*(request|book|get)( a| your)?( free)? demo\s*$/i;
-    let label = '';
+    let mode = '', label = '';
     const relabel = (root) => {
-      if (!label || !root || !root.querySelectorAll) return;
+      if (!mode || !root || !root.querySelectorAll) return;
       root.querySelectorAll('[data-plan-trial]').forEach(el => el.remove());
       root.querySelectorAll('a[href^="/request-demo"], a[href^="/signup"]').forEach(a => {
-        if (a.children.length === 0 && DEMO_TEXT.test(a.textContent)) a.textContent = label;
+        if (mode === 'closed') {
+          a.setAttribute('href', '/contact');
+          a.setAttribute('title', 'Sign-ups are closed right now');
+          if (a.children.length === 0) a.textContent = 'Contact us';
+          const al = a.getAttribute('aria-label');
+          if (al) a.setAttribute('aria-label', 'Contact us' + (al.indexOf(' — ') > -1 ? al.slice(al.indexOf(' — ')) : ''));
+        } else if (a.children.length === 0 && DEMO_TEXT.test(a.textContent)) {
+          a.textContent = label;
+        }
       });
     };
     soft(api('/api/public/config')).then(cfg => {
       const t = (cfg && cfg.trial) || {};
-      if (!t.self_serve) return;
-      label = t.days > 0 ? 'Start free ' + t.days + '-day trial' : 'Start free trial';
-      siteTrial = true;
+      if (cfg && cfg.features && cfg.features.demo_registration === false) {
+        mode = 'closed';
+      } else if (t.self_serve) {
+        mode = 'trial';
+        label = t.days > 0 ? 'Start free ' + t.days + '-day trial' : 'Start free trial';
+        siteTrial = true;
+      } else {
+        return;
+      }
       relabel(document);
       new MutationObserver(list => list.forEach(m => m.addedNodes.forEach(n => {
         if (n.nodeType === 1) { relabel(n); if (n.matches && n.matches('a')) relabel(n.parentNode); }

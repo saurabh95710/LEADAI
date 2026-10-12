@@ -169,8 +169,8 @@ def _patch_db(monkeypatch, collections=None):
 # ── registry: validation & coercion ─────────────────────────────────────────
 
 def test_validate_coerces_scalar_types():
-    assert R.validate_value(R.SPEC_BY_KEY["branding.white_label"], "true") == (True, None)
-    assert R.validate_value(R.SPEC_BY_KEY["branding.white_label"], 1) == (True, None)
+    assert R.validate_value(R.SPEC_BY_KEY["maintenance.enabled"], "true") == (True, None)
+    assert R.validate_value(R.SPEC_BY_KEY["maintenance.enabled"], 1) == (True, None)
     assert R.validate_value(R.SPEC_BY_KEY["ai.temperature"], "0.7") == (0.7, None)
     assert R.validate_value(R.SPEC_BY_KEY["limits.min_comments"], "5") == (5, None)
     assert R.validate_value(R.SPEC_BY_KEY["branding.font"], "inter") == ("inter", None)
@@ -180,7 +180,7 @@ def test_validate_coerces_scalar_types():
 def test_validate_rejects_bad_values():
     assert R.validate_value(R.SPEC_BY_KEY["branding.colors.primary"], "red")[1]
     assert R.validate_value(R.SPEC_BY_KEY["branding.colors.primary"], "#12")[1]
-    assert R.validate_value(R.SPEC_BY_KEY["general.company.website"], "not-a-url")[1]
+    assert R.validate_value(R.SPEC_BY_KEY["general.contact.support_url"], "not-a-url")[1]
     assert R.validate_value(R.SPEC_BY_KEY["general.contact.support_email"], "nope")[1]
     assert R.validate_value(R.SPEC_BY_KEY["branding.font"], "comic-sans")[1]
     assert R.validate_value(R.SPEC_BY_KEY["limits.min_comments"], -3)[1]
@@ -194,9 +194,9 @@ def test_validate_path_accepts_static_and_url():
     assert R.validate_value(spec, "C:\\logo.png")[1]
 
 
-def test_validate_nav_overrides_json_shape():
-    spec = R.SPEC_BY_KEY["appearance.nav_overrides"]
-    good = {"usage": {"label": "Billing", "order": 1}, "ai": {"hidden": True}}
+def test_validate_dashboard_widgets_json_shape():
+    spec = R.SPEC_BY_KEY["appearance.dashboard_widgets"]
+    good = {"usage": {"show": False, "order": 1}, "ai": {"order": 2}}
     cleaned, err = R.validate_value(spec, good)
     assert err is None and cleaned == good
     # unknown sub-key
@@ -238,7 +238,7 @@ def test_registry_complete_and_secret_free():
 def test_schema_categories_shape():
     cats = R.schema_categories()
     assert [c["id"] for c in cats] == [c["id"] for c in R.CATEGORIES]
-    assert len(cats) == 12
+    assert len(cats) == 13
     for cat in cats:
         assert cat["groups"], cat["id"]
         for group in cat["groups"]:
@@ -404,3 +404,29 @@ if __name__ == "__main__":
             print(f"ERROR {fn.__name__}: {e!r}")
     print(f"\n{passed}/{len(fns)} passed")
     sys.exit(0 if passed == len(fns) else 1)
+
+
+def test_settings_page_is_organized():
+    """Every tab sits under a section with an intro; related links are portal
+    routes; retired / internal keys never come back onto the page."""
+    cats = R.schema_categories()
+    for c in cats:
+        assert c["section"] and c["description"], c["id"]
+        for label, href in c.get("links", []):
+            assert label and href.startswith("#/"), (c["id"], href)
+        assert c["groups"], c["id"]
+    group_ids = {(c["id"], g["id"]) for c in cats for g in c["groups"]}
+    assert set(R.GROUP_INFO) <= group_ids
+    assert not (R.RETIRED_KEYS | R.INTERNAL_KEYS) & R.REGISTERED_KEYS
+    for alias, target in R.CATEGORY_ALIASES.items():
+        assert target in {c["id"] for c in cats} and alias not in {c["id"] for c in cats}
+    for spec in R.SETTINGS:
+        assert spec.label and "_" not in spec.label, spec.key
+
+
+def test_public_config_carries_the_cost_warning_and_ai_switch():
+    import asyncio
+    cfg = asyncio.run(R.build_public_config(all_settings={"cost.warn_before_expensive": False,
+                                                          "ai.enabled": False}))
+    assert cfg["cost"] == {"warn_before_expensive": False}
+    assert cfg["features"]["ai_analysis"] is False

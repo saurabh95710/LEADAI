@@ -553,8 +553,12 @@ class TestItem3NoSuperAdmin:
         client.cookies.clear()
         r = client.get("/superadmin", cookies=world["cookies"]["a_owner"], follow_redirects=False)
         assert r.status_code == 303 and "/login" in r.headers["location"]
+        # platform staff use the one platform portal (the menu shows what their role allows) …
         r = client.get("/superadmin", cookies=_staff(db, "operations_admin"), follow_redirects=False)
-        assert r.status_code == 303 and r.headers["location"] == "/admin"
+        assert r.status_code == 200
+        # … but the Super Admin APIs stay Super Admin only
+        r = client.get("/api/super-admin/organizations", cookies=_staff(db, "operations_admin"))
+        assert r.status_code == 403
         r = client.get("/superadmin", cookies=_super(db), follow_redirects=False)
         assert r.status_code == 200
 
@@ -1070,6 +1074,10 @@ class TestItem7AuditAndSecrets:
         values.setdefault("social_page_id", str(any_page["_id"]) if any_page else str(ObjectId()))
         any_post = db.facebook_posts.find_one()
         values.setdefault("post_id", str(any_post["_id"]) if any_post else str(ObjectId()))
+        # a sent message (Super Admin → Messaging), so its detail view is swept too
+        values["message_id"] = str(db.message_campaigns.insert_one({
+            "scope": "platform", "channels": ["email"], "subject": "Sweep", "body": "Sweep body",
+            "recipient_count": 0, "status": "done", "counts": {}, "created_at": NOW}).inserted_id)
         problems, skipped, mongomock_gaps, not_ok, called = [], [], [], [], 0
         for method, path in _all_routes():
             if method != "GET" or not path.startswith(("/api/super-admin/", "/api/admin/",
@@ -1331,7 +1339,7 @@ class TestItem9FlagsMaintenanceSuspension:
             assert seen and all(seen), seen
             assert comment_ai._ai_entitlement(world["org"]["a"]) == (True, None)
             seen.clear()
-            _flag(client, db, "features.ai_analysis.enabled", False)
+            _flag(client, db, "ai.enabled", False)
             summary = comment_ai.analyze_comments_for_post(post)
         assert seen and not any(seen), seen
         assert summary["ai_blocked"] == "feature_disabled"

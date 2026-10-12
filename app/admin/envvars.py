@@ -170,13 +170,13 @@ ENVVAR_REGISTRY: list[EnvVarDef] = [
      "group": "Security", "description": "Enable /docs and /redoc endpoints. "
                                         "Disable in production. Requires restart."},
     # Stripe / Billing
-    {"name": "STRIPE_SECRET_KEY", "kind": "str", "secret": True, "restart": False, "locked": True,
+    {"name": "STRIPE_SECRET_KEY", "kind": "str", "secret": True, "restart": False,
      "settings_attr": "stripe_secret_key", "default": "",
      "group": "Billing", "description": "Stripe secret API key for billing."},
     {"name": "STRIPE_PUBLISHABLE_KEY", "kind": "str", "secret": False, "restart": False,
      "settings_attr": "stripe_publishable_key", "default": "",
      "group": "Billing", "description": "Stripe publishable key for frontend checkout."},
-    {"name": "STRIPE_WEBHOOK_SECRET", "kind": "str", "secret": True, "restart": False, "locked": True,
+    {"name": "STRIPE_WEBHOOK_SECRET", "kind": "str", "secret": True, "restart": False,
      "settings_attr": "stripe_webhook_secret", "default": "",
      "group": "Billing", "description": "Stripe webhook signing secret."},
     {"name": "BILLING_WEBHOOK_SECRET", "kind": "str", "secret": True, "restart": False,
@@ -184,6 +184,17 @@ ENVVAR_REGISTRY: list[EnvVarDef] = [
      "group": "Billing", "description": "HMAC secret for the generic/mock billing "
                                        "webhook (X-LeadAI-Signature). Webhooks are "
                                        "rejected while it is empty."},
+    {"name": "RAZORPAY_KEY_ID", "kind": "str", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "",
+     "group": "Billing", "description": "Razorpay key id (rzp_test_… or rzp_live_…), "
+                                       "Razorpay Dashboard → Account & Settings → API keys."},
+    {"name": "RAZORPAY_KEY_SECRET", "kind": "str", "secret": True, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "",
+     "group": "Billing", "description": "Razorpay key secret (shown once when the key is made)."},
+    {"name": "RAZORPAY_WEBHOOK_SECRET", "kind": "str", "secret": True, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "",
+     "group": "Billing", "description": "Secret you type when adding the webhook in "
+                                       "Razorpay Dashboard → Webhooks."},
     {"name": "MOCK_PAYMENTS_ENABLED", "kind": "bool", "secret": False, "restart": False,
      "settings_attr": None, "env_only": True, "default": True,
      "group": "Billing", "description": "Allow the development mock payment page "
@@ -193,27 +204,61 @@ ENVVAR_REGISTRY: list[EnvVarDef] = [
     {"name": "TRUST_PROXY_HEADERS", "kind": "bool", "secret": False, "restart": False,
      "settings_attr": None, "env_only": True, "default": False,
      "group": "Security", "description": "Trust X-Forwarded-For / X-Real-IP (enable "
-                                        "only behind your own reverse proxy)."},
+                                         "only behind your own reverse proxy)."},
     {"name": "PUBLIC_BASE_URL", "kind": "str", "secret": False, "restart": False,
      "settings_attr": None, "env_only": True, "default": "",
      "group": "Server", "description": "Public origin used in emailed links, e.g. "
                                       "https://app.example.com"},
-    {"name": "SMTP_HOST", "kind": "str", "secret": False, "restart": False, "locked": True,
+    {"name": "SMTP_HOST", "kind": "str", "secret": False, "restart": False,
      "settings_attr": None, "env_only": True, "default": "",
      "group": "Email", "description": "SMTP server. Empty = emails stay in the "
                                      "outbox (visible to Super Admin)."},
     {"name": "SMTP_PORT", "kind": "int", "secret": False, "restart": False,
      "settings_attr": None, "env_only": True, "default": 587,
      "group": "Email", "description": "SMTP port (STARTTLS)."},
-    {"name": "SMTP_USER", "kind": "str", "secret": False, "restart": False, "locked": True,
+    {"name": "SMTP_SECURITY", "kind": "str", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "auto",
+     "group": "Email", "description": "auto | ssl | starttls | none. auto = SSL on port 465, "
+                                     "STARTTLS otherwise."},
+    {"name": "SMTP_USER", "kind": "str", "secret": False, "restart": False,
      "settings_attr": None, "env_only": True, "default": "",
      "group": "Email", "description": "SMTP username."},
-    {"name": "SMTP_PASSWORD", "kind": "str", "secret": True, "restart": False, "locked": True,
+    {"name": "SMTP_PASSWORD", "kind": "str", "secret": True, "restart": False,
      "settings_attr": None, "env_only": True, "default": "",
      "group": "Email", "description": "SMTP password."},
     {"name": "SMTP_FROM", "kind": "str", "secret": False, "restart": False,
      "settings_attr": None, "env_only": True, "default": "",
      "group": "Email", "description": "Sender address for transactional email."},
+    # SMS gateway (app/messaging/sms.py) — managed from Super Admin → Messaging
+    {"name": "SMS_PROVIDER", "kind": "str", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "",
+     "group": "SMS", "description": "twilio | fast2sms | webhook. Empty = texts stay in the SMS outbox."},
+    {"name": "TWILIO_ACCOUNT_SID", "kind": "str", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "", "group": "SMS", "description": "Twilio Account SID."},
+    {"name": "TWILIO_AUTH_TOKEN", "kind": "str", "secret": True, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "", "group": "SMS",
+     "description": "Twilio auth token (stored encrypted)."},
+    {"name": "TWILIO_FROM", "kind": "str", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "", "group": "SMS",
+     "description": "Twilio sender number (+1…) or Messaging Service SID (MG…)."},
+    {"name": "FAST2SMS_API_KEY", "kind": "str", "secret": True, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "", "group": "SMS",
+     "description": "Fast2SMS API key, India (stored encrypted)."},
+    {"name": "SMS_WEBHOOK_URL", "kind": "str", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "", "group": "SMS",
+     "description": "Any other SMS provider: LeadAI POSTs {to, message, kind} here."},
+    {"name": "SMS_WEBHOOK_TOKEN", "kind": "str", "secret": True, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "", "group": "SMS",
+     "description": "Bearer token sent to the SMS webhook (stored encrypted)."},
+    {"name": "SMS_DEFAULT_COUNTRY_CODE", "kind": "str", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": "+91", "group": "SMS",
+     "description": "Country code for phone numbers typed without one."},
+    {"name": "SMS_DAILY_LIMIT", "kind": "int", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": 500, "group": "SMS",
+     "description": "Most texts sent in 24 hours (spending guard)."},
+    {"name": "SMS_PER_NUMBER_DAILY_LIMIT", "kind": "int", "secret": False, "restart": False,
+     "settings_attr": None, "env_only": True, "default": 10, "group": "SMS",
+     "description": "Most texts to one number in 24 hours (stops SMS abuse of public forms)."},
 ]
 
 _REGISTRY: Dict[str, EnvVarDef] = {e["name"]: e for e in ENVVAR_REGISTRY}
@@ -318,8 +363,13 @@ def get_envvar(name: str) -> Any:
     return value
 
 
-# platform API keys LeadAI pays for: stored encrypted when overridden here
-_SEALED = {"GEMINI_API_KEY"}
+# platform API keys LeadAI pays for and sensitive gateway credentials: stored encrypted when overridden here
+_SEALED = {
+    "GEMINI_API_KEY", "TWILIO_AUTH_TOKEN", "FAST2SMS_API_KEY", "SMS_WEBHOOK_TOKEN",
+    "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET",
+    "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
+    "SMTP_PASSWORD",
+}
 
 
 def _seal(name: str, value: Any) -> Any:

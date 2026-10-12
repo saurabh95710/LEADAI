@@ -250,8 +250,24 @@ async def apify_stats(days: int = Query(30, ge=1, le=365)):
         {"$group": {"_id": "$status", "count": {"$sum": 1}}},
     ]
     status_counts: Dict[str, int] = {}
-    async for doc in db.search_history.aggregate(pipeline):
-        status_counts[doc["_id"] or "unknown"] = doc["count"]
+    try:
+        async for doc in db.search_history.aggregate(pipeline):
+            status_counts[doc["_id"] or "unknown"] = doc["count"]
+    except Exception as e:  # a database without $convert: count in Python instead of failing the page
+        logger.warning("apify stats aggregation failed (%s); counting directly", e)
+        async for doc in db.search_history.find({}, {"status": 1, "created_at": 1}):
+            created = doc.get("created_at")
+            if isinstance(created, str):
+                try:
+                    created = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+            if isinstance(created, datetime):
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                if created >= since:
+                    key = doc.get("status") or "unknown"
+                    status_counts[key] = status_counts.get(key, 0) + 1
     total = sum(status_counts.values())
     completed = status_counts.get("completed", 0)
     return {

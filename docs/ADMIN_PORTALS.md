@@ -19,12 +19,31 @@ LeadAI provides segregated portals designed for different personas with fail-clo
 
 The Platform Console allows internal staff to oversee the entire SaaS ecosystem. Access requires a platform session with an assigned platform role.
 
+**One portal for the whole platform team.** The old separate staff console at `/admin` is merged into `/superadmin`. `/admin` (and old links such as `/admin#/settings`) redirect here, and the old route names still open the matching page.
+
+**Who sees what:** the menu shows each person what their console role allows. The server still checks every call: `/api/super-admin/*` is Super Admin only, and `/api/admin/*` keeps its own viewer / manager / Super Admin checks.
+
+| Role | Sees |
+|---|---|
+| Super Admin | everything |
+| Manager | **Operations** (overview, jobs and failed jobs, leads, platforms, pages, posts, comments, exports), **Lead engine** (Apify, actors, limits, usage & cost, lead scoring, keyword rules), **System** (database, logs) and **Settings** (Global Settings, Environment), plus read-only views of organizations, plans, subscriptions, invoices, analytics, AI, audit, security, health, feature flags and maintenance. Managers can change what their role allows. |
+| Viewer | the same pages, read-only |
+
+**Code:** `app/static/super-admin.js` (core) plus the modules `super-admin-ops.js`, `super-admin-engine.js` and `super-admin-settings.js`, all plugged in through `window.SAKit.register`.
+
 ### Key Capabilities:
 - **Tenant Management**: Provision, suspend, activate, or archive organizations.
 - **Subscription & Billing Plans**: Configure pricing tiers, quotas, token allocations, and features.
 - **Feature Flags & Maintenance**: Toggle platform features globally or schedule maintenance windows with custom banner messaging.
 - **Audit & Security**: Review system-wide audit logs and security incident alerts (cross-tenant attempts, forged tokens).
 - **Unit Economics**: Live dashboard tracking token cost per AI action, Apify compute consumption per search, and gross margin per plan.
+- **Global Settings** (`#/settings`): every platform-wide setting, in 12 tabs under four sections:
+  - **Brand & website:** General, Branding, SEO & sharing.
+  - **Leads engine:** AI engine, Lead scoring, Comment detection, Search limits, Platforms & features, Leads & downloads.
+  - **Communication:** Email & alerts.
+  - **Operations:** Security, Operations.
+
+  Each tab opens with what it controls and links to related pages. A tab's number counts the settings changed from the default. Every listed setting takes effect. Settings that did nothing were retired (`RETIRED_KEYS` in `app/settings/registry.py`); their stored values are kept but no longer shown. Old tab links (`?tab=features`, `?tab=appearance`) open the tab those settings moved to.
 
 ### Access Guards:
 - Backend dependency: `require_platform_role(role)` in `app/auth/tenant.py`.

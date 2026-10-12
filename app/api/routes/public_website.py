@@ -245,7 +245,7 @@ async def submit_contact(request: Request):
             "contact_message", f"New contact message from {clean_name}",
             f"{clean_name} <{email}>{' · ' + svc.clean_text(company, 'company', 200) if company else ''}: "
             f"{svc.clean_text(message, 'message', 2000)[:280]}",
-            link="/admin#cms", data={"submission_id": sub_id, "email": email, "topic": topic})
+            link="/superadmin#/website", data={"submission_id": sub_id, "email": email, "topic": topic})
     except Exception as e:  # notification failure must not lose the message
         logger.warning("contact notification failed: %s", e)
     await a.aaudit("website.contact_submitted", "cms", user={"email": email, "name": name},
@@ -351,6 +351,8 @@ async def render_site_page(request: Request, filename: str, slug: str) -> Respon
         seo = page.get("seo") or {}
         brand = settings.get("brand_name") or "LeadAI"
         title = seo.get("title") or (f"{page['title']} · {brand}" if page.get("title") else brand)
+        if brand and brand != "LeadAI":   # titles written with the old name follow a renamed brand
+            title = title.replace("LeadAI", brand)
         description = seo.get("description") or (home.get("seo") or {}).get("description") or settings.get("tagline") or ""
         robots = seo.get("robots") or ("index,follow" if page else "noindex,follow")
         base = _base_url(request, settings)

@@ -210,8 +210,10 @@ async def record_payment_verified(subscription_id: str, *, provider: str,
     sub = await _transition(db, sub, PAYMENT_RECEIVED, actor=actor, extra={
         "provider": provider, "payment_received_at": utcnow()}, note=source)
     now = utcnow()
+    # the checkout's payment record (a declined attempt before this one may
+    # have marked it failed: the successful retry supersedes it)
     await db.payments.update_one(
-        {"subscription_id": str(sub["_id"]), "status": "pending"},
+        {"subscription_id": str(sub["_id"]), "status": {"$in": ["pending", "failed"]}},
         {"$set": {"status": "succeeded", "provider": provider,
                   "provider_payment_id": provider_payment_id, "verified_via": source,
                   "amount_paid": amount, "updated_at": now}})

@@ -9,8 +9,8 @@ LeadAI Authentication & Session Routes.
   GET  /api/auth/sessions               my active sessions
   DELETE /api/auth/sessions/{id}        revoke one of my sessions ("all" = every other one)
   POST /api/auth/password/change        change password (current password required)
-  POST /api/auth/password/forgot        email a single-use reset link (always 200)
-  POST /api/auth/password/reset         set a new password with a reset token
+  POST /api/auth/password/forgot        email a reset link, or text a 6-digit code (always 200)
+  POST /api/auth/password/reset         set a new password with the link token or phone + code
 """
 import hashlib
 import asyncio
@@ -61,11 +61,13 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # shared across processes; ``.clear()`` resets the in-memory fallback) ──────
 _MAX_SIGNUP_ATTEMPTS = 5
 _SIGNUP_WINDOW = 3600  # 1 hour
-_MAX_RESET_ATTEMPTS = 5
+_MAX_RESET_ATTEMPTS = 10
 _RESET_WINDOW = 3600  # 1 hour
 _signup_attempts = RateLimiter("signup_ip", _MAX_SIGNUP_ATTEMPTS, _SIGNUP_WINDOW)
 _reset_attempts = RateLimiter("password_reset_ip", _MAX_RESET_ATTEMPTS, _RESET_WINDOW)
 _RESET_TOKEN_TTL_MIN = 60
+_SMS_CODE_TTL_MIN = 10
+_SMS_CODE_MAX_TRIES = 5
 
 
 def _signup_allowed(ip: str) -> bool:
@@ -103,11 +105,14 @@ class ChangePasswordRequest(BaseModel):
 
 
 class ForgotRequest(BaseModel):
-    email: str
+    email: Optional[str] = None
+    phone: Optional[str] = None      # reset by an SMS code instead of an emailed link
 
 
 class ResetRequest(BaseModel):
-    token: str
+    token: Optional[str] = None      # from the emailed link
+    phone: Optional[str] = None      # or the phone number + the texted code
+    code: Optional[str] = None
     new_password: str
 
 
@@ -328,6 +333,12 @@ async def login(body: LoginRequest, request: Request, response: Response):
     set_session_cookie(response, tracked_user)
     await aaudit("auth.login", "auth", user=tracked_user, ip=ip, user_agent=user_agent,
                  details={"scope": user.get("scope")})
+    # "new sign-in to your account" by email / SMS (Super Admin → Messaging), never slows sign-in
+    uid = str(tracked_user.get("user_id") or "")
+    if ObjectId.is_valid(uid) and not tracked_user.get("impersonated_by"):
+        from app.messaging.service import login_alert
+        login_alert(uid, ip=ip, user_agent=user_agent, portal={
+            "partner": "Partner Portal", "admin": "LeadAI admin portal"}.get(user.get("scope") or "", "LeadAI app"))
     if user.get("scope") == "partner":
         _partner_auth_event(email, "login", True, None, ip, user_agent,
                             session_id=(tracked_user.get("session_id") or "")[:12])
@@ -431,10 +442,14 @@ async def session_status(request: Request):
     signed-out visitors don't get an error). Carries no personal data."""
     user = await asyncio.to_thread(session_user, request)
     scope = (user or {}).get("scope")
-    home = {"site": "/user", "admin": "/admin", "partner": "/partner"}.get(scope or "")
-    if scope == "admin" and (user or {}).get("platform_role") == "super_admin":
-        home = "/superadmin"
+    # one platform portal for every staff role (the old /admin console redirects there)
+    home = {"site": "/user", "admin": "/superadmin", "partner": "/partner"}.get(scope or "")
     return {"signed_in": bool(user), "scope": scope, "home": home}
+
+
+def _panel_role(claims: Dict[str, Any]) -> Optional[str]:
+    from app.auth.roles import effective_role
+    return effective_role((claims.get("email") or "").strip().lower()) or None
 
 
 @router.get("/me")
@@ -463,6 +478,9 @@ def me(request: Request):
         "platform_role": ctx.platform_role,
         "is_platform_admin": bool(ctx.platform_role) and not ctx.organization_id,
         "is_super_admin": ctx.is_super_admin,
+        # platform console role (viewer < manager < super_admin) that the
+        # /api/admin/* routes check; drives what the platform portal shows
+        "panel_role": _panel_role(claims) if claims.get("scope") == "admin" else None,
         "permissions": ctx.permissions,
         "impersonation_expires_at": claims.get("impersonation_expires_at"),
     })
@@ -609,16 +627,67 @@ async def change_password(body: ChangePasswordRequest, request: Request, respons
     return {"success": True, "message": "Password updated. Other sessions were signed out."}
 
 
+def _code_hash(user_id: str, code: str) -> str:
+    return hashlib.sha256(f"{user_id}:{code}".encode("utf-8")).hexdigest()
+
+
+async def _forgot_by_phone(raw_phone: str, ip: str) -> Dict[str, Any]:
+    """Text a 6-digit code to the account that uses this number."""
+    from app.messaging.phone import mask_phone, normalize_phone
+    from app.messaging.sms import send_sms
+    generic = {"success": True, "channel": "sms",
+               "message": "If an account uses that number, a 6-digit code is on its way by SMS."}
+    if not _reset_attempts.consume(ip):
+        log_security_event("password_reset_rate_limited", "low", ip=ip, details={"channel": "sms"})
+        raise HTTPException(status_code=429, detail="Too many reset requests from your network. "
+                                                    "Wait an hour and try again.")
+    e164 = normalize_phone(raw_phone)
+    db = get_sync_db()
+    if db is None or not e164:
+        return generic
+    users = list(db["users"].find({"phone_e164": e164, "status": "active"}, {"name": 1, "email": 1}).limit(3))
+    if len(users) > 1:   # one number, several accounts: a code can't say which one
+        await asyncio.to_thread(send_sms, e164, "LeadAI: several accounts use this phone number, so we can't "
+                                "reset by SMS. Use \"Email me a link\" on the reset page instead.",
+                                kind="password_reset_info")
+        return generic
+    if not users:
+        return generic
+    record = users[0]
+    uid = str(record["_id"])
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    now = utcnow()
+    db["password_resets"].update_many({"user_id": uid, "used_at": None},
+                                      {"$set": {"used_at": now, "invalidated": True}})
+    db["password_resets"].insert_one({
+        "user_id": uid, "purpose": "sms_code", "phone_e164": e164, "code_hash": _code_hash(uid, code),
+        "attempts": 0, "expires_at": now + timedelta(minutes=_SMS_CODE_TTL_MIN), "used_at": None,
+        "requested_ip": ip, "created_at": now})
+    await asyncio.to_thread(
+        send_sms, e164, f"Your LeadAI password reset code is {code}. It expires in {_SMS_CODE_TTL_MIN} "
+                        "minutes. Never share it with anyone.",
+        kind="password_reset_code", user_id=uid)
+    log_security_event("password_reset_requested", "low", actor_email=record.get("email"), actor_user_id=uid,
+                       ip=ip, details={"channel": "sms", "phone": mask_phone(e164)})
+    audit("auth.password_reset_requested", "auth", user=record.get("email"), ip=ip,
+          resource_type="user", resource_id=uid, details={"channel": "sms"})
+    return generic
+
+
 @router.post("/password/forgot")
 async def forgot_password(body: ForgotRequest, request: Request):
-    """Always answers 200 so it cannot be used to discover accounts."""
+    """Always answers 200 so it cannot be used to discover accounts. Send
+    ``email`` for a reset link, or ``phone`` for a 6-digit SMS code."""
     ip = _get_client_ip(request)
+    if (body.phone or "").strip() and not (body.email or "").strip():
+        return await _forgot_by_phone(body.phone or "", ip)
     email = (body.email or "").strip().lower()
     generic = {"success": True,
                "message": "If an account exists for that email, a reset link is on its way."}
     if not _reset_attempts.consume(ip):
         log_security_event("password_reset_rate_limited", "low", actor_email=email, ip=ip)
-        return generic
+        raise HTTPException(status_code=429, detail="Too many reset requests from your network. "
+                                                    "Wait an hour and try again.")
     db = get_sync_db()
     if db is None or not email:
         return generic
@@ -653,12 +722,15 @@ async def reset_password(body: ResetRequest, request: Request):
     if db is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
     now = utcnow()
-    doc = db["password_resets"].find_one_and_update(
-        {"token_hash": _hash_token(body.token.strip()), "used_at": None,
-         "expires_at": {"$gt": now}},
-        {"$set": {"used_at": now}})
-    if not doc:
-        raise HTTPException(status_code=400, detail="This reset link is invalid or has expired.")
+    if (body.token or "").strip():
+        doc = db["password_resets"].find_one_and_update(
+            {"token_hash": _hash_token(body.token.strip()), "used_at": None,
+             "expires_at": {"$gt": now}},
+            {"$set": {"used_at": now}})
+        if not doc:
+            raise HTTPException(status_code=400, detail="This reset link is invalid or has expired.")
+    else:
+        doc = _use_sms_code(db, body.phone or "", body.code or "", now)
     uid = ObjectId(doc["user_id"])
     db["users"].update_one({"_id": uid}, {"$set": {
         "password_hash": hash_password(body.new_password), "password_changed_at": now,
@@ -673,6 +745,34 @@ async def reset_password(body: ResetRequest, request: Request):
     await aaudit("auth.password_reset", "auth", user=(record or {}).get("email"), ip=ip,
                  resource_type="user", resource_id=doc["user_id"])
     return {"success": True, "message": "Password updated. You can now sign in."}
+
+
+def _use_sms_code(db, raw_phone: str, code: str, now) -> Dict[str, Any]:
+    """The reset record for phone + texted code, consumed. Wrong codes count;
+    after 5 the code stops working."""
+    import hmac
+    from app.messaging.phone import normalize_phone
+    e164 = normalize_phone(raw_phone)
+    code = re.sub(r"\D", "", code or "")
+    bad = HTTPException(status_code=400, detail="This code is invalid or has expired. Ask for a new one.")
+    if not e164 or len(code) != 6:
+        raise bad
+    doc = db["password_resets"].find_one({"purpose": "sms_code", "phone_e164": e164, "used_at": None,
+                                          "expires_at": {"$gt": now}}, sort=[("created_at", -1)])
+    if not doc:
+        raise bad
+    if int(doc.get("attempts") or 0) >= _SMS_CODE_MAX_TRIES:
+        db["password_resets"].update_one({"_id": doc["_id"]}, {"$set": {"used_at": now, "invalidated": True}})
+        raise HTTPException(status_code=400, detail="Too many wrong codes. Ask for a new one.")
+    if not hmac.compare_digest(doc.get("code_hash") or "", _code_hash(doc["user_id"], code)):
+        db["password_resets"].update_one({"_id": doc["_id"]}, {"$inc": {"attempts": 1}})
+        left = _SMS_CODE_MAX_TRIES - int(doc.get("attempts") or 0) - 1
+        raise HTTPException(status_code=400, detail=f"That code isn't right. {max(0, left)} tries left.")
+    claimed = db["password_resets"].find_one_and_update({"_id": doc["_id"], "used_at": None},
+                                                        {"$set": {"used_at": now}})
+    if not claimed:
+        raise bad
+    return claimed
 
 
 # ── Two-Factor Authentication (RFC 6238 TOTP) ────────────────────────────────

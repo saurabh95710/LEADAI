@@ -7,8 +7,9 @@
   <meta name="robots" content="noindex,nofollow">
   <meta name="referrer" content="no-referrer">
   <script>
-    /* apply the saved colour mode before first paint (theme.js keeps it in sync) */
-    try { var m = localStorage.getItem('leadai_color_mode'); if (m === 'light' || m === 'dark') document.documentElement.setAttribute('data-theme', m); } catch (_) {}
+    /* colour mode before first paint: the visitor's choice, else the brand default
+       (Global Settings → branding.theme, remembered by config.js); theme.js keeps it in sync */
+    try { var m = localStorage.getItem('leadai_color_mode'), b = localStorage.getItem('leadai_brand_theme'); if (m !== 'light' && m !== 'dark') m = b === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : (b === 'dark' ? 'dark' : 'light'); document.documentElement.setAttribute('data-theme', m); } catch (_) {}
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -167,11 +168,11 @@
     </main>
   </div>
 
-  <script src="/static/config.js?v=r1005"></script>
+  <script src="/static/config.js?v=brand2"></script>
   <script>
     if (window.AppConfig) AppConfig.load();
   </script>
-  <script src="/static/design/theme.js?v=r1005"></script>
+  <script src="/static/design/theme.js?v=r1006"></script>
   <script>
     "use strict";
   const RUN_ID = new URLSearchParams(location.search).get("run_id") || "";

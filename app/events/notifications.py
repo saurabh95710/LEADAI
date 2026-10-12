@@ -26,7 +26,11 @@ here, in one place, so every emitter gets the same behaviour:
   * ``lead_assigned`` to a user also honours ``notify_lead_assigned``;
   * email for organization events (``email=True``) is only queued when the
     organization's ``email_notifications`` is on AND the recipient's personal
-    email preference allows the type.
+    email preference allows the type;
+  * the platform-wide switches in Global Settings win over every organization:
+    ``notifications.job_failed_email`` (job / search failed) and
+    ``notifications.new_lead_email`` (new leads found) — when one is off, that
+    email is not sent for any organization (the in-app notice still is).
 """
 import logging
 from typing import Any, Dict, List, Optional
@@ -145,6 +149,9 @@ def _email(to_email: Optional[str], title: str, message: str, ntype: str,
     if not to_email:
         return
     try:
+        from app.settings.effective import notification_email_enabled
+        if not notification_email_enabled(ntype):
+            return
         from app.events.email import absolute_url, send_email
         body = (message or title) + (f"\n\n{absolute_url(link)}" if link else "")
         send_email(to_email, title, body, kind=f"notification.{ntype}",

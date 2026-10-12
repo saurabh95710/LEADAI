@@ -1291,6 +1291,11 @@ def _flat_extract(analysis: Dict[str, Any], text: Optional[str] = None,
 
     if is_lead and score < min_lead_score:
         is_lead = False
+    if is_lead and not has_contact:
+        # Global Settings → Require phone or email
+        from app.settings.effective import require_contact_for_leads
+        if require_contact_for_leads():
+            is_lead = False
 
     return {
         "phone": phone,
@@ -1315,12 +1320,12 @@ def _flat_extract(analysis: Dict[str, Any], text: Optional[str] = None,
 
 
 def _ai_entitlement(org_id) -> tuple:
-    """(allowed, reason): AI runs only when the global AI flag is on, the
-    organization's plan/demo includes ``ai_analysis`` and the monthly AI
-    quota is not used up."""
+    """(allowed, reason): AI runs only when the global AI switch (``ai.enabled``)
+    is on, the organization's plan/demo includes ``ai_analysis`` and the
+    monthly AI quota is not used up."""
     try:
         from app.admin.settings import get_bool_cached
-        flag = get_bool_cached("features.ai_analysis.enabled")
+        flag = get_bool_cached("ai.enabled")
         if flag is False:
             return False, "feature_disabled"
     except Exception:
@@ -1337,6 +1342,38 @@ def _ai_entitlement(org_id) -> tuple:
         logger.warning("AI entitlement check failed for %s: %s", org_id, e)
         return False, "entitlement_error"
     return True, None
+
+
+LEGACY_AI_FLAG = "features.ai_analysis.enabled"
+
+
+def merge_legacy_ai_flag(db) -> bool:
+    """Once per start: the old Feature Flags switch ``features.ai_analysis.enabled``
+    was a duplicate of ``ai.enabled``. When it is stored, an "off" carries over
+    to ``ai.enabled`` and the old document is removed. Idempotent; returns
+    whether anything changed."""
+    if db is None:
+        return False
+    from app.admin.settings import COLLECTION, clear_settings_cache
+    doc = db[COLLECTION].find_one({"_id": LEGACY_AI_FLAG})
+    if not doc:
+        return False
+    value = doc.get("value")
+    if value is False or (isinstance(value, str) and value.strip().lower() in ("false", "0", "no", "off")) \
+            or value == 0:
+        db[COLLECTION].update_one({"_id": "ai.enabled"},
+                                  {"$set": {"value": False, "updated_at": utcnow(),
+                                            "updated_by": doc.get("updated_by") or "migration"}},
+                                  upsert=True)
+        logger.info("AI analysis was switched off in Feature Flags: ai.enabled is now off")
+    db[COLLECTION].delete_one({"_id": LEGACY_AI_FLAG})
+    clear_settings_cache()
+    try:
+        from app.settings.registry import invalidate_public_config_cache
+        invalidate_public_config_cache()
+    except Exception:
+        pass
+    return True
 
 
 def analyze_comments_for_post(post_ref: str, max_comments: int = 500,
@@ -1455,6 +1492,8 @@ def analyze_comments_for_post(post_ref: str, max_comments: int = 500,
             org_min_score = int((org_doc.get("settings") or {}).get("min_lead_score") or 0)
         except Exception:
             org_min_score = 0
+    from app.settings.effective import default_lead_status
+    default_status = default_lead_status()
 
     for doc in comments:
         # Enforce per-job AI call budget (0 = unlimited)
@@ -1517,9 +1556,13 @@ def analyze_comments_for_post(post_ref: str, max_comments: int = 500,
         try:
             # created_at = first analysis (re-analysis keeps it); every lead
             # date, 30-day count and dated export relies on it
+            on_insert = {"created_at": update["analyzed_at"]}
+            if flat["is_lead"] and default_status != "new":
+                # Global Settings → Default lead status (a new lead with no
+                # lead_status counts as "new")
+                on_insert["lead_status"] = default_status
             res = db.ai_comments.update_one({"comment_ref": str(doc["_id"])},
-                                            {"$set": update,
-                                             "$setOnInsert": {"created_at": update["analyzed_at"]}},
+                                            {"$set": update, "$setOnInsert": on_insert},
                                             upsert=True)
         except Exception as e:
             logger.warning(f"[CommentAI] Failed to persist analysis: {e}")

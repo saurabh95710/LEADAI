@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Payment · LeadAI</title>
+  <meta name="robots" content="noindex,nofollow"/>
+  <meta name="referrer" content="no-referrer"/>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>"/>
+  <link rel="stylesheet" href="/static/design/tokens.css?v=r1005"/>
+  <link rel="stylesheet" href="/static/design/components.css?v=r1005"/>
+  <script src="/static/design/theme.js?v=r1006"></script>
+  <!-- Razorpay Checkout (allowed by this page's own Content-Security-Policy) -->
+  <script src="https://checkout.razorpay.com/v1/checkout.js" defer></script>
+  <script src="/static/razorpay-checkout.js?v=r1003" defer></script>
+  <style>
+    .pay-amount { font-size:var(--text-2xl, 1.75rem); font-weight:700; color:var(--text-primary); margin-top:4px; }
+    .skeleton-stack { display:grid; gap:12px; }
+    .pay-note { margin-top:16px; font-size:var(--text-xs); color:var(--text-secondary); text-align:center; }
+    .mono { font-family:var(--font-mono); font-size:var(--text-xs); }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="auth-shell">
+  <header class="brand-bar">
+    <a class="brand" href="/website">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.1 6.4 6.4 2.1-6.4 2.1L12 19.5l-2.1-6.4L3.5 11l6.4-2.1z"/></svg></span>
+      <span data-brand-name>LeadAI</span>
+    </a>
+    <div class="brand-actions">
+      <a class="btn btn-ghost btn-sm" href="/dashboard#billing">Billing</a>
+      <button type="button" class="btn theme-toggle" data-theme-toggle aria-label="Switch theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="auth-main" id="main">
+    <section class="auth-card" id="card" aria-busy="true">
+
+      <div data-view="loading" role="status" aria-label="Loading payment">
+        <div class="skeleton-stack" aria-hidden="true">
+          <div class="skeleton" style="height:14px;width:30%"></div>
+          <div class="skeleton" style="height:28px;width:70%"></div>
+          <div class="skeleton" style="height:90px;border-radius:var(--radius-md);margin-top:12px"></div>
+          <div class="skeleton" style="height:44px;border-radius:var(--radius-md)"></div>
+        </div>
+        <span class="sr-only">Loading payment…</span>
+      </div>
+
+      <div data-view="error" hidden>
+        <div class="auth-header text-center">
+          <div class="auth-icon tone-warning" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <h1 class="auth-title" id="errTitle" tabindex="-1">Something went wrong</h1>
+          <p class="auth-subtitle" id="errDesc"></p>
+        </div>
+        <div class="auth-actions" style="margin-top:0">
+          <button type="button" class="btn btn-primary btn-lg btn-block hidden" id="retryBtn">
+            <span class="spinner" aria-hidden="true"></span><span class="btn-label">Try again</span>
+          </button>
+          <a class="btn btn-secondary btn-lg btn-block" href="/dashboard#billing">Back to billing</a>
+        </div>
+      </div>
+
+      <div data-view="pay" hidden>
+        <div class="auth-header" style="margin-bottom:20px">
+          <p class="auth-eyebrow">Subscription checkout</p>
+          <h1 class="auth-title" id="payTitle" tabindex="-1">Complete your payment</h1>
+          <p class="auth-subtitle">Your plan activates after the payment is confirmed by our team. Your current plan stays in effect until then.</p>
+        </div>
+
+        <div class="alert alert-danger hidden" id="payAlert" role="alert" style="margin-bottom:16px">
+          <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div class="alert-body"><p class="alert-title" id="payAlertTitle"></p><p id="payAlertText"></p></div>
+        </div>
+
+        <dl class="kv" aria-label="Order summary">
+          <dt>Plan</dt><dd id="kvPlan">—</dd>
+          <dt>Amount</dt><dd id="kvAmount" class="pay-amount">—</dd>
+          <dt>Reference</dt><dd class="mono" id="kvRef">—</dd>
+        </dl>
+
+        <div class="auth-actions">
+          <button type="button" class="btn btn-primary btn-lg btn-block" id="payBtn">
+            <span class="spinner" aria-hidden="true"></span><span class="btn-label" id="payLabel">Pay now</span>
+          </button>
+          <a class="btn btn-ghost btn-block" href="/dashboard#billing" id="backLink">Back to billing</a>
+        </div>
+        <p class="pay-note">Payments are processed securely by Razorpay. We never see your card or UPI details.</p>
+      </div>
+
+    </section>
+  </main>
+
+  <footer class="auth-footer">
+    <nav aria-label="Footer"><a href="/website">Home</a><a href="/contact">Contact</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+    <p style="margin-top:6px">© 2026 <span data-brand-name>LeadAI</span></p>
+  </footer>
+</div>
+</body>
+</html>

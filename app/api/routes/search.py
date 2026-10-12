@@ -1183,8 +1183,15 @@ def _sanitize_csv_value(val: Any) -> str:
 
 
 def _csv_response(rows: list, columns: list, filename: str,
-                  max_rows: int = 50000) -> Response:
+                  max_rows: int | None = None) -> Response:
+    """Every server CSV export goes through here: at most ``max_rows`` rows
+    and never more than Global Settings → Max records per export
+    (``exports.max_records``); a cut export says so in X-Export-Truncated /
+    X-Export-Total."""
     global _EXPORT_INFLIGHT
+    from app.settings.effective import export_max_records
+    cap = export_max_records()
+    max_rows = min(max_rows, cap) if max_rows else cap
     if _EXPORT_INFLIGHT >= _EXPORT_MAX_CONCURRENT:
         raise HTTPException(
             status_code=429,
@@ -1221,10 +1228,13 @@ async def export_csv(
     run_id: str | None = Query(None),
     page_id: str | None = Query(None),
     post_id: str | None = Query(None),
-    only_leads: bool = Query(True),
+    only_leads: bool | None = Query(None),
     ctx: TenantContext = Depends(require_org_permission(P.EXPORTS_CREATE)),
 ):
     from app.admin.settings import get_bool
+    if only_leads is None:  # not chosen: Global Settings → Export leads only by default
+        from app.settings.effective import export_leads_only_default
+        only_leads = export_leads_only_default()
     if not get_bool("features.exports.enabled"):
         raise HTTPException(
             status_code=403,
@@ -2012,7 +2022,8 @@ async def export_leads_xlsx(
     if priority:
         q["priority"] = priority
 
-    leads = [d async for d in db.ai_comments.find(q).sort("created_at", -1).limit(5000)]
+    from app.settings.effective import export_max_records
+    leads = [d async for d in db.ai_comments.find(q).sort("created_at", -1).limit(export_max_records())]
     from app.services.crm_connectors import ExcelExportService
     xml_bytes = ExcelExportService.generate_spreadsheet_xml(leads, title=f"Leads_{ctx.organization_id[:8]}")
 

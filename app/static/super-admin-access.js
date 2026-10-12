@@ -50,7 +50,7 @@
     root.innerHTML = K.header('Developer API & webhooks', 'Keys for LeadAI\'s own APIs (Customer API /api/v1, Partner API) and every outbound webhook — organizations\' and partners\'. Revoking or disabling takes effect immediately and notifies the owner. The Apify and Gemini keys are on the API keys page.', '<a class="btn btn-secondary btn-sm" href="#/provider-keys">Apify &amp; Gemini keys</a>') + '<div id="acTabs"></div>';
     K.tabs($('#acTabs', root), [['keys', 'API keys'], ['webhooks', 'Webhooks']], q.tab || 'keys', function (key, el) {
       if (key === 'keys') {
-        el.innerHTML = '<div class="sa-row" style="justify-content:flex-end"><button type="button" class="btn btn-primary btn-sm" id="issueKey">+ Issue API key</button></div><div id="keyList"></div>';
+        el.innerHTML = '<div class="sa-row" style="justify-content:flex-end"><button type="button" class="btn btn-primary btn-sm" id="issueKey" data-tour="access-issue">+ Issue API key</button></div><div id="keyList"></div>';
         var lv = K.listView($('#keyList', el), {
           url: function (p) { return '/api/super-admin/api-keys' + qs({ page: p.page, limit: p.limit, owner_type: p.owner_type, active: p.active, q: p.q }); },
           limit: 50, key: 'sa_api_keys', initial: { active: 'true' },

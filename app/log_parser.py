@@ -87,8 +87,10 @@ def extract_level(line: str) -> str:
 
 # ── Module/logger extraction ──────────────────────────────────────────────────
 
+# "HH:MM:SS LEVEL [app.db.mongo] [request_id=…] msg" (the app's format, see
+# app/main.py) and the older "HH:MM:SS LEVEL app.db.mongo: msg"
 _MODULE_PATTERN = re.compile(
-    r'^\d{2}:\d{2}:\d{2}\s+\w+\s+([\w.]+):\s'
+    r'^\d{2}:\d{2}:\d{2}\s+\w+\s+(?:\[([\w.]+)\]|([\w.]+):)\s'
 )
 
 
@@ -96,7 +98,7 @@ def extract_module(line: str) -> str:
     """Extract logger name/module from a raw line."""
     m = _MODULE_PATTERN.match(line)
     if m:
-        return m.group(1)
+        return m.group(1) or m.group(2) or ""
     return ""
 
 

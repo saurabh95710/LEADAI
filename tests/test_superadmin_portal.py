@@ -208,13 +208,11 @@ class TestSuperAdminAuthorization:
                               follow_redirects=False)
             assert resp.status_code == 200, path
 
-    def test_viewer_admin_cannot_access_page(self, client):
-        resp = client.get("/superadmin", cookies=_viewer_cookie(),
-                          follow_redirects=False)
-        assert resp.status_code in (302, 303, 307)
-        loc = _location(resp)
-        assert loc != "/login"
-        assert loc.rstrip("/") == "/admin" or "admin" in loc
+    def test_viewer_staff_open_the_portal_but_not_super_admin_apis(self, client):
+        resp = client.get("/superadmin", cookies=_viewer_cookie(), follow_redirects=False)
+        assert resp.status_code == 200
+        api = client.get("/api/super-admin/organizations", cookies=_viewer_cookie())
+        assert api.status_code == 403
 
     def test_site_session_cannot_access_page(self, client):
         resp = client.get("/superadmin", cookies=_site_cookie(),
@@ -284,10 +282,9 @@ class TestOtherPortalsUnaffected:
         assert resp.status_code in (302, 303, 307)
         assert "admin" in _location(resp)
 
-    def test_admin_with_admin_session_200(self, client):
-        resp = client.get("/admin", cookies=_viewer_cookie(),
-                          follow_redirects=False)
-        assert resp.status_code == 200
+    def test_old_console_redirects_to_the_portal(self, client):
+        resp = client.get("/admin", cookies=_viewer_cookie(), follow_redirects=False)
+        assert resp.status_code == 303 and resp.headers["location"] == "/superadmin"
 
     def test_root_requires_site_or_admin_session(self, client):
         resp = client.get("/user", follow_redirects=False)

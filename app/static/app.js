@@ -492,7 +492,7 @@ function navigateToView(view, opts = {}) {
   if (location.hash !== hash) {
     try { history.pushState(null, "", hash); } catch (_) { location.hash = hash; }
   }
-  document.title = (VIEW_TITLES[view] || "LeadAI") + " · " + ((window.AppConfig && AppConfig.config && AppConfig.config.app && AppConfig.config.app.name) || "LeadAI");
+  document.title = (VIEW_TITLES[view] || "LeadAI") + " · " + ((window.AppConfig && AppConfig.get().app.name) || "LeadAI");
   renderCrumbs(view);
   // the header pipeline badge describes the results screens / a live run only
   if (!_searchInFlight && !["pages", "posts", "comments"].includes(view)) {
@@ -961,6 +961,37 @@ function setUrlError(msg) {
   if (input) { if (msg) input.setAttribute("aria-invalid", "true"); else input.removeAttribute("aria-invalid"); }
 }
 
+/**
+ * Cost protection (Global Settings → cost.warn_before_expensive): a search that
+ * can collect more comments (posts × comments per post) than a default-size
+ * search (Limits → default max posts × default max comments per post), and at
+ * least 1,000, asks before it starts. Resolves true to go ahead.
+ */
+const EXPENSIVE_SEARCH_FLOOR = 1000;
+async function confirmExpensiveSearch(maxPosts, maxComments, caps) {
+  let warn = false;
+  try {
+    const cfg = window.AppConfig ? await AppConfig.load() : null;
+    warn = Boolean(cfg && cfg.cost && cfg.cost.warn_before_expensive === true);
+  } catch (_) { warn = false; }
+  if (!warn) return true;
+  const defPosts = Number(caps.posts_default) || 20;
+  const defComments = Number(caps.comments_default) || 30;
+  const usual = defPosts * defComments;
+  const estimate = maxPosts * maxComments;
+  if (estimate <= Math.max(usual, EXPENSIVE_SEARCH_FLOOR)) return true;
+  const costs = (portal.summary && portal.summary.token_costs) || {};
+  const capNote = caps.global_max_comments && estimate > caps.global_max_comments
+    ? ` The platform stops each search at ${fmt(caps.global_max_comments)} comments.` : "";
+  return confirmAction({
+    title: "Start a large search?",
+    message: `This search can collect up to ${fmt(estimate)} comments (${fmt(maxPosts)} posts × ${fmt(maxComments)} per post), `
+      + `${Math.round(estimate / usual)}× a default search (${fmt(usual)}), so it takes longer and uses more scraping credit.`
+      + `${costs.search ? ` It costs ${fmt(costs.search)} tokens.` : ""}${capNote}`,
+    confirmLabel: "Start search",
+  });
+}
+
 let _searchInFlight = false;
 async function handleUrlSearch(event) {
   event.preventDefault();
@@ -985,6 +1016,8 @@ async function handleUrlSearch(event) {
   }
   const maxPosts = posts.value || 20;
   const maxCommentsPerPost = comments.value || 30;
+  if (!(await confirmExpensiveSearch(maxPosts, maxCommentsPerPost, caps))) return;
+  if (_searchInFlight) return;
   saveMemory("commentsPerPost", maxCommentsPerPost);
 
   const btn = $("urlSearchBtn");
@@ -1776,8 +1809,6 @@ window.GuidedSearch = GuidedSearch;
 
 // ── Comment Filter (user URL search) ────────────────────────────────────
 
-let urlFilterTouched = false;
-
 function urlFilterModeChanged() {
   const radio = document.querySelector('input[name="filterMode"]:checked');
   const mode = radio ? radio.value : "all";
@@ -1785,27 +1816,6 @@ function urlFilterModeChanged() {
   const customField = $("urlFilterCustomField");
   if (presetField) presetField.classList.toggle("hidden", mode !== "preset");
   if (customField) customField.classList.toggle("hidden", mode !== "custom");
-}
-
-// Apply the admin-configured default mode/preset on first visit
-async function applyUrlFilterDefaults() {
-  if (!window.AppConfig) return;
-  try {
-    const cfg = await AppConfig.load();
-    const mode = cfg.defaults.comment_filter_mode;
-    if (!mode || !["all", "preset", "custom"].includes(mode)) return;
-    const radio = document.querySelector(`input[name="filterMode"][value="${mode}"]`);
-    if (radio && !urlFilterTouched && !radio.checked) {
-      radio.checked = true;
-      if (mode === "preset" && cfg.defaults.keyword_preset) {
-        const presetSel = $("urlFilterPreset");
-        if (presetSel && [...presetSel.options].some((o) => o.value === cfg.defaults.keyword_preset)) {
-          presetSel.value = cfg.defaults.keyword_preset;
-        }
-      }
-      urlFilterModeChanged();
-    }
-  } catch (err) { /* defaults stay untouched on config failure */ }
 }
 
 async function loadUrlFilterCatalog() {
@@ -1932,7 +1942,7 @@ async function renderPagesScreen() {
     if (p.category) contactChips.push(`<span class="pc-chip">${ico("tag")} ${esc(p.category)}</span>`);
     const srcUrl = safeUrl(p.facebook_url);
 
-    return `<article class="page-card clickable-card" data-open-page="${pid}" tabindex="0" aria-label="${esc(p.page_name || "Page")}">
+    return `<article class="page-card clickable-card" data-open-page="${pid}" data-tour="page-card" tabindex="0" aria-label="${esc(p.page_name || "Page")}">
       <div class="pc-head">
         ${avatar}
         <div class="pc-body">
@@ -2111,7 +2121,7 @@ async function renderPostsScreen() {
     const captionText = post.caption || post.description || post.text || "No post caption text available.";
     const postUrl = safeUrl(post.post_url);
 
-    return `<article class="post-tile clickable-card" data-open-post="${id}" tabindex="0">
+    return `<article class="post-tile clickable-card" data-open-post="${id}" data-tour="post-tile" tabindex="0">
       <div class="pt-main">
         ${thumb}
         <div class="pt-body">
@@ -2392,7 +2402,7 @@ async function renderCommentsScreen() {
     // skipped by the comment filter = never sent to the AI: no score to show (the API fills a placeholder)
     const unscored = c.qualification === "not_qualified" && !c.analyzed_by;
 
-    return `<article class="lead-card clickable-card${c.has_contact ? " lead-card-highlight" : ""}" data-open-lead="${cid}" tabindex="0">
+    return `<article class="lead-card clickable-card${c.has_contact ? " lead-card-highlight" : ""}" data-open-lead="${cid}" data-tour="lead-card" tabindex="0">
       <div class="lc-head">
         <div class="lc-author-wrap">
           <span class="lc-avatar">${esc((c.commenter_name || "?").trim().charAt(0).toUpperCase())}</span>
@@ -2467,14 +2477,14 @@ function collectAllBar(data) {
   const note = `<b>${esc(total)}</b> comments on this post · <b>${esc(have)}</b> collected so far.`;
   if (data.comments_all_fetched) {
     // the last collection got everything the platform returns: offering it again would only charge again
-    return `<div class="summary-line collect-all-line">${ico("message")} <span><b>${esc(have)}</b> of <b>${esc(total)}</b> comments could be collected — the rest are hidden, deleted or replies the platform doesn't return.</span></div>`;
+    return `<div class="summary-line collect-all-line" data-tour="collect-all">${ico("message")} <span><b>${esc(have)}</b> of <b>${esc(total)}</b> comments could be collected — the rest are hidden, deleted or replies the platform doesn't return.</span></div>`;
   }
-  if (!can("search.create")) return `<div class="summary-line collect-all-line">${ico("message")} <span>${note}</span></div>`;
+  if (!can("search.create")) return `<div class="summary-line collect-all-line" data-tour="collect-all">${ico("message")} <span>${note}</span></div>`;
   if (target <= have) {
-    return `<div class="summary-line collect-all-line">${ico("message")} <span>${note} Your plan collects up to ${esc(cap)} comments per post.</span></div>`;
+    return `<div class="summary-line collect-all-line" data-tour="collect-all">${ico("message")} <span>${note} Your plan collects up to ${esc(cap)} comments per post.</span></div>`;
   }
   const label = target >= total ? `Collect all ${esc(total)} comments` : `Collect ${esc(target)} comments`;
-  return `<div class="summary-line collect-all-line">${ico("message")} <span>${note}</span>
+  return `<div class="summary-line collect-all-line" data-tour="collect-all">${ico("message")} <span>${note}</span>
     <button type="button" class="btn-primary collect-all-btn" onclick="collectAllComments(${Number(target)}, ${Number(total)})">${label}</button></div>`;
 }
 
@@ -2723,7 +2733,7 @@ async function openLeadDetail(commentId, event) {
         ${!isLead ? `<div class="detail-reason">This comment was not qualified as a lead.</div>` : ""}
       </div>
 
-      <div class="detail-block detail-block-wide">
+      <div class="detail-block detail-block-wide" data-tour="lead-score">
         <div class="detail-label">Lead score</div>
         ${scoreHtml}
       </div>
@@ -2759,7 +2769,7 @@ async function openLeadDetail(commentId, event) {
         <div class="detail-value">${d.assigned_user_id && portal.user && d.assigned_user_id === portal.user.user_id ? '<span class="badge badge-lead">You</span>' : esc(d.assigned_to || "—")}</div>
       </div>
 
-      <div class="detail-block detail-block-wide">
+      <div class="detail-block detail-block-wide" data-tour="lead-lifecycle">
         <div class="detail-label">Lifecycle</div>
         ${lifecycleHtml}
         ${canManage && nextStatuses.length > 0 ? `
@@ -3591,7 +3601,7 @@ function renderPlansCatalogGrid() {
       ? `<div class="plan-card-cov">LeadAI-provided only</div>`
       : `<div class="plan-card-cov${ownApis(opt.coverage).length ? " is-own" : ""}">${esc(coverageText(opt.coverage).replace(/^your/, "Your"))}</div>`;
     return `
-      <div class="plan-card ${isCurrent ? "current" : ""} ${isSelected ? "selected" : ""}" data-select-plan="${esc(p.slug)}" data-plan-card="${esc(p.slug)}">
+      <div class="plan-card ${isCurrent ? "current" : ""} ${isSelected ? "selected" : ""}" data-select-plan="${esc(p.slug)}" data-plan-card="${esc(p.slug)}" data-tour="plan-card">
         <div class="plan-card-name">${esc(p.name)}</div>
         <div class="plan-card-desc">${esc(p.description || "")}</div>
         <div class="plan-card-price">
@@ -4039,7 +4049,7 @@ async function loadLeads() {
   renderTable({
     key: "leads", el: list, label: "Leads", rows: items, sort: f.sort || "score",
     onSort: (v) => { $("leadsSort").value = v; leadsState.page = 1; loadLeads(); },
-    rowAttrs: (l) => `class="dt-click" tabindex="0" data-open-lead="${esc(l.id)}" aria-label="Open lead ${esc(l.commenter_name || "")}"`,
+    rowAttrs: (l) => `class="dt-click" tabindex="0" data-tour="lead-row" data-open-lead="${esc(l.id)}" aria-label="Open lead ${esc(l.commenter_name || "")}"`,
     columns: [
       { id: "lead", label: "Lead", required: true, cls: "col-main", text: (l) => l.commenter_name || "Prospect",
         html: (l) => {
@@ -4248,7 +4258,7 @@ async function loadUsage() {
       <a class="kpi-card kpi-token box-link" href="#usage" data-jump="ledgerTitle"><div class="kpi-label">Tokens you used${BOX_GO}</div><div class="kpi-value">${esc(fmt(me.tokens_consumed_period))}</div><div class="kpi-foot"><div class="kpi-sub">${esc(fmt(me.tokens_consumed))} all time · see token activity</div></div></a>
     </div>
     <div class="dash-grid">
-      <section class="panel">
+      <section class="panel" data-tour="usage-tokens">
         <div class="panel-head"><h2 class="panel-title">Workspace tokens</h2></div>
         <div class="panel-body">
           ${t ? `<div class="meter-big">${t.expired || (demo && demo.expired)
@@ -4261,7 +4271,7 @@ async function loadUsage() {
           ${caps.posts_per_search || caps.comments_per_post ? `<div class="kpi-sub mt-8">Per search: up to ${esc(caps.posts_per_search || "—")} posts · ${esc(caps.comments_per_post || "—")} comments per post</div>` : ""}
         </div>
       </section>
-      <section class="panel">
+      <section class="panel" data-tour="usage-spend">
         <div class="panel-head"><h2 class="panel-title">Where your tokens went</h2></div>
         <div class="panel-body">
           ${reasons.length ? `<ul class="bar-list" aria-label="Tokens used by activity">${reasons.map(([k, v], i) => `<li class="bar-row"><span class="bar-label"><span class="bar-key" style="background:var(--chart-${(i % 8) + 1})" aria-hidden="true"></span>${esc(REASON_LABELS[k] || k)}</span><span class="bar-track" aria-hidden="true"><span class="bar-fill" style="width:${maxReason ? Math.max(4, Math.round(v / maxReason * 100)) : 0}%;background:var(--chart-${(i % 8) + 1})"></span></span><span class="bar-val cell-mono">${esc(fmt(v))}<span class="sr-only"> tokens</span></span></li>`).join("")}</ul>`
@@ -4663,6 +4673,287 @@ async function markAllNotificationsRead() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════
+// INTERACTIVE GUIDES (design/tour.js) — a welcome tour plus one guide per
+// main page, all reopened from the "Guide" button in the top bar.
+// Targets are data-tour="…" attributes; steps that depend on the role or
+// on data are optional, so a guide never points at something that isn't there.
+// ═════════════════════════════════════════════════════════════════════════
+const GUIDE_WELCOME = "app-basics";
+const GUIDES = [
+  { id: GUIDE_WELCOME, label: "Welcome tour", description: "How LeadAI works, start to finish" },
+  { id: "app-search", label: "Running a search", description: "Paste a social link and let the agent find leads" },
+  { id: "app-results", label: "Reading comments & leads", description: "Pages, posts, comments, qualification and Collect all" },
+  { id: "app-leads", label: "Leads pipeline", description: "Filter, open and follow up your leads" },
+  { id: "app-plans", label: "Plans, tokens & free trial", description: "What tokens are, your trial and choosing a plan" },
+  { id: "app-settings", label: "Settings & notifications", description: "Profile, alerts and account security" },
+];
+let _guideLauncher = null;
+let _guideDossier = false;   // a guide step opened a lead dossier (closed again when the guide moves on)
+let _guideResults;           // results the comments guide shows: {runId, pageId, postId}, null = none yet
+
+const guideNarrow = () => window.matchMedia("(max-width: 1024px)").matches;
+const tourEl = (name) => document.querySelector(`[data-tour="${name}"]`);
+/** A long section fills the screen with its heading scrolled out of sight, so point at its heading row instead. */
+const guideFit = (name, head) => () => {
+  const el = tourEl(name);
+  const h = el && el.querySelector(head);
+  return h && el.getBoundingClientRect().height > window.innerHeight * 0.7 ? h : el;
+};
+
+function guideCloseDossier() {
+  if (_guideDossier && !$("leadDetailModal").classList.contains("hidden")) closeLeadDetails();
+  _guideDossier = false;
+}
+/** Undo what an earlier step opened: a lead dossier, the off-canvas sidebar. */
+function guideReset() { guideCloseDossier(); closeSidebar(); }
+/** Sidebar steps: on phones and tablets the sidebar is off-canvas, so open it first. */
+function guideSidebar() { guideCloseDossier(); if (guideNarrow()) openSidebar(); }
+
+/** Wait until `done()` (or ms passed), so a highlight never lands on a loading skeleton. */
+async function guideSettle(done, ms = 5000) {
+  const t0 = Date.now();
+  while (!done() && Date.now() - t0 < ms) await sleep(120);
+  await sleep(150);
+}
+const viewLoaded = (view) => () => { const v = $("view-" + view); return !v || !v.querySelector('.skeleton, [aria-busy="true"]'); };
+
+/** Step route: open a view (only when it isn't open already) and wait for its data. */
+function guideView(view, opts = {}) {
+  return async () => {
+    guideReset();
+    if (currentView !== view) navigateToView(view, { focus: false, tab: opts.tab });
+    else if (view === "settings" && opts.tab && currentSettingsTab !== opts.tab) showSettingsTab(opts.tab);
+    await guideSettle(viewLoaded(view));
+  };
+}
+
+/** A search whose comments were collected: the one already open, else the newest that has some. */
+async function guideFindResults() {
+  const hasComments = async (postId) => {
+    const r = await api(`/api/posts/${encodeURIComponent(postId)}/comments?limit=1`);
+    return r.ok && (Number(r.data.all_count) || 0) > 0;
+  };
+  if (memory.runId && memory.pageId && memory.postId && await hasComments(memory.postId)) {
+    return { runId: memory.runId, pageId: memory.pageId, postId: memory.postId };
+  }
+  const hist = await api("/api/search/history?limit=10");
+  const runs = ((hist.ok && hist.data.searches) || []).filter((s) => s.status === "completed");
+  for (const run of runs.slice(0, 5)) {
+    const pages = await api(`/api/pages?run_id=${encodeURIComponent(run.run_id)}&limit=20`);
+    for (const pg of ((pages.ok && pages.data.pages) || []).filter((p) => p.posts_status === "completed")) {
+      const posts = await api(`/api/pages/${encodeURIComponent(pg.id)}/posts?limit=50`);
+      const post = ((posts.ok && posts.data.posts) || []).find((p) => (p.scraped_comment_count || 0) > 0);
+      if (post) return { runId: run.run_id, pageId: pg.id, postId: post.id };
+    }
+  }
+  return null;
+}
+
+/** Optional steps after a settled route: the target is there already, or it won't come. */
+const QUICK = 300;
+/** Results-guide step: with no results yet its optional target never comes, so it skips at once. */
+const resultStep = (step) => Object.defineProperty(step, "wait", { get: () => (_guideResults ? QUICK : 0), enumerable: true });
+
+const RESULT_GRIDS = { pages: "pagesGrid", posts: "postsGrid", comments: "commentsGrid" };
+/** Step route for the results screens (no results yet: Search history, where they will appear). */
+function guideResultsView(view) {
+  return async () => {
+    guideReset();
+    if (_guideResults === undefined) _guideResults = await guideFindResults();
+    const r = _guideResults;
+    if (!r) {
+      if (currentView !== "history") navigateToView("history", { focus: false });
+      await guideSettle(viewLoaded("history"));
+      return;
+    }
+    let moved = currentView !== view;
+    [["runId", r.runId], ["pageId", r.pageId], ["postId", r.postId]].forEach(([k, v]) => {
+      if (memory[k] !== v) { saveMemory(k, v); moved = true; }
+    });
+    if (moved) {
+      $(RESULT_GRIDS[view]).innerHTML = "";   // no stale cards from another search while this one loads
+      if (view === "comments") $("commentsScreenStatus").innerHTML = "";
+      navigateToView(view, { focus: false });
+    }
+    await guideSettle(view === "comments" ? () => Boolean($("commentsScreenStatus").innerHTML) : viewLoaded(view));
+  };
+}
+
+/** Open the first lead's dossier (Leads guide). */
+async function guideOpenDossier() {
+  if (currentView !== "leads") await guideView("leads")();
+  if (!$("leadDetailModal").classList.contains("hidden")) return;
+  const row = tourEl("lead-row");
+  if (!row) return;
+  _guideDossier = true;
+  await openLeadDetail(row.dataset.openLead);
+}
+
+function trialNote() {
+  const { demo } = tokenState();
+  if (!demo) return "";
+  return demo.expired
+    ? "\n\nYour free trial has ended, so searching is paused until you choose a plan."
+    : `\n\nYou're on the free trial: it ends in ${countdownText(demo.expires_at)}. When it ends, or your tokens run out, searching pauses until you choose a plan.`;
+}
+
+function defineGuides() {
+  const end = () => { guideReset(); _guideResults = undefined; };
+
+  LeadTour.define(GUIDE_WELCOME, { title: "Welcome tour", onEnd: end, steps: [
+    { route: guideView("dashboard"), title: "Welcome to LeadAI",
+      body: "LeadAI finds people who want to buy from you. Paste a link to a Facebook page, Instagram profile, YouTube channel or LinkedIn company page: LeadAI reads its posts and comments, picks out the people showing real interest and scores each one with AI.\n\nThis tour shows you around in about two minutes. Press Esc to leave it at any time." },
+    { route: guideView("dashboard"), target: '[data-tour="dash-kpis"]', title: "Your dashboard",
+      body: "This is home. These boxes show your tokens, the searches you ran, the leads you found and the leads assigned to you. Click any box to jump to the details." },
+    { before: guideSidebar, target: '[data-tour="sidebar-nav"]', placement: "right", title: "Find your way around",
+      body: "The sidebar takes you everywhere. Workspace is where you search and see results, Intelligence holds your leads, history and exports, and Account covers tokens, plans and settings.\n\nOn a phone, open it with the menu button at the top left." },
+    { before: guideSidebar, target: '[data-tour="nav-search"]', placement: "right", title: "Start a new search",
+      body: "Click New search and paste a Facebook, Instagram, YouTube or LinkedIn link. A short form asks about your business and the words that show buying interest, then the agent collects the page, its posts and their comments for you.\n\nIf your role is view-only, you can open results but not start searches." },
+    { before: guideSidebar, target: '[data-tour="nav-results"]', placement: "right", title: "Results: pages, posts, comments",
+      body: "Each search opens in three levels: the page it found, that page's posts, and the comments on each post.\n\nComments that match your keywords are \"qualified\" and go to AI analysis. A filter shows qualified, not qualified or both, and Collect all comments fetches the rest of a post's comments when you want them." },
+    { before: guideSidebar, target: '[data-tour="nav-leads"]', placement: "right", title: "Your leads",
+      body: "Leads lists everyone the AI scored as a likely buyer, plus leads a teammate assigned to you. Click a lead to open its dossier: the comment, score, contact details, budget, notes, follow-ups and status." },
+    { before: guideSidebar, target: '[data-tour="nav-history"]', placement: "right", title: "Search history",
+      body: "Every search you ran is kept here. Open one to go back to its pages, posts, comments and leads without running it again." },
+    { before: guideSidebar, target: '[data-tour="nav-exports"]', placement: "right", title: "Exports",
+      body: "Download pages, posts, comments or leads as CSV files for your spreadsheet or CRM. Your past exports are listed here so you can get a fresh copy." },
+    { before: guideSidebar, target: '[data-tour="nav-usage"]', placement: "right", title: "Usage & tokens",
+      body: "LeadAI runs on tokens. A search, collecting comments, AI analysis and CSV exports each use a few. Usage & tokens shows how many are left, where they went and every single charge." },
+    { before: guideSidebar, target: '[data-tour="token-card"]', placement: "right", title: "Tokens at a glance",
+      get body() {
+        return "This card stays in view: the tokens your workspace has left. On the free trial it also counts down the time remaining, and an Upgrade button appears when you're on the trial or running low." + trialNote();
+      } },
+    { before: guideSidebar, target: '[data-tour="nav-billing"]', placement: "right", title: "Plans & billing",
+      body: "Choose the plan that fits, monthly or yearly. For data collection (Apify) and AI (Google Gemini) you can let LeadAI provide them, the simplest option, or use your own API keys for a lower price and pay those services directly.\n\nA new plan starts once our team confirms your payment." },
+    { before: guideSidebar, target: '[data-tour="nav-settings"]', placement: "right", title: "Settings",
+      body: "Update your name and phone, choose which notifications you get, change your password, turn on two-factor sign-in and sign out other devices." },
+    { before: guideReset, target: '[data-tour="notifications"]', title: "Notifications",
+      body: "The bell tells you when a search finishes, a hot lead turns up or a lead is assigned to you. Click a notification to open it." },
+    { before: guideReset, target: '[data-tour="guide-btn"]', title: "Need a hand later?",
+      body: "Click Guide (the ? button) any time to replay this tour or follow a short guide for each page: running a search, reading comments and leads, your leads pipeline, plans and tokens, and settings." },
+  ] });
+
+  // roles without search access get the short version (the search form is hidden for them)
+  const searchSteps = can("search.create") ? [
+    { route: guideView("search"), target: '[data-tour="search-hero"]', title: "The URL Search Agent",
+      body: "Every search starts here. The agent walks you through five short steps, then collects a page's posts and comments and scores the people in them." },
+    { route: guideView("search"), target: '[data-tour="saved-searches"]', title: "Saved searches",
+      body: "Running similar searches often? Save your industry, keywords and limits as a preset, then load it here next time in one click." },
+    { route: guideView("search"), target: '[data-tour="search-steps"]', title: "Five quick steps",
+      body: "Industry and Business type tell the AI what you sell. Keywords are the words that show buying interest, like \"price\", \"available\" or \"book now\": comments that contain them are qualified and sent to AI analysis." },
+    { route: guideView("search"), target: '[data-tour="search-step-link"]', title: "Paste your link",
+      body: "In Social Link, paste a Facebook page, Instagram profile, YouTube channel or LinkedIn company page; LeadAI detects which one it is. You also choose how many posts to analyse and how many comments to collect per post, within your plan's limits." },
+    { route: guideView("search"), target: '[data-tour="search-step-review"]', title: "Review and run",
+      body: "The last step shows everything you chose and how many tokens the search uses. Click Find Leads Now and follow the live progress: page, posts, comments, qualification, AI scoring and results." },
+  ] : [
+    { route: guideView("search"), target: '[data-tour="search-permission"]', title: "Searching needs search access",
+      body: "Your role is view-only, so the search form is hidden. You can still open results, comments and leads. Ask your workspace admin if you need to run searches." },
+  ];
+  LeadTour.define("app-search", { title: "Running a search", onEnd: end, steps: searchSteps.concat([
+    { route: guideView("search"), target: guideFit("recent-searches", ".recent-head"), title: "Your recent searches",
+      body: "Your latest searches appear here with their status. Click one to open its results, or filter by platform. View all opens your full search history." },
+  ]) });
+
+  LeadTour.define("app-results", { title: "Reading comments & leads", onEnd: end, steps: [
+    // no results yet: the first step says where they will appear, and the other steps skip themselves
+    resultStep({ route: guideResultsView("pages"), target: () => (_guideResults ? tourEl("page-card") : tourEl("history-list")), optional: true,
+      get title() { return _guideResults ? "1. The page you searched" : "No results yet"; },
+      get body() {
+        return _guideResults
+          ? "Each search starts with the page or profile behind your link: followers, likes, public contact details and how many of its posts are worth a look. Click View posts to go one level down."
+          : "Results show up after your first search finishes, and every search is kept here in Search history.\n\nRun a search from New search, then open this guide again to see pages, posts, comments and leads.";
+      } }),
+    resultStep({ route: guideResultsView("posts"), target: '[data-tour="post-tile"]', optional: true, title: "2. Its posts",
+      body: "Posts come with their likes and comment counts. Qualifying posts are relevant and have enough comments to be worth collecting.\n\nCollect comments fetches and analyses a post's comments; View comments & leads opens them once they're in." }),
+    resultStep({ route: guideResultsView("comments"), target: '[data-tour="qualification-filter"]', optional: true, title: "3. Comments: qualified or not",
+      body: "These are the comments of one post. Qualified comments matched your keywords and were scored by AI. Not qualified comments are kept too, so nothing is lost, but they aren't sent to AI. Pick one group here, or see both.\n\nThe quick filters above narrow them to qualified leads, people who left a phone or email, hot leads, pricing questions or other inquiries." }),
+    resultStep({ route: guideResultsView("comments"), target: () => tourEl("collect-all") || tourEl("comments-summary"), optional: true,
+      title: "Collect all comments",
+      body: "A search collects a set number of comments per post. When a post has more, a Collect all button appears here and fetches the rest in one go. It counts as one comment collection, and comments already analysed aren't analysed again." }),
+    resultStep({ route: guideResultsView("comments"), target: '[data-tour="lead-card"]', optional: true, title: "Read a lead",
+      body: "Each card shows the comment, an AI score from 0 to 100 (hot, warm or cold), why the AI thinks it's a lead, and any phone, email, budget or location it found. View full dossier opens everything, including status and notes." }),
+    resultStep({ route: guideResultsView("comments"), target: '[data-tour="workflow-steps"]', optional: true, title: "Move between levels",
+      body: "Jump back to the search, the pages or the posts at any time with these steps. Export CSV, at the top of each list, downloads what you see." }),
+  ] });
+
+  const leadSteps = [
+    { route: guideView("leads"), target: '[data-tour="leads-tabs"]', title: "Your lead lists",
+      body: "All shows every lead you can see. Found by me comes from your own searches. Assigned to me holds leads a teammate handed to you; the badge in the sidebar counts them." },
+    { route: guideView("leads"), target: '[data-tour="leads-filters"]', title: "Find the right leads",
+      body: "Search by name, comment, requirement or location, then filter by status, quality (hot, warm, cold), minimum score and platform. Sort by score to call your best leads first. Columns shows or hides table columns." },
+    // no leads (or no access): the same step explains the empty list instead
+    { route: guideView("leads"), target: () => tourEl("lead-row") || tourEl("leads-list"), optional: true, wait: QUICK,
+      get title() { return tourEl("lead-row") ? "One row per lead" : "Nothing here yet"; },
+      get body() {
+        return tourEl("lead-row")
+          ? "Each row shows the lead's score, quality, status and contact details. Click a phone number or email to reach out, or click the row to open the full dossier."
+          : "Leads appear once your searches find people showing buying interest, or when a teammate assigns one to you. If filters are on, clear them to see more.";
+      } },
+    { before: guideOpenDossier, target: '[data-tour="lead-score"]', optional: true, wait: QUICK, title: "The lead dossier",
+      body: "Clicking a lead opens its dossier. The score shows how likely the person is to buy, with the quality, priority and the AI's confidence. Above it are the original comment and the AI's reasoning; below are contact details, budget, requirement and location." },
+    { before: guideOpenDossier, target: '[data-tour="lead-lifecycle"]', optional: true, wait: QUICK, title: "Work the pipeline",
+      body: can("leads.manage")
+        ? "Move each lead from New to Contacted, Qualified, Follow-up and Converted. Change the status here, add notes for your team and set follow-ups with a due date so nobody is forgotten."
+        : "Each lead moves from New to Contacted, Qualified, Follow-up and Converted, with notes and follow-ups from your team. You can follow the pipeline here; teammates who manage leads update it." },
+  ];
+  if (can("exports.create") && can("leads.export")) {
+    leadSteps.push({ route: guideView("leads"), target: '[data-tour="leads-export"]', optional: true, wait: QUICK, title: "Export your leads",
+      body: "Download the leads that match your current filters as a CSV for your spreadsheet or CRM. Each export uses your plan's export allowance." });
+  }
+  LeadTour.define("app-leads", { title: "Leads pipeline", onEnd: end, steps: leadSteps });
+
+  LeadTour.define("app-plans", { title: "Plans, tokens & free trial", onEnd: end, steps: [
+    { route: guideView("usage"), target: '[data-tour="usage-tokens"]', optional: true, wait: QUICK, title: "What tokens are",
+      get body() {
+        return "Tokens are how LeadAI measures work. Every action uses a few: these chips show the cost of a search, collecting posts or comments, an AI analysis and a CSV export. Your workspace gets a token allowance with its plan." + trialNote();
+      } },
+    { route: guideView("usage"), target: guideFit("usage-ledger", ".panel-head"), title: "Where your tokens went",
+      body: "Token activity lists each charge with its time and what it was for. Filter it by activity or download it as CSV. Just above it, this period's tokens are split by activity, so you can see what uses the most." },
+    { route: guideView("billing"), target: '[data-tour="billing-plan"]', title: "Your current plan",
+      body: "Your plan, its price and its status. On the free trial it shows when the trial ends; on a paid plan, the next billing date.\n\nEvery invoice and payment is listed at the bottom of this page, ready to download." },
+    { route: guideView("billing"), target: '[data-tour="billing-meters"]', title: "Monthly limits",
+      body: "How much of this month's searches, AI lead analyses and team seats your workspace has used. A bar changes colour as you get close to a limit." },
+    { route: guideView("billing"), target: '[data-tour="billing-keys"]', optional: true, wait: QUICK, title: "LeadAI's keys or your own",
+      body: "LeadAI uses two outside services: Apify to collect social data and Google Gemini for AI. With \"LeadAI provides\", both are included in the price. With \"I'll use my own key\", the plan costs less, you pay Apify or Google directly, and your admin adds the key in the Admin portal." },
+    { route: guideView("billing"), target: () => document.querySelector('[data-tour="plan-card"].selected') || tourEl("plan-card"), optional: true, wait: QUICK,
+      title: "Choose a plan",
+      body: "Compare tokens, searches, posts per search, comments per post and team seats; the Monthly / Yearly switch above shows how much a yearly plan saves. Click a plan to see its price breakdown, then Choose to check out.\n\nYour new plan starts once our team confirms the payment. If you can't change plans, ask your workspace owner." },
+  ] });
+
+  LeadTour.define("app-settings", { title: "Settings & notifications", onEnd: end, steps: [
+    { route: guideView("settings", { tab: "profile" }), target: '[data-tour="settings-tabs"]', title: "Settings",
+      body: "Three tabs: your profile, your notifications and the security of your account.\n\nOn Profile, keep your name and phone number up to date. Your sign-in email is managed by your workspace admin." },
+    { route: guideView("settings", { tab: "notifications" }), target: '[data-tour="settings-notifications"]', title: "Choose your notifications",
+      body: "Pick the events you want to hear about, such as finished searches, new hot leads or leads assigned to you, then click Save preferences." },
+    { route: guideView("settings", { tab: "security" }), target: '[data-tour="settings-password"]', title: "Password",
+      body: "Change your password here. Doing so signs you out on every other device." },
+    { route: guideView("settings", { tab: "security" }), target: '[data-tour="settings-2fa"]', title: "Two-factor sign-in",
+      body: "Add a second step at sign-in with an authenticator app, so nobody gets in with just your password." },
+    { route: guideView("settings", { tab: "security" }), target: guideFit("settings-sessions", ".panel-head"), title: "Where you're signed in",
+      body: "Every browser and device signed in to your account is listed here. Sign out any you don't recognise, or all the others at once." },
+    { before: guideReset, target: '[data-tour="notifications"]', title: "The bell",
+      body: "New notifications show up here with a count. Click one to open what it's about, or mark them all as read." },
+  ] });
+}
+
+/** Guide button in the top bar, guide definitions, and the welcome tour on a first visit. */
+function setupGuides() {
+  if (!window.LeadTour || _guideLauncher) return;
+  const user = portal.user || {};
+  LeadTour.setUser(user.email || user.user_id || "");
+  defineGuides();
+  const bar = document.querySelector(".topbar-right");
+  _guideLauncher = LeadTour.mountLauncher({ container: bar, tours: GUIDES, label: "Guide",
+    title: "Interactive guides: how LeadAI works" });
+  bar.insertBefore(_guideLauncher, $("notifWrap"));
+  _guideLauncher.setAttribute("data-tour", "guide-btn");
+  // opening the guide menu closes the notification / account menus (their clicks never reach the guide's own handler)
+  _guideLauncher.addEventListener("click", () => closeMenus("guide"), true);
+  // a support session (Super Admin viewing as this user) never pops the welcome tour
+  if (!user.impersonated_by) LeadTour.autoStart(GUIDE_WELCOME);
+}
+
+// ═════════════════════════════════════════════════════════════════════════
 // SHELL — menus, sidebar, delegated events, auth, boot
 // ═════════════════════════════════════════════════════════════════════════
 function closeMenus(except) {
@@ -4675,6 +4966,13 @@ function closeMenus(except) {
     if (p) p.classList.add("hidden");
     if (b) b.setAttribute("aria-expanded", "false");
   });
+  if (except !== "guide") {
+    document.querySelectorAll(".lt-launch .lt-menu:not([hidden])").forEach((m) => {
+      m.hidden = true;
+      const b = m.parentNode.querySelector(".lt-launch-btn");
+      if (b) b.setAttribute("aria-expanded", "false");
+    });
+  }
 }
 function toggleMenu(panelId, btnId) {
   const p = $(panelId);
@@ -4824,6 +5122,8 @@ function openDialog() {
   return Array.from(document.querySelectorAll(".modal-backdrop")).reverse().find((m) => !m.classList.contains("hidden"));
 }
 function onDocumentKeydown(e) {
+  // while a guide is open it handles the keyboard and keeps focus itself (design/tour.js)
+  if (document.documentElement.classList.contains("lt-open")) return;
   if (e.key === "Tab") {
     const dlg = openDialog();
     if (dlg) {
@@ -5035,10 +5335,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (postsIn) postsIn.addEventListener("change", () => clampToCap(postsIn, searchCaps().posts_per_search));
   const modeRadios = document.querySelectorAll('input[name="filterMode"]');
   if (modeRadios.length) {
-    modeRadios.forEach((r) => r.addEventListener("change", () => {
-      urlFilterTouched = true;
-      urlFilterModeChanged();
-    }));
+    modeRadios.forEach((r) => r.addEventListener("change", urlFilterModeChanged));
     urlFilterModeChanged();
   }
   bindFilters();
@@ -5060,9 +5357,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (h.view === "history" && h.params.has("status") && $("historyStatus")) $("historyStatus").value = h.params.get("status");
     navigateToView(h.view || "dashboard", { focus: false, tab: h.params.get("tab") || undefined });
   });
+  setupGuides();
 
   refreshSummary();
-  applyUrlFilterDefaults();
   loadUrlFilterCatalog();
   if (window.GuidedSearch) GuidedSearch.init();
   loadWorkspaceData();

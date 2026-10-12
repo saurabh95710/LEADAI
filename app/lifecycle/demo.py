@@ -89,17 +89,22 @@ def create_demo_request(*, name: str, email: str, password: str, company: str,
     while db.organizations.find_one({"slug": slug}):
         slug, n = f"{base_slug}-{n}", n + 1
 
+    # Global Settings → Localization (no choice is made at signup)
+    from app.settings.effective import org_locale_defaults
+    org_tz, org_currency = org_locale_defaults()
     org_id = str(db.organizations.insert_one({
         "name": company, "slug": slug, "status": "pending", "plan_id": None,
         "industry": industry,
         "admin_portal_enabled": False,
-        "timezone": "UTC", "currency": "USD",
+        "timezone": org_tz, "currency": org_currency,
         "settings": {"shared_workspace": False},
         "metadata": {"source": source},
         "created_at": now, "updated_at": now, "last_activity_at": now,
     }).inserted_id)
+    from app.messaging.phone import normalize_phone
     user_id = str(db.users.insert_one({
         "email": email, "name": name, "phone": (phone or "").strip() or None,
+        "phone_e164": normalize_phone(phone),
         "password_hash": hash_password(password), "status": "pending_approval",
         "is_platform_admin": False, "platform_role": None,
         "default_organization_id": org_id,
@@ -139,12 +144,19 @@ def create_demo_request(*, name: str, email: str, password: str, company: str,
                             f"{name} <{email}> from {company} started a {cfg['duration_days']}-day free trial",
                             link="/superadmin#/demo", data={"demo_request_id": req_id})
         approve(req_id, actor="system:auto_approve", self_serve=True, email_owner=owner_knows_password)
+        if not owner_knows_password:   # a partner set up this workspace: the email has the password link
+            from app.messaging.service import welcome_sms
+            welcome_sms(user_id, f"LeadAI: a workspace for {company} was created for you and your free trial "
+                                 "has started. Check your email to choose your password.", organization_id=org_id)
     else:
         notify_super_admins("registration", "New registration", f"{name} <{email}> from {company}",
                             link="/superadmin#/demo", data={"demo_request_id": req_id})
         notify_super_admins("demo_requested", "New demo request", f"{company} — {name} <{email}>",
                             severity="warning", link="/superadmin#/demo",
                             data={"demo_request_id": req_id})
+        from app.messaging.service import welcome_sms
+        welcome_sms(user_id, f"Thanks for signing up for LeadAI, {name.split(' ')[0]}! We'll text you as soon as "
+                             f"your {company} workspace is ready.", organization_id=org_id)
         send_email(email, "We received your LeadAI demo request",
                    f"Hi {name},\n\nThanks for requesting a LeadAI demo for {company}. "
                    "Our team will review it shortly — you'll get another email as soon as "
@@ -230,6 +242,11 @@ def approve(req_id: str, *, actor: str, overrides: Optional[Dict[str, Any]] = No
                        f"{cfg['tokens']} tokens for {cfg['duration_days']} days.\n\n"
                        f"Sign in any time here: {absolute_url('/login')}\n\n— The LeadAI team",
                        kind="demo_approved", organization_id=org_id)
+        if email_owner:
+            from app.messaging.service import welcome_sms
+            welcome_sms(user_id, f"Welcome to LeadAI, {doc['name'].split(' ')[0]}! Your {cfg['duration_days']}-day "
+                                 f"free trial is active with {cfg['tokens']} tokens. Sign in: {absolute_url('/login')}",
+                        organization_id=org_id)
         from app.partners.referrals import on_demo_approved
         on_demo_approved(org_id)
         return get_request(req_id)
@@ -239,6 +256,9 @@ def approve(req_id: str, *, actor: str, overrides: Optional[Dict[str, Any]] = No
     notify_user(user_id, "demo_approved", "Your free trial is ready",
                 f"You have {cfg['tokens']} tokens for {cfg['duration_days']} days.",
                 organization_id=org_id, severity="success", link="/dashboard")
+    from app.messaging.service import welcome_sms
+    welcome_sms(user_id, f"LeadAI: your free trial for {doc['company']} is ready — {cfg['tokens']} tokens for "
+                         f"{cfg['duration_days']} days. Sign in: {absolute_url('/login')}", organization_id=org_id)
     send_email(doc["email"], "Your LeadAI free trial is ready",
                f"Hi {doc['name']},\n\nYour LeadAI free trial for {doc['company']} is approved and active. "
                f"You have {cfg['tokens']} tokens for {cfg['duration_days']} days.\n\n"

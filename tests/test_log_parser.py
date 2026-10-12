@@ -637,3 +637,11 @@ class TestEdgeCases:
         # Only exact uppercase matches should work
         assert extract_level("14:32:01 info  app.main: test") == "UNKNOWN"
         assert extract_level("14:32:01 INFO  app.main: test") == "INFO"
+
+
+def test_module_from_the_apps_own_log_format():
+    """app/main.py writes "HH:MM:SS LEVEL [logger] [request_id=…] message"."""
+    from app.log_parser import extract_module
+    assert extract_module("16:26:48 INFO    [app.db.mongo] [request_id=-] MongoDB ok") == "app.db.mongo"
+    assert extract_module("16:26:48 INFO app.db.mongo: old style") == "app.db.mongo"
+    assert extract_module("not a log line") == ""

@@ -421,13 +421,14 @@ def _lead_score(qualifying_count: int, total_comments: int, activity: str) -> in
 
 
 def _is_qualifying_post(doc: Dict[str, Any]) -> bool:
-    """Relevant post AND Facebook-reported total comments >= _MIN_COMMENTS."""
+    """Relevant post AND Facebook-reported total comments >= the minimum
+    (Global Settings → Search limits, MIN_COMMENTS env as the default)."""
     if doc.get("is_relevant") is not True:
         return False
     total = doc.get("total_comment_count")
     if total is None:
         total = doc.get("comments_count")
-    return bool(total is not None and total >= _MIN_COMMENTS)
+    return bool(total is not None and total >= current_min_comments())
 
 
 def _compute_page_stats(posts: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -550,7 +551,7 @@ def map_post_item(item: Dict[str, Any], page_doc: Dict[str, Any],
         "comments_count": total,            # legacy alias of the Facebook-reported total
         "shares_count": _as_int(item.get("sharesCount")) or _as_int(item.get("shares")),
         "is_relevant": relevant,
-        "is_qualifying": bool(total is not None and total >= _MIN_COMMENTS and relevant is True),
+        "is_qualifying": bool(total is not None and total >= current_min_comments() and relevant is True),
         "page_ref": str(page_doc["_id"]),
         "search_run_id": page_doc.get("search_run_id"),
         "provider": page_doc.get("provider") or "apify",

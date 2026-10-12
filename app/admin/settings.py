@@ -15,6 +15,7 @@ str/list/dict) so it round-trips through Motor/PyMongo unchanged.
 """
 import json
 import logging
+import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -124,6 +125,9 @@ SETTING_DEFAULTS: Dict[str, Any] = {
     "security.lockout_minutes": 15,
     "security.impersonation_minutes": 30,
 
+    # Payments: which configured provider takes payments (keys stay in .env)
+    "billing.provider": "auto",
+
     # Maintenance mode — gates the user app, never the admin panel
     "maintenance.enabled": False,
     "maintenance.message": "LeadAI is undergoing scheduled maintenance. "
@@ -192,10 +196,11 @@ SETTING_DEFAULTS: Dict[str, Any] = {
     "defaults.date_range": 30,
     "defaults.page_size": 20,
 
-    # Notifications & email (forward-looking — no mail backend ships yet)
+    # Notifications & email: platform-wide switches over each organization's
+    # own notification choices (app/events/notifications.py, app/events/email.py)
     "notifications.alerts_enabled": True,
-    "notifications.job_failed_email": False,
-    "notifications.new_lead_email": False,
+    "notifications.job_failed_email": True,
+    "notifications.new_lead_email": True,
     "email.sender_name": "",
     "email.reply_to": "",
     "email.company_name": "",
@@ -210,7 +215,7 @@ SETTING_DEFAULTS: Dict[str, Any] = {
     "leads.require_phone_or_email": False,
     "exports.default_format": "CSV",
     "exports.max_records": 5000,
-    "exports.include_leads_only": False,
+    "exports.include_leads_only": True,
     "exports.include_ai_summary": True,
 
     # SEO & localization
@@ -359,6 +364,72 @@ def get_int(key: str, fallback: int = 0) -> int:
 def get_str(key: str, fallback: str = "") -> str:
     value = get_setting(key)
     return str(value) if value is not None else fallback
+
+
+_MOJIBAKE = ("â€", "Ã", "Â")
+
+
+def fix_mojibake(text: str) -> str:
+    """Text that was UTF-8 but got decoded as Windows-1252 and saved again
+    ("AI-powered â€” …" -> "AI-powered — …"). Unchanged when it isn't."""
+    if not isinstance(text, str) or not any(m in text for m in _MOJIBAKE):
+        return text
+    for _ in range(3):                      # it can be wrapped more than once
+        try:
+            fixed = text.encode("cp1252").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            break
+        if fixed == text:
+            break
+        text = fixed
+        if not any(m in text for m in _MOJIBAKE):
+            break
+    return text
+
+
+def repair_mojibake_settings(db) -> int:
+    """Once per start: fix garbled text in stored settings. Returns how many."""
+    if db is None:
+        return 0
+    n = 0
+    for doc in db[COLLECTION].find({"value": {"$type": "string"}}):
+        fixed = fix_mojibake(doc.get("value"))
+        if fixed != doc.get("value"):
+            db[COLLECTION].update_one({"_id": doc["_id"]}, {"$set": {"value": fixed}})
+            n += 1
+    if n:
+        clear_settings_cache()
+    return n
+
+
+_OBJECT_ID_RE = re.compile(r"^[0-9a-f]{24}$")
+
+
+def clean_stored_settings(db) -> int:
+    """Once per start: drop stored settings the Settings page can't use.
+
+    * an image setting holding a page address (``…/superadmin#/settings``),
+      which shows as a broken logo; the built-in default is used instead
+    * stray documents keyed by a bare id, which no setting is named after
+
+    Returns how many were removed."""
+    if db is None:
+        return 0
+    from app.settings.registry import SPEC_BY_KEY
+    gone = []
+    for doc in db[COLLECTION].find({}, {"value": 1}):
+        key = str(doc["_id"])
+        spec = SPEC_BY_KEY.get(key)
+        if spec is None:
+            if _OBJECT_ID_RE.match(key):
+                gone.append(doc["_id"])
+        elif spec.type == "path" and isinstance(doc.get("value"), str) and "#" in doc["value"]:
+            gone.append(doc["_id"])
+    if gone:
+        db[COLLECTION].delete_many({"_id": {"$in": gone}})
+        clear_settings_cache()
+        logger.info("Removed %d unusable stored setting(s): %s", len(gone), ", ".join(map(str, gone)))
+    return len(gone)
 
 
 def _seal(key: str, value: Any) -> Any:

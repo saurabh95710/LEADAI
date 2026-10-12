@@ -586,3 +586,72 @@ a.oa-biz-stat:hover .oa-biz-stat-label, a.oa-biz-stat:focus-visible .oa-biz-stat
 .oa-break { overflow-wrap:anywhere; word-break:break-word; }
 /* Business profile: keyboard focus on the target-customer toggles */
 .target-cust-chip[role="button"]:focus-visible { outline:none; box-shadow:var(--focus-ring); }
+
+/* Interactive guide button in the Admin portal top bar (design/tour.js mounts it; scoped to its class
+   because the Partner Portal loads this stylesheet too). Matches the icon buttons beside it. */
+.oa-topbar .oa-guide-launch .lt-launch-btn { height:38px; padding:0 12px 0 8px; border-radius:var(--radius-md); border-color:var(--border);
+  background:var(--surface); color:var(--text-secondary); font-size:var(--text-sm); }
+.oa-topbar .oa-guide-launch .lt-launch-btn:hover, .oa-topbar .oa-guide-launch .lt-launch-btn[aria-expanded="true"] { color:var(--text-primary); border-color:var(--border-hover); background:var(--surface-hover); }
+.oa-topbar .oa-guide-launch .lt-launch-ico { background:var(--primary-fill, var(--primary)); color:var(--on-primary); }
+.oa-topbar .oa-guide-launch .lt-menu { top:calc(100% + 8px); }
+@media (max-width:640px) {
+  .oa-topbar .oa-guide-launch .lt-launch-btn { width:38px; padding:0; justify-content:center; }
+}
+@media (max-width:760px) {
+  /* on phones the menu spans the screen under the top bar instead of hanging off the button */
+  .oa-topbar .oa-guide-launch { position:static; }
+  .oa-topbar .oa-guide-launch .lt-menu { position:absolute; top:calc(100% + 6px); left:12px; right:12px; width:auto; }
+}
+
+/* ── Messages to the team (Team → Message team / Sent messages) ── */
+.oa-tm-form { display:flex; flex-direction:column; gap:12px; }
+.oa-tm-fs { border:0; padding:0; margin:0; min-width:0; display:flex; flex-direction:column; gap:8px; }
+.oa-tm-fs > .oa-err:empty { display:none; }
+.oa-tm-to { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.oa-tm-opt { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface); cursor:pointer;
+  transition:border-color var(--transition-fast), background var(--transition-fast); }
+.oa-tm-opt:hover { border-color:var(--border-hover); }
+.oa-tm-opt:has(input:checked) { border-color:var(--primary); background:var(--primary-light); }
+.oa-tm-opt:has(input:focus-visible) { box-shadow:var(--focus-ring); }
+.oa-tm-opt input { width:16px; height:16px; margin-top:2px; accent-color:var(--primary); flex-shrink:0; cursor:pointer; }
+.oa-tm-opt > span { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.oa-tm-opt b { font-size:var(--text-sm); font-weight:600; color:var(--text-primary); }
+.oa-tm-picker { display:flex; flex-direction:column; gap:8px; }
+.oa-tm-picker[hidden] { display:none; }
+.oa-tm-picker .oa-searchf .form-input { width:100%; padding-left:34px; }
+.oa-tm-chips { display:flex; flex-wrap:wrap; gap:6px; }
+.oa-tm-chips:empty { display:none; }
+.oa-tm-chips .oa-chip button:focus-visible { outline:2px solid var(--primary); outline-offset:1px; }
+.oa-tm-people { max-height:240px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-md); padding:4px; background:var(--bg-elevated); }
+.oa-tm-person { display:grid; grid-template-columns:auto auto minmax(0,1fr) auto; align-items:center; gap:4px 10px; padding:8px; border-radius:8px; cursor:pointer; }
+.oa-tm-person:hover { background:var(--surface-hover); }
+.oa-tm-person:has(input:checked) { background:color-mix(in srgb, var(--primary) 9%, transparent); }
+.oa-tm-person input { width:16px; height:16px; accent-color:var(--primary); cursor:pointer; }
+.oa-tm-person .oa-avatar { width:30px; height:30px; }
+.oa-tm-who { display:flex; flex-direction:column; min-width:0; }
+.oa-tm-who b { font-size:var(--text-sm); font-weight:600; }
+.oa-tm-who .oa-trunc { max-width:100%; }
+.oa-tm-meta { display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+.oa-tm-nophone { font-size:var(--text-2xs); font-weight:600; padding:1px 8px; border-radius:var(--radius-full); white-space:nowrap;
+  background:var(--warning-soft); color:var(--warning-text); border:1px solid var(--warning-border); }
+.oa-tm-ch { display:flex; flex-wrap:wrap; gap:4px 12px; }
+.oa-tm-ch .oa-check { padding:6px 8px; }
+.oa-tm-form .form-textarea { min-height:0; }
+.oa-tm-form .form-textarea[aria-invalid="true"], .oa-tm-form .form-input[aria-invalid="true"] { border-color:var(--danger); }
+.oa-tm-smsfoot { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.oa-tm-counter { font-size:var(--text-xs); color:var(--text-muted); white-space:nowrap; font-variant-numeric:tabular-nums; }
+.oa-tm-counter.over { color:var(--warning-text); font-weight:600; }
+.oa-tm-summary { padding:10px 12px; border-radius:var(--radius-md); background:var(--surface); border:1px solid var(--border-subtle); font-size:var(--text-sm); color:var(--text-secondary); line-height:1.5; }
+.oa-tm-summary b { color:var(--text-primary); font-weight:600; }
+.oa-tm-summary .warn { display:block; margin-top:4px; color:var(--warning-text); }
+.oa-tm-line { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:var(--text-sm); }
+.oa-tm-line + .oa-tm-line { margin-top:4px; }
+.oa-tm-failed { color:var(--danger-text); font-weight:600; }
+.oa-tm-subj { display:block; max-width:340px; }
+.oa-tm-pre { font-family:var(--font-sans); font-size:var(--text-sm); }
+@media (max-width:520px) {
+  .oa-tm-to { grid-template-columns:minmax(0,1fr); }
+  .oa-tm-person { grid-template-columns:auto auto minmax(0,1fr); }
+  .oa-tm-meta { grid-column:3; justify-content:flex-start; }
+  .oa-tm-smsfoot { flex-direction:column; gap:2px; }
+}

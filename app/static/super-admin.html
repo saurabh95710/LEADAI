@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-appconfig="brand-only">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,7 +10,8 @@
 <link rel="preload" href="/static/design/components.css?v=r1005" as="style">
 <link rel="stylesheet" href="/static/design/tokens.css?v=r1005">
 <link rel="stylesheet" href="/static/design/components.css?v=r1005">
-<script src="/static/design/theme.js?v=r1005" defer></script>
+<link rel="stylesheet" href="/static/design/tour.css?v=tour1">
+<script src="/static/design/theme.js?v=r1006" defer></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
 <style>
   /* --sa-muted: token-derived muted ink that keeps WCAG AA (≥4.5:1) on dark surfaces too */
@@ -348,9 +349,75 @@
   .sa-card[data-section]:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
   .sa-chip:focus-visible,.sa-tab:focus-visible,.sa-item:focus-visible,.sa-group-btn:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
   .sa-back{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;margin-bottom:6px}
+  /* link card (dashboard → Operations overview) */
+  .sa-linkcard{display:flex;align-items:center;gap:12px;text-decoration:none;color:var(--text-primary);transition:border-color .15s,box-shadow .15s}
+  .sa-linkcard:hover{border-color:var(--border-hover);box-shadow:var(--glow)}
+  .sa-linkcard:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+  .sa-linkcard-ico{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--primary-light);color:var(--text-link);flex-shrink:0}
+  .sa-linkcard-ico .sa-ico{width:19px;height:19px}
+  .sa-linkcard-text{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+  .sa-linkcard-text b{font-size:14px}
+  .sa-linkcard-text span{font-size:12.5px;color:var(--text-secondary)}
+  .sa-linkcard .arr{color:var(--sa-muted);flex-shrink:0}
+  .sa-pop-note{padding:10px 8px;font-size:12.5px;color:var(--sa-muted)}
+  .sa-head .sa-actions .sa-rel .sa-pop{min-width:260px}
   .sa-content > div{animation:sa-in .18s ease}
   @keyframes sa-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 
+  /* ── Messaging (email + SMS) ── */
+  .sa-msg-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}
+  .sa-msg-fs{border:0;margin:0 0 14px;padding:0;min-width:0}
+  .sa-msg-fs legend{font-size:12.5px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;padding:0}
+  .sa-msg-groups{display:grid;gap:6px}
+  .sa-msg-group{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;border:1px solid var(--border);border-radius:10px;background:var(--surface);cursor:pointer;font-size:13px;min-width:0}
+  .sa-msg-group:hover{border-color:var(--border-hover)}
+  .sa-msg-group:has(input:checked){border-color:var(--primary);background:var(--primary-light)}
+  .sa-msg-group:has(input:focus-visible){outline:2px solid var(--primary);outline-offset:2px}
+  .sa-msg-group input{accent-color:var(--primary);margin-top:3px;flex-shrink:0}
+  .sa-msg-group small{display:block;color:var(--sa-muted);font-size:11.5px}
+  .sa-msg-pick{position:relative}
+  .sa-msg-pick .form-input{width:100%}
+  .sa-msg-pick .sa-pop{left:0;right:auto;width:100%;min-width:0;max-width:none;max-height:min(360px,60vh)}
+  .sa-msg-pick .sa-pop-item[disabled]{opacity:.55;cursor:default}
+  .sa-msg-ph{margin-left:auto;flex-shrink:0;font-size:12px;align-self:center}
+  .sa-msg-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .sa-msg-chips:empty{display:none}
+  .sa-msg-chip{display:inline-flex;align-items:center;gap:8px;max-width:100%;min-width:0;padding:4px 4px 4px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);font-size:12.5px}
+  .sa-msg-chip.warn{border-color:var(--warning-border);background:var(--warning-soft)}
+  .sa-msg-chip > span{min-width:0;overflow:hidden}
+  .sa-msg-chip b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sa-msg-chip small{display:block;color:var(--sa-muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sa-msg-chip button{flex-shrink:0;width:26px;height:26px;border-radius:7px;border:0;background:none;color:var(--sa-muted);cursor:pointer}
+  .sa-msg-chip button:hover{background:var(--surface-hover);color:var(--text-primary)}
+  .sa-msg-nophone{color:var(--warning-text);font-weight:600}
+  .sa-msg-count{display:flex;justify-content:space-between;gap:4px 10px;flex-wrap:wrap;font-size:11.5px;color:var(--sa-muted);font-variant-numeric:tabular-nums}
+  .sa-msg-count.over{color:var(--warning-text)}
+  .sa-msg-prev{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12.5px;background:var(--surface);border:1px dashed var(--border);border-radius:10px;padding:8px 10px;margin:4px 0;color:var(--text-secondary);max-height:140px;overflow:auto}
+  .sa-msg-bar{position:sticky;bottom:12px;z-index:5;margin-top:12px;display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;background:var(--bg-secondary);box-shadow:var(--shadow-lg)}
+  .sa-msg-sum{flex:1 1 260px;min-width:0;font-size:13px}
+  .sa-msg-sum b{font-size:15px}
+  .sa-msg-acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .sa-msg-bar .sa-err{flex-basis:100%}
+  .sa-msg-bar .sa-err:empty{display:none}
+  .sa-msg-test{display:grid;gap:6px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border-subtle)}
+  .sa-msg-test > label{font-size:12.5px;font-weight:600;color:var(--text-secondary)}
+  .sa-msg-prov{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:6px;font-size:12.5px;color:var(--text-secondary)}
+  .sa-msg-prov b{color:var(--text-primary)}
+  .sa-msg-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .sa-msg-h{margin:16px 0 8px;font-size:13px;font-weight:700}
+  .sa-msg-stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:12px 0}
+  .sa-msg-stat{border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:var(--surface);font-size:12px;color:var(--text-secondary)}
+  .sa-msg-stat b{display:block;font-size:13px;margin-bottom:2px;color:var(--text-primary)}
+  .sa-msg-secret{display:inline-flex;align-items:center;margin-left:8px;font-size:11px;font-weight:700;color:var(--success-text)}
+  @media (max-width:900px){.sa-msg-layout,.sa-msg-3{grid-template-columns:minmax(0,1fr)}}
+  @media (max-width:640px){.sa-msg-bar{position:static;box-shadow:none}.sa-msg-acts{width:100%}.sa-msg-acts .btn-primary{flex:1;justify-content:center}}
+
+  /* ── Guide button (design/tour.js) in the top bar ── */
+  .sa-topbar .lt-launch{flex-shrink:0}
+  .sa-topbar .lt-launch-btn{height:36px;padding:0 12px 0 7px;border-radius:10px;background:var(--surface);border-color:var(--border);color:var(--text-secondary)}
+  .sa-topbar .lt-launch-btn:hover{background:var(--surface-hover);border-color:var(--border-hover);color:var(--text-primary)}
+  .sa-topbar .lt-launch-btn[aria-expanded="true"]{border-color:var(--primary);color:var(--text-primary)}
+  .sa-topbar .lt-menu{background:var(--bg-secondary);border-color:var(--border)}
   @media (max-width:1100px){.sa-3{grid-template-columns:repeat(2,minmax(0,1fr))}}
   @media (max-width:900px){
     .sa-sidebar{transform:translateX(-100%);width:252px!important}
@@ -387,6 +454,10 @@
     .sa-pk-table td[data-label]::before{content:attr(data-label);display:block;margin-bottom:3px;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--sa-muted)}
     .sa-filters .sa-chips{flex-basis:100%}
     .sa-pk-kpis{grid-template-columns:minmax(0,1fr)}
+    /* the guide menu opens under the whole top bar, not off the left edge */
+    .sa-topbar .lt-launch{position:static}
+    .sa-topbar .lt-launch-btn{width:36px;padding:0;justify-content:center}
+    .sa-topbar .lt-menu{right:12px;top:calc(100% + 4px)}
   }
 </style>
 </head>
@@ -398,13 +469,12 @@
       <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.2H22l-6 4.6 2.3 7.2-6.3-4.5-6.3 4.5L8 13.8 2 9.2h7.6z"/></svg></span>
       <div class="sa-brand-text">
         <div class="sa-brand-name" data-brand-name>LeadAI</div>
-        <span class="sa-global" title="You are acting across ALL organizations">GLOBAL · SUPER ADMIN</span>
+        <span class="sa-global" id="saRoleBadge" title="You are acting across ALL organizations">GLOBAL</span>
       </div>
     </div>
     <nav class="sa-nav" id="saNav"></nav>
     <div class="sa-foot">
       <button class="sa-item" id="saCollapse" type="button" aria-label="Collapse sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg><span class="sa-label">Collapse sidebar</span></button>
-      <a class="sa-item" href="/admin" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/></svg><span class="sa-label">Platform console</span></a>
       <button class="sa-item" id="saLogout" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span class="sa-label">Sign out</span></button>
     </div>
   </aside>
@@ -413,7 +483,7 @@
     <header class="sa-topbar">
       <button class="sa-iconbtn sa-burger" id="saBurger" type="button" aria-label="Open navigation" aria-controls="saSidebar" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
       <div class="sa-crumbs"><nav id="saCrumb" class="sa-bc" aria-label="Breadcrumb"><ol><li><a href="#/dashboard">Super Admin</a></li><li><span aria-current="page">Dashboard</span></li></ol></nav><div class="sa-tb-title"><span id="saTitle">Dashboard</span><span class="sa-global sa-global-tb" title="Super Admin scope: every action applies across ALL organizations">GLOBAL</span></div></div>
-      <div class="sa-search" role="search">
+      <div class="sa-search" role="search" data-tour="sa-search">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input id="saSearch" type="search" placeholder="Search organizations, users, runs, demos…  ( / )" aria-label="Global search" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="saSearchPop">
         <div class="sa-pop" id="saSearchPop" hidden role="listbox" aria-label="Search results"></div>
@@ -427,12 +497,11 @@
       <div class="sa-rel">
         <button class="sa-profile-btn" id="saProfile" type="button" aria-haspopup="true" aria-expanded="false">
           <span class="sa-avatar" id="saAvatar">S</span>
-          <span class="sa-profile-meta"><span id="saMe" class="sa-small" style="display:block;font-weight:600">…</span><span class="sa-small sa-muted">Super Admin</span></span>
+          <span class="sa-profile-meta"><span id="saMe" class="sa-small" style="display:block;font-weight:600">…</span><span class="sa-small sa-muted" id="saRoleLbl">…</span></span>
         </button>
         <div class="sa-pop" id="saProfilePop" hidden role="menu">
           <div class="sa-pop-head" id="saProfileEmail">Signed in</div>
-          <a class="sa-pop-item" role="menuitem" href="/admin" target="_blank" rel="noopener">Platform console (/admin)</a>
-          <a class="sa-pop-item" role="menuitem" href="/admin#/security" target="_blank" rel="noopener">Account security &amp; password</a>
+          <button class="sa-pop-item" role="menuitem" type="button" id="saChangePw">Change my password</button>
           <button class="sa-pop-item" role="menuitem" type="button" data-theme-toggle>Toggle light / dark</button>
           <button class="sa-pop-item" role="menuitem" type="button" id="saLogout2">Sign out</button>
         </div>
@@ -444,8 +513,15 @@
 </div>
 <div id="saLayer"></div>
 <div id="toast-container" aria-live="polite"></div>
-<script src="/static/super-admin.js?v=audit1" defer></script>
-<script src="/static/super-admin-partners.js?v=audit1" defer></script>
-<script src="/static/super-admin-access.js?v=audit1" defer></script>
+<script src="/static/design/tour.js?v=tour1" defer></script>
+<script src="/static/super-admin.js?v=pay1" defer></script>
+<script src="/static/super-admin-partners.js?v=tour1" defer></script>
+<script src="/static/super-admin-access.js?v=tour1" defer></script>
+<script src="/static/super-admin-ops.js?v=merge1" defer></script>
+<script src="/static/super-admin-engine.js?v=merge1" defer></script>
+<script src="/static/super-admin-settings.js?v=gs9" defer></script>
+<!-- Global Settings brand colours / font / default colour mode (name, logo: theme.js) -->
+<script src="/static/config.js?v=brand2" defer></script>
+<script>window.addEventListener("DOMContentLoaded", function () { if (window.AppConfig) AppConfig.load(); });</script>
 </body>
 </html>

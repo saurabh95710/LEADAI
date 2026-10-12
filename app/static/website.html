@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-appconfig="brand-only">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -16,7 +16,7 @@
   <link rel="stylesheet" href="/static/design/tokens.css?v=r1005"/>
   <link rel="stylesheet" href="/static/design/components.css?v=r1005"/>
   <link rel="stylesheet" href="/static/website.css?v=apicov1"/>
-  <script src="/static/design/theme.js?v=r1005" defer></script>
+  <script src="/static/design/theme.js?v=r1006" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -48,7 +48,7 @@
   <footer class="site-footer" id="site-footer"></footer>
 </div>
 
-<script src="/static/website.js?v=root1" defer></script>
+<script src="/static/website.js?v=brand2" defer></script>
 <script>
 function initWebsite() {
   'use strict';
@@ -156,5 +156,7 @@ if (document.readyState === 'loading') {
   initWebsite();
 }
 </script>
+<script src="/static/config.js?v=brand2" defer></script>
+<script>window.addEventListener("DOMContentLoaded", function () { if (window.AppConfig) AppConfig.load(); });</script>
 </body>
 </html>

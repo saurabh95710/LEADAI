@@ -305,6 +305,8 @@ async def update_my_profile(request: Request, ctx: TenantContext = Depends(get_o
         changed.append("name")
     if upd.phone is not None and upd.phone != (user.get("phone") or ""):
         sets["phone"] = upd.phone or None
+        from app.messaging.phone import normalize_phone
+        sets["phone_e164"] = normalize_phone(upd.phone)
         changed.append("phone")
     if upd.notification_preferences is not None:
         current = merge_notification_prefs(user.get(PREF_FIELD))
@@ -848,7 +850,9 @@ async def export_my_leads(
     await _audit(ctx, request, "export.csv", "exports", resource_type="leads",
                  resource_id=run_id, details={"scope": "leads", "rows": len(rows),
                                               "filters": filters, "portal": "user"})
-    resp = _csv_response(rows, LEADS_CSV,
+    from app.settings.effective import export_include_ai_summary
+    columns = LEADS_CSV if export_include_ai_summary() else [c for c in LEADS_CSV if c != "reason"]
+    resp = _csv_response(rows, columns,
                          f"my_leads_{datetime.now().strftime('%Y%m%d')}.csv",
                          max_rows=_LEADS_EXPORT_MAX)
     if total > len(rows):

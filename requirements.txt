@@ -14,3 +14,4 @@ pytest-asyncio==1.4.0
 mongomock==4.3.0
 mongomock-motor==0.0.36
 cryptography==50.0.0
+python-dotenv==1.2.2

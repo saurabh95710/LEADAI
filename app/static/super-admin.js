@@ -10,7 +10,20 @@
   var UI = window.LeadAIUI || {};
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
-  var S = { me: null, timers: [], navToken: 0, health: null, flagsCache: null };
+  var S = { me: null, timers: [], navToken: 0, health: null, flagsCache: null, meReady: null };
+  // One platform portal for all staff: the Super Admin sees everything, managers
+  // and viewers see the pages their console role allows (menu item [4] / route
+  // [3] = minimum role, default super_admin). The server checks every call anyway.
+  var PANEL_RANK = { viewer: 1, manager: 2, super_admin: 3 };
+  var ROUTE_ROLE = {};
+  function panelRole() { var m = S.me || {}; return m.panel_role || (m.is_super_admin ? 'super_admin' : ''); }
+  function can(min) { return (PANEL_RANK[panelRole()] || 0) >= (PANEL_RANK[min || 'super_admin'] || 3); }
+  var ROLE_LABEL = { super_admin: 'Super Admin', manager: 'Manager', viewer: 'Viewer' };
+  function roleName() { return ROLE_LABEL[panelRole()] || 'Staff'; }
+  /** true for platform staff (manager / viewer): they use the /api/admin/* endpoints */
+  function isStaff() { return !!S.me && !can('super_admin'); }
+  /** Disabled attribute + hint for a write control the role can't use (the server checks anyway). */
+  function roDis(min) { return can(min || 'manager') ? '' : ' disabled title="Needs the ' + esc(ROLE_LABEL[min || 'manager'] || min) + ' role"'; }
 
   // ── formatting ────────────────────────────────────────────
   function esc(v) {
@@ -58,18 +71,18 @@
     done: 'success', succeeded: 'success', sent: 'success', converted: 'success', published: 'success',
     ok: 'success', approved: 'success', extended: 'success', resolved: 'success', enabled: 'success',
     // running (info + animated dot)
-    running: 'running', processing: 'running', in_progress: 'running', cancelling: 'running',
+    running: 'running', processing: 'running', in_progress: 'running', cancelling: 'running', sending: 'running',
     // warning
     pending: 'warning', pending_payment: 'warning', payment_received: 'warning', pending_admin_confirmation: 'warning',
     draft: 'warning', invited: 'warning', queued: 'warning', warn: 'warning', medium: 'warning', pending_approval: 'warning',
-    open: 'warning', refunded: 'warning', partially_refunded: 'warning',
+    open: 'warning', refunded: 'warning', partially_refunded: 'warning', limited: 'warning',
     // danger
     failed: 'danger', error: 'danger', rejected: 'danger', refund_due: 'danger', failure: 'danger', high: 'danger',
-    critical: 'danger', urgent: 'danger', down: 'danger', err: 'danger', past_due: 'danger',
+    critical: 'danger', urgent: 'danger', down: 'danger', err: 'danger', past_due: 'danger', invalid: 'danger',
     // neutral-dark (suspended = danger-soft)
     suspended: 'suspended', locked: 'suspended',
     deactivated: 'neutral', archived: 'neutral', cancelled: 'neutral', expired: 'neutral', revoked: 'neutral',
-    disabled: 'neutral', inactive: 'neutral', removed: 'neutral', closed: 'neutral', void: 'neutral',
+    disabled: 'neutral', inactive: 'neutral', removed: 'neutral', closed: 'neutral', void: 'neutral', skipped: 'neutral',
     // demo / trial → primary (violet)
     demo: 'primary', trial: 'primary', trialing: 'primary',
     // informational badges (not a lifecycle state)
@@ -77,7 +90,7 @@
   };
   var PILL_LABEL = { pending_admin_confirmation: 'Awaiting confirmation', pending_payment: 'Pending payment',
     payment_received: 'Payment received', member: 'User', disabled: 'Deactivated', error: 'Failed', refund_due: 'Refund due',
-    demo: 'Free trial', past_due: 'Past due', partially_refunded: 'Partly refunded' };
+    demo: 'Free trial', past_due: 'Past due', partially_refunded: 'Partly refunded', invalid: 'Invalid number', limited: 'Limit reached' };
   function toneOf(status) { return STATUS_TONE[String(status || '').toLowerCase()] || 'muted'; }
   // Rendered with the shared design-system pill (components.css .status-pill): data-status carries the
   // canonical colour; the explicit tone class covers portal-specific statuses (open, locked, extended…).
@@ -110,7 +123,7 @@
     }
     var data = {};
     try { data = await res.json(); } catch (e) { data = {}; }
-    if (res.status === 401) {
+    if (res.status === 401 && !opts.noAuthRedirect) {
       location.href = '/login?superadmin=1';
       var ue = new Error('Your session expired. Redirecting to sign in…'); ue.status = 401; throw ue;
     }
@@ -118,6 +131,21 @@
       var msg = UI.errorMessage ? UI.errorMessage(data, 'Request failed (' + res.status + ')') : ('Request failed (' + res.status + ')');
       var err = new Error(msg); err.status = res.status; err.data = data; throw err;
     }
+    return data || {};
+  }
+  /** upload(path, fileOrFormData, fields?, opts?) — multipart POST (field "file"); same errors / 401 handling as api(). */
+  async function upload(path, file, fields, opts) {
+    opts = opts || {};
+    var fd = file instanceof FormData ? file : new FormData();
+    if (!(file instanceof FormData) && file) fd.append(opts.field || 'file', file);
+    Object.keys(fields || {}).forEach(function (k) { if (fields[k] != null) fd.append(k, fields[k]); });
+    var res;
+    try { res = await fetch(path, { method: opts.method || 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' }, body: fd }); }
+    catch (e) { var ne = new Error('Network error — check your connection and try again.'); ne.status = 0; throw ne; }
+    var data = {};
+    try { data = await res.json(); } catch (e) { data = {}; }
+    if (res.status === 401 && !opts.noAuthRedirect) { location.href = '/login?superadmin=1'; var ue = new Error('Your session expired. Redirecting to sign in…'); ue.status = 401; throw ue; }
+    if (!res.ok) { var err = new Error(UI.errorMessage ? UI.errorMessage(data, 'Upload failed (' + res.status + ')') : 'Upload failed (' + res.status + ')'); err.status = res.status; err.data = data; throw err; }
     return data || {};
   }
 
@@ -160,7 +188,7 @@
     var html;
     if (st === 403) {
       html = '<div class="sa-state" role="alert">' + stateIcon('lock', 'danger') + '<h4>Permission denied</h4><p>' +
-        esc(err.message || 'Your account is not allowed to open this screen.') + '</p><p class="sa-small sa-muted">Only Super Admins can use this portal. Ask another Super Admin if you need access.</p>' +
+        esc(err.message || 'Your account is not allowed to open this screen.') + '</p><p class="sa-small sa-muted">Your role (' + esc(roleName()) + ') cannot use this. Ask the Super Admin if you need access.</p>' +
         '<div class="sa-row" style="justify-content:center"><a class="btn btn-secondary btn-sm" href="#/dashboard">Back to dashboard</a><a class="btn btn-ghost btn-sm" href="/login?superadmin=1">Switch account</a></div></div>';
     } else if (st === 404) {
       html = '<div class="sa-state">' + stateIcon('missing') + '<h4>Not found</h4><p>' + esc(err.message || 'This record does not exist.') + '</p><a class="btn btn-secondary btn-sm" href="#/dashboard">Back to dashboard</a></div>';
@@ -223,7 +251,7 @@
         } catch (err) { errEl.textContent = err.message || String(err); }
       };
       if (o.onOpen) o.onOpen(form);
-      var first = $('input:not([type=hidden]),select,textarea', form) || $('[data-ok]', form);
+      var first = $('input:not([type=hidden]),select,textarea', form) || $('[data-ok]', form) || $('.modal-close', form);
       if (first) first.focus();
     });
   }
@@ -368,7 +396,7 @@
     var tag = o.href ? 'button' : 'div';
     return '<' + tag + ' class="sa-kpi ' + (o.tone || '') + '"' + (o.href ? ' type="button" data-go="' + esc(o.href) + '"' : '') + '>' +
       '<div class="k" title="' + esc(label) + '">' + (o.icon ? ICON_SVG(o.icon) : '') + '<span>' + esc(label) + '</span></div>' + (o.valueHtml != null ? '<div class="v v-status">' + o.valueHtml + '</div>' : Array.isArray(value) && value.length > 1 ? '<div class="v v-multi">' + value.map(function (x) { return '<span>' + esc(x) + '</span>'; }).join('') + '</div>' : '<div class="v">' + esc(Array.isArray(value) ? value[0] : value) + '</div>') + (sub ? '<div class="s">' + sub + '</div>' : '') +
-      (o.href ? '<span class="go" aria-hidden="true">' + (/^\/admin/.test(o.href) ? '↗' : '→') + '</span>' : '') + '</' + tag + '>';
+      (o.href ? '<span class="go" aria-hidden="true">→</span>' : '') + '</' + tag + '>';
   }
 
   // ── data table component ──────────────────────────────────
@@ -399,6 +427,7 @@
   // Browser-built "Current view" CSVs never pass through the server, so record them
   // in the audit log (export.client). Fire-and-forget: the download never waits on it.
   function logClientExport(table, rows, columns, st, filterKeys) {
+    if (!can('super_admin')) return;          // the audit endpoint is Super Admin only; staff downloads aren't blocked
     var filters = {};
     (filterKeys || []).concat(['sort']).forEach(function (k) { if (st && st[k] != null && String(st[k]) !== '') filters[k] = String(st[k]); });
     try {
@@ -690,7 +719,6 @@
     });
   }
   function go(hash) {
-    if (/^\/admin/.test(hash)) { window.open(hash, '_blank', 'noopener'); return; }
     location.hash = hash.charAt(0) === '#' ? hash : '#' + hash;
   }
   // ?section=<name> on any route: scroll to [data-section="<name>"] once it has rendered
@@ -715,8 +743,11 @@
     // status aliases (awaiting, pending, refunded) are understood by the report endpoint
     return '/api/super-admin/reports/' + kind + '.csv' + qs({ organization_id: f.organization_id, from: f.from, to: f.to, status: f.status, category: f.category, action: f.action });
   }
-  function adminLink(route, label) {
-    return '<a class="btn btn-secondary btn-sm" href="/admin#/' + esc(route) + '" target="_blank" rel="noopener">' + esc(label || 'Open in platform console') + ' ↗</a>';
+  /** Header button to another page of this portal (shown only when the role may open it). */
+  function pageLink(hash, label, icon) {
+    var key = String(hash).replace(/^#\/?/, '').split('?')[0];
+    if (S.me && !can(routeRole(key))) return '';
+    return '<a class="btn btn-secondary btn-sm" href="' + esc(hash) + '">' + (icon ? ICON_SVG(icon) : '') + esc(label) + '</a>';
   }
 
   // ════════════════════════════════════════════════════════
@@ -739,8 +770,8 @@
     var errs = (d.errors.security_high_7d || 0) + (d.errors.system_errors_7d || 0);
     var html = header('Global dashboard', 'Every organization, user, subscription and job across the platform · updated ' + ago(d.generated_at),
       '<button type="button" class="btn btn-secondary btn-sm" id="dRefresh">' + ICON_SVG('repeat') + 'Refresh</button>' +
-      '<a class="btn btn-secondary btn-sm" href="#/analytics">' + ICON_SVG('chart') + 'Analytics</a><a class="btn btn-secondary btn-sm" href="#/reports">' + ICON_SVG('download') + 'Reports</a>');
-    html += '<div class="sa-grid sa-kpis">' +
+      pageLink('#/operations', 'Operations', 'activity') + '<a class="btn btn-secondary btn-sm" href="#/analytics">' + ICON_SVG('chart') + 'Analytics</a><a class="btn btn-secondary btn-sm" href="#/reports">' + ICON_SVG('download') + 'Reports</a>');
+    html += '<div class="sa-grid sa-kpis" data-tour="dash-kpis">' +
       kpi('Organizations', fmtN(d.organizations.total), fmtN(d.organizations.active) + ' active · ' + fmtN(d.organizations.suspended) + ' suspended', { href: '#/organizations', icon: 'org' }) +
       kpi('Admins', fmtN(d.admins.total), 'owners & admins', { href: '#/admins', icon: 'shield' }) +
       kpi('Users', fmtN(d.users.total), fmtN(d.users.active) + ' active · +' + fmtN(d.users.new_7d) + ' this week', { href: '#/users', icon: 'users' }) +
@@ -748,12 +779,15 @@
       kpi('Active subscriptions', fmtN(sub.active), fmtN(sub.awaiting_confirmation) + ' awaiting confirmation', { href: '#/subscriptions', tone: sub.awaiting_confirmation ? 'warn' : '', icon: 'repeat' }) +
       kpi('MRR', mrrTxt, esc(rev30Txt) + ' collected (30d)', { href: '#/payments', icon: 'card' }) +
       kpi('Tokens used (24h)', fmtN(d.tokens.consumed_24h), fmtN(d.tokens.consumed_30d) + ' in 30 days', { href: '#/tokens', icon: 'coin' }) +
-      kpi('Searches', fmtN(d.searches.total), fmtN(d.searches.running) + ' running · ' + fmtN(d.searches.failed) + ' failed', { href: '#/ops/searches', tone: d.searches.failed ? 'warn' : '', icon: 'search' }) +
-      kpi('Apify jobs', fmtN(d.apify.total), fmtN(d.apify.failed) + ' failed · ' + fmtN(d.apify.failed_24h) + ' in 24h', { href: '#/ops/jobs', tone: d.apify.failed_24h ? 'bad' : '', icon: 'cpu' }) +
-      kpi('Leads', fmtN(d.leads.total), fmtN(d.leads.hot) + ' hot · +' + fmtN(d.leads.last_30d) + ' (30d)', { href: '#/ops/leads', icon: 'star' }) +
+      kpi('Searches', fmtN(d.searches.total), fmtN(d.searches.running) + ' running · ' + fmtN(d.searches.failed) + ' failed', { href: '#/ops/agent?tab=searches', tone: d.searches.failed ? 'warn' : '', icon: 'search' }) +
+      kpi('Apify jobs', fmtN(d.apify.total), fmtN(d.apify.failed) + ' failed · ' + fmtN(d.apify.failed_24h) + ' in 24h', { href: '#/ops/agent?tab=apify', tone: d.apify.failed_24h ? 'bad' : '', icon: 'cpu' }) +
+      kpi('Leads', fmtN(d.leads.total), fmtN(d.leads.hot) + ' hot · +' + fmtN(d.leads.last_30d) + ' (30d)', { href: '#/leads', icon: 'star' }) +
       kpi('Platform errors (7d)', fmtN(errs), fmtN(d.errors.system_errors_7d) + ' server · ' + fmtN(d.errors.security_high_7d) + ' security', { href: '#/security', tone: errs ? 'bad' : '', icon: 'lock' }) +
       kpi('Payments', fmtN((d.payments.by_status.succeeded || {}).count || 0), fmtN(d.payments.pending) + ' pending · ' + fmtN(d.payments.failed) + ' failed · ' + fmtN(d.payments.refund_required) + ' refund due', { href: '#/payments', tone: d.payments.refund_required ? 'warn' : '', icon: 'card' }) +
       '</div>';
+    // the scraping side of the platform (ex platform-console dashboard) lives on Operations
+    html += '<a class="sa-card sa-section sa-linkcard" href="#/operations" data-tour="dash-ops"><span class="sa-linkcard-ico" aria-hidden="true">' + ICON_SVG('activity') + '</span>' +
+      '<span class="sa-linkcard-text"><b>Operations overview</b><span>Scraping and lead metrics, activity charts, alerts and recent jobs across every organization.</span></span><span class="arr" aria-hidden="true">→</span></a>';
     // who provides Apify / Gemini: organization counts, each opens the subscriptions paid that way
     var cov = d.api_coverage;
     if (cov) {
@@ -770,15 +804,15 @@
       [d.demo.pending_requests, 'trial sign-up(s) waiting for approval', '#/demo?status=pending', 'warn'],
       [sub.awaiting_confirmation, 'paid subscription(s) awaiting your confirmation', '#/subscriptions', 'warn'],
       [d.payments.refund_required, 'payment(s) flagged refund due', '#/payments?status=refunded', 'err'],
-      [d.apify.failed_24h, 'Apify job(s) failed in the last 24h', '#/ops/jobs?status=failed', 'err'],
-      [d.searches.running, 'search(es) running right now', '#/ops/searches?status=running', 'info'],
+      [d.apify.failed_24h, 'Apify job(s) failed in the last 24h', '#/jobs?tab=failed', 'err'],
+      [d.searches.running, 'search(es) running right now', '#/ops/agent?tab=searches&status=running', 'info'],
       [d.errors.security_high_7d, 'high-severity security event(s) this week', '#/security', 'err'],
       [d.errors.system_errors_7d, 'server error(s) this week', '#/health', 'err']
     ].filter(function (x) { return x[0]; });
     var mix = [['active', sub.active], ['pending', sub.pending], ['pending_admin_confirmation', sub.awaiting_confirmation], ['suspended', sub.suspended], ['expired', sub.expired], ['cancelled', sub.cancelled]];
     var mixTotal = mix.reduce(function (a, x) { return a + (x[1] || 0); }, 0);
     html += '<div class="sa-grid sa-3 sa-section">' +
-      '<div class="sa-card"><h3>Needs attention <span class="sa-small sa-muted">' + fmtN(attn.length) + ' item' + (attn.length === 1 ? '' : 's') + '</span></h3>' +
+      '<div class="sa-card" data-tour="dash-attention"><h3>Needs attention <span class="sa-small sa-muted">' + fmtN(attn.length) + ' item' + (attn.length === 1 ? '' : 's') + '</span></h3>' +
       (attn.length ? '<ul class="sa-attn">' + attn.map(function (x) {
         return '<li><a href="' + esc(x[2]) + '"><span class="sa-dot ' + esc(x[3] || 'ok') + '" aria-hidden="true"></span><span class="n">' + fmtN(x[0]) + '</span><span>' + esc(x[1]) + '</span><span class="arr" aria-hidden="true">→</span></a></li>';
       }).join('') + '</ul>' : '<div class="sa-ok-line"><span class="sa-dot ok" aria-hidden="true"></span>All clear — no queues waiting on you.</div>') + '</div>' +
@@ -800,7 +834,7 @@
           lineChart(s.values, an.days, Object.assign({ title: title, total: s.total, height: 110 }, o || {}, { currency: c })) + '</div>';
       };
       var rv = an.business.revenue || {}, rvCur = Object.keys(rv.by_currency || {});
-      html += '<div class="sa-grid sa-3 sa-section">' + tr('New organizations', an.business.registrations, '#/analytics') + tr('Searches', an.product.searches, '#/ops/searches') +
+      html += '<div class="sa-grid sa-3 sa-section">' + tr('New organizations', an.business.registrations, '#/analytics') + tr('Searches', an.product.searches, '#/ops/agent?tab=searches') +
         (rvCur.length > 1 ? rvCur.map(function (c) { return tr('Revenue collected · ' + c, rv.by_currency[c], '#/payments?status=succeeded', { money: true, currency: c }); }).join('')
           : tr('Revenue collected', rv, '#/payments?status=succeeded', { money: true, currency: rvCur[0] || rv.currency || cur })) + '</div>';
     }
@@ -865,7 +899,14 @@
       '<div class="sa-form-grid"><div class="sa-field"><label for="coName">Organization name *</label><input class="form-input" id="coName" name="name" required maxlength="120"></div>' +
       '<div class="sa-field"><label for="coSlug">Slug <span class="sa-muted">(optional)</span></label><input class="form-input" id="coSlug" name="slug" maxlength="60" pattern="[a-z0-9-]*"></div></div>' +
       '<div class="sa-field"><label for="coPlan">Plan</label><select class="form-select" id="coPlan" name="plan_id">' + opts + '</select></div>' +
-      '<div class="sa-field"><label for="coOwner">Owner email</label><input class="form-input" id="coOwner" name="owner_email" type="email" autocomplete="off"><span class="hint">A new owner gets an emailed one-time link to set their own password (valid 72 h). Passwords are never emailed.</span></div>',
+      '<div class="sa-field"><label for="coOwner">Owner email</label><input class="form-input" id="coOwner" name="owner_email" type="email" autocomplete="off"><span class="hint">A new owner gets an emailed one-time link to set their own password (valid 72 h). Passwords are never emailed.</span></div>' +
+      '<div class="sa-field"><label for="coWeb">Website <span class="sa-muted">(optional)</span></label><input class="form-input" id="coWeb" name="website" type="url" placeholder="https://example.com" maxlength="300"></div>',
+      onOpen: function (form) {
+        // the slug follows the name until it is edited by hand
+        var nm = form.elements.name, sl = form.elements.slug;
+        nm.addEventListener('input', function () { if (!sl._touched) sl.value = nm.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60); });
+        sl.addEventListener('input', function () { sl._touched = true; });
+      },
       onSubmit: async function (f, fd) {
         var body = { name: String(fd.get('name') || '').trim() };
         if (!body.name) throw new Error('Organization name is required.');
@@ -873,6 +914,8 @@
         if (fd.get('plan_id')) body.plan_id = fd.get('plan_id');
         var email = String(fd.get('owner_email') || '').trim();
         if (email) { if (UI.isEmail && !UI.isEmail(email)) throw new Error('Enter a valid owner email.'); body.owner_email = email; }
+        var web = String(fd.get('website') || '').trim();
+        if (web) { if (!/^https?:\/\/\S+$/i.test(web)) throw new Error('The website must start with http:// or https://'); body.website = web; }
         var out = await api('/api/admin/organizations', { method: 'POST', body: body });
         return out.organization;
       } });
@@ -885,6 +928,7 @@
     var known = inds.some(function (i) { return i.key === org.industry; });
     var res = await openModal({ title: 'Edit organization', body:
       '<div class="sa-field"><label for="eoName">Name</label><input class="form-input" id="eoName" name="name" value="' + esc(org.name) + '" maxlength="120" required></div>' +
+      '<div class="sa-field"><label for="eoWeb">Website</label><input class="form-input" id="eoWeb" name="website" type="url" value="' + esc(org.website || '') + '" placeholder="https://example.com" maxlength="300"></div>' +
       '<div class="sa-form-grid"><div class="sa-field"><label for="eoTz">Timezone</label><input class="form-input" id="eoTz" name="timezone" value="' + esc(org.timezone || 'UTC') + '"></div>' +
       '<div class="sa-field"><label for="eoCur">Currency</label><input class="form-input" id="eoCur" name="currency" value="' + esc(org.currency || 'USD') + '" maxlength="3"></div></div>' +
       (inds.length ? '<div class="sa-field"><label for="eoInd">Industry</label><select class="form-select" id="eoInd" name="industry">' +
@@ -893,11 +937,16 @@
         '</select><span class="hint">Drives the lead AI for this organization. The org Admin can refine it in their business profile.</span></div>' : '') +
       '<label class="sa-check"><input type="checkbox" name="admin_portal_enabled"' + (org.admin_portal_enabled !== false ? ' checked' : '') + '> Admin portal enabled for this organization</label>' +
       '<div class="sa-field"><label for="eoNotes">Internal notes <span class="sa-muted">(super admins only)</span></label><textarea class="form-textarea" id="eoNotes" name="notes" rows="3" maxlength="2000" style="min-height:70px">' + esc(org.admin_notes || '') + '</textarea></div>',
-      onSubmit: function (f, fd) {
-        return api('/api/super-admin/organizations/' + encodeURIComponent(org.id), { method: 'PATCH', body: {
+      onSubmit: async function (f, fd) {
+        var web = String(fd.get('website') || '').trim();
+        if (web && !/^https?:\/\/\S+$/i.test(web)) throw new Error('The website must start with http:// or https://');
+        var out = await api('/api/super-admin/organizations/' + encodeURIComponent(org.id), { method: 'PATCH', body: {
           name: String(fd.get('name') || '').trim(), timezone: fd.get('timezone'), currency: fd.get('currency'),
           notes: fd.get('notes'), admin_portal_enabled: !!fd.get('admin_portal_enabled'),
           industry: fd.get('industry') || undefined } });
+        // the website is kept by the platform-console endpoint (the same organization record)
+        if (web !== String(org.website || '')) await api('/api/admin/organizations/' + encodeURIComponent(org.id), { method: 'PATCH', body: { website: web } });
+        return out;
       } });
     if (res) { toast('Organization updated'); if (after) after(); }
   }
@@ -912,6 +961,61 @@
         return api('/api/super-admin/impersonate', { method: 'POST', body: { organization_id: org.id, reason: reason } });
       } });
     if (res) { toast('Support session started — opening the customer app'); setTimeout(function () { location.href = res.redirect || '/user'; }, 600); }
+  }
+  /** Impersonate one specific member (not the organization's admin): the platform-console flow. */
+  async function impersonateMember(orgId, m) {
+    var res = await openModal({ title: 'Impersonate ' + (m.name || m.email || 'member'), submitLabel: 'Start support session', danger: true, body:
+      '<div class="alert alert-warning"><div class="alert-body"><div class="alert-title">You will act as ' + esc(m.email || 'this member') + '.</div><div>You see the app exactly as this person does. The session is time-limited (Security settings → impersonation minutes), every action is audited with your identity, and you exit from the banner in the app.</div></div></div>' +
+      '<div class="sa-field"><label for="imMReason">Reason (ticket / purpose) *</label><textarea class="form-textarea" id="imMReason" name="reason" rows="3" minlength="5" maxlength="300" required style="min-height:70px"></textarea></div>',
+      onSubmit: function (f, fd) {
+        var reason = String(fd.get('reason') || '').trim();
+        if (reason.length < 5) throw new Error('Enter a reason of at least 5 characters.');
+        return api('/api/admin/impersonate', { method: 'POST', body: { user_id: m.user_id, organization_id: orgId, reason: reason } });
+      } });
+    if (res) { toast('Support session started — opening the customer app'); setTimeout(function () { location.href = res.redirect || '/user'; }, 600); }
+  }
+
+  // ── Organization extras from the platform console: direct plan, temporary feature / credit grants ──
+  var GRANT_METRICS = [['monthly_searches', 'Monthly searches'], ['monthly_ai_analyses', 'Monthly AI analyses'], ['monthly_exports', 'Monthly exports']];
+  async function planSchema() { try { return await api('/api/super-admin/plans/schema'); } catch (e) { return null; } }
+  async function orgPlanDialog(org, after) {
+    var opts = await plansOptions(org.plan_id);
+    var r = await openModal({ title: 'Set the organization\'s plan · ' + (org.name || ''), submitLabel: 'Set plan', body:
+      '<p style="margin:0;color:var(--text-secondary)">Sets the plan on the organization record directly (limits and features follow it at once). It does not create, charge or change a subscription: to move a paying customer, use <b>Change plan</b> on the subscription instead.</p>' +
+      '<div class="sa-field"><label for="opPlan">Plan</label><select class="form-select" id="opPlan" name="plan_id">' + opts + '</select></div>',
+      onSubmit: function (f, fd) { return api('/api/admin/organizations/' + encodeURIComponent(org.id || org._id), { method: 'PATCH', body: { plan_id: fd.get('plan_id') } }); } });
+    if (r) { toast('Plan set to ' + ((r.organization || {}).plan_id || 'the new plan')); if (after) after(); }
+  }
+  async function grantFeatureDialog(org, after) {
+    var sch = await planSchema(), feats = (sch && sch.features) || {}, keys = Object.keys(feats);
+    var r = await openModal({ title: 'Grant a temporary feature · ' + (org.name || ''), submitLabel: 'Grant feature', body:
+      '<p style="margin:0;color:var(--text-secondary)">Turns one plan feature on for this organization without changing its plan, for example a trial of exports for a VIP customer. It ends by itself after the days you choose.</p>' +
+      '<div class="sa-field"><label for="gfFeat">Feature</label>' + (keys.length ? '<select class="form-select" id="gfFeat" name="feature">' + keys.map(function (k) { return '<option value="' + esc(k) + '">' + esc(feats[k]) + ' (' + esc(k) + ')</option>'; }).join('') + '</select>'
+        : '<input class="form-input" id="gfFeat" name="feature" required placeholder="e.g. csv_export">') + '</div>' +
+      '<div class="sa-field"><label for="gfDays">Days <span class="sa-muted">(empty = until removed)</span></label><input class="form-input" id="gfDays" name="expires_days" type="number" min="1" max="3650" value="30"></div>' +
+      reasonField('gfReason', 'Recorded with the grant and in the audit log.'),
+      onSubmit: function (f, fd) {
+        var feat = String(fd.get('feature') || '').trim(), days = String(fd.get('expires_days') || '').trim();
+        if (!feat) throw new Error('Choose a feature.');
+        return api('/api/admin/organizations/' + encodeURIComponent(org.id || org._id) + '/grant-feature', { method: 'POST', body: { feature: feat, expires_days: days ? parseInt(days, 10) : null, reason: needReason(fd) } });
+      } });
+    if (r) { toast('Feature granted' + (r.entitlement && r.entitlement.expires_at ? ' until ' + fmtDate(r.entitlement.expires_at) : '')); if (after) after(); }
+  }
+  async function grantCreditsDialog(orgId, orgName, after) {
+    var sch = await planSchema(), lk = (sch && sch.limit_keys) || [];
+    var metrics = GRANT_METRICS.concat(lk.filter(function (k) { return !GRANT_METRICS.some(function (m) { return m[0] === k; }); }).map(function (k) { return [k, titleCase(k)]; }));
+    var r = await openModal({ title: 'Grant extra credits · ' + (orgName || 'organization'), submitLabel: 'Grant credits', body:
+      '<p style="margin:0;color:var(--text-secondary)">Adds to one plan limit on top of the plan (for example 100 more searches this month) without changing the plan. Tokens are separate: use Adjust tokens for those.</p>' +
+      '<div class="sa-form-grid"><div class="sa-field"><label for="gcMetric">Limit</label><select class="form-select" id="gcMetric" name="metric">' + metrics.map(function (m) { return '<option value="' + esc(m[0]) + '">' + esc(m[1]) + '</option>'; }).join('') + '</select></div>' +
+      '<div class="sa-field"><label for="gcQty">Extra amount</label><input class="form-input" id="gcQty" name="credits" type="number" min="1" step="1" value="100" required></div></div>' +
+      '<div class="sa-field"><label for="gcDays">Days <span class="sa-muted">(empty = until removed)</span></label><input class="form-input" id="gcDays" name="expires_days" type="number" min="1" max="3650" value="30"></div>' +
+      reasonField('gcReason', 'Recorded with the grant and in the audit log.'),
+      onSubmit: function (f, fd) {
+        var n = parseInt(fd.get('credits'), 10), days = String(fd.get('expires_days') || '').trim();
+        if (!(n > 0)) throw new Error('Enter a whole number above 0.');
+        return api('/api/admin/organizations/' + encodeURIComponent(orgId) + '/grant-credits', { method: 'POST', body: { metric: fd.get('metric'), credits: n, expires_days: days ? parseInt(days, 10) : null, reason: needReason(fd) } });
+      } });
+    if (r) { toast('Credits granted'); if (after) after(); }
   }
 
   async function adjustTokens(orgId, after) {
@@ -1134,8 +1238,9 @@
   }
 
   async function viewOrganizations(root, q) {
+    if (isStaff()) return viewOrganizationsStaff(root, q);
     root.innerHTML = header('Organizations', 'All tenants across the platform. Archive = soft delete (data kept, access blocked).',
-      '<button type="button" class="btn btn-primary btn-sm" id="oNew">+ New organization</button>') + '<div id="oList"></div>';
+      '<button type="button" class="btn btn-primary btn-sm" id="oNew" data-tour="org-new">+ New organization</button>') + '<div id="oList" data-tour="org-list"></div>';
     var lv = listView($('#oList', root), {
       url: function (p) { return '/api/super-admin/organizations' + qs({ page: p.page, limit: p.limit, sort: p.sort, search: p.search, status: p.status, plan: p.plan }); },
       rowsKey: 'organizations', sort: '-created_at', initial: { status: q.status || '', search: q.q || '' }, key: 'organizations',
@@ -1177,6 +1282,7 @@
   }
 
   async function viewOrgDetail(root, q, id) {
+    if (isStaff()) return viewOrgDetailStaff(root, q, id);
     var data = await api('/api/super-admin/organizations/' + encodeURIComponent(id));
     var o = data.organization; o.id = id;
     var u = o.usage_stats || {};
@@ -1194,8 +1300,12 @@
       header(o.name, (o.slug || '') + ' · created ' + fmtDate(o.created_at),
         pill(o.status) + '<button type="button" class="btn btn-secondary btn-sm" id="odEdit">Edit</button>' +
         '<button type="button" class="btn btn-secondary btn-sm" id="odTok">Adjust tokens</button>' +
-        (o.status !== 'archived' ? '<button type="button" class="btn btn-secondary btn-sm" id="odImp">Impersonate</button>' : '') + statusBtns.join('')) +
-      '<div class="sa-grid sa-kpis">' +
+        (o.status !== 'archived' ? '<button type="button" class="btn btn-secondary btn-sm" id="odImp" data-tour="org-impersonate">Impersonate</button>' : '') + statusBtns.join('') +
+        '<span class="sa-rel"><button type="button" class="btn btn-secondary btn-sm" id="odMore" aria-haspopup="true" aria-expanded="false" data-tour="org-more">More ▾</button><div class="sa-pop sa-menu" id="odMorePop" hidden role="menu">' +
+        '<button type="button" class="sa-pop-item" role="menuitem" data-more="plan"><span><b>Set plan</b><small>Change the organization\'s plan directly</small></span></button>' +
+        '<button type="button" class="sa-pop-item" role="menuitem" data-more="feature"><span><b>Grant temporary feature</b><small>A plan feature for N days, plan unchanged</small></span></button>' +
+        '<button type="button" class="sa-pop-item" role="menuitem" data-more="credits"><span><b>Grant extra credits</b><small>More searches, AI analyses or exports</small></span></button></div></span>') +
+      '<div class="sa-grid sa-kpis" data-tour="org-kpis">' +
       kpi('Members', fmtN(o.member_count), fmtN((o.admins || []).length) + ' admins', { href: odTab('members') }) +
       kpi('Subscription', o.subscription ? (o.subscription.plan_id || '—') : 'None', o.subscription ? pill(o.subscription.status) : '', { href: odTab('subscription') }) +
       kpi('Tokens left', o.tokens ? fmtN(o.tokens.remaining) : '—', o.tokens ? fmtN(o.tokens.used) + ' used of ' + fmtN(o.tokens.allocated) : 'not metered', { href: odTab('tokens'), tone: o.tokens && o.tokens.allocated && o.tokens.used / o.tokens.allocated >= 0.8 ? 'warn' : '' }) +
@@ -1203,9 +1313,17 @@
       kpi('Leads', fmtN(u.total_leads), fmtN(u.hot_leads) + ' hot', { href: odTab('leads') }) +
       kpi('AI calls', fmtN(u.ai_calls), fmtN(u.active_sessions) + ' active sessions', { href: '#/ai' }) +
       kpi('API keys', coverageLabel(oCov), API_KEYS.map(function (a) { return esc(API_SHORT[a]) + ': ' + (oCov[a] === 'own' ? 'own key' : 'LeadAI'); }).join(' · '), { href: odTab('api'), icon: 'key' }) +
-      '</div><div class="sa-section" id="odTabs"></div>';
+      '</div><div class="sa-section" id="odTabs" data-tour="org-tabs"></div>';
     $('#odEdit', root).onclick = function () { editOrgModal(o, reload).catch(function (e) { toast(e.message, 'error'); }); };
     $('#odTok', root).onclick = function () { adjustTokens(id, reload).catch(function (e) { toast(e.message, 'error'); }); };
+    $('#odMore', root).onclick = function (e) { e.stopPropagation(); var pp = $('#odMorePop', root); togglePop(this, pp); if (!pp.hidden) $('.sa-pop-item', pp).focus(); };
+    $$('[data-more]', root).forEach(function (b) {
+      b.onclick = function () {
+        togglePop($('#odMore', root), $('#odMorePop', root), false);
+        var k = b.getAttribute('data-more');
+        (k === 'plan' ? orgPlanDialog(o, reload) : k === 'feature' ? grantFeatureDialog(o, reload) : grantCreditsDialog(id, o.name, reload)).catch(function (e) { toast(e.message, 'error'); });
+      };
+    });
     if ($('#odImp', root)) $('#odImp', root).onclick = function () { impersonate(o).catch(function (e) { toast(e.message, 'error'); }); };
     $$('[data-st]', root).forEach(function (b) { b.onclick = function () { orgStatusAction(o, b.getAttribute('data-st'), reload).catch(function (e) { toast(e.message, 'error'); }); }; });
 
@@ -1217,6 +1335,10 @@
           '<dt>Plan</dt><dd>' + esc(o.plan_id || '—') + '</dd><dt>Timezone</dt><dd>' + esc(o.timezone || '—') + '</dd><dt>Currency</dt><dd>' + esc(o.currency || '—') + '</dd>' +
           '<dt>Admin portal</dt><dd>' + (o.admin_portal_enabled === false ? 'Disabled' : 'Enabled') + '</dd>' +
           '<dt>Industry</dt><dd>' + esc(o.industry || 'Not set (platform default)') + '</dd>' +
+          (o.website ? '<dt>Website</dt><dd><a class="sa-link" href="' + esc(/^https?:\/\//i.test(o.website) ? o.website : 'https://' + o.website) + '" target="_blank" rel="noopener noreferrer">' + esc(o.website) + '</a></dd>' : '') +
+          (o.owner_id ? '<dt>Owner ID</dt><dd class="sa-mono">' + esc(o.owner_id) + '</dd>' : '') +
+          (o.last_active_at || o.last_activity_at ? '<dt>Last active</dt><dd>' + esc(fmtDT(o.last_active_at || o.last_activity_at)) + '</dd>' : '') +
+          '<dt>Tenant isolation</dt><dd>' + pill('active', 'Enforced') + ' <span class="sa-small sa-muted">every query is scoped to this organization</span></dd>' +
           (o.archived_at ? '<dt>Archived</dt><dd>' + esc(fmtDT(o.archived_at)) + ' by ' + esc(o.archived_by) + ' — ' + esc(o.archive_reason) + '</dd>' : '') +
           (o.admin_notes ? '<dt>Notes</dt><dd>' + esc(o.admin_notes) + '</dd>' : '') + '</dl></div>' +
           '<div class="sa-card"><h3>Admins</h3>' + ((o.admins || []).length ? '<ul class="sa-feed">' + o.admins.map(function (m) {
@@ -1245,10 +1367,19 @@
             { label: '', cls: 'num', render: function (m) {
               return '<div class="row-actions">' + (m.role !== 'owner' ? '<button type="button" class="btn btn-secondary btn-xs" data-role>Role</button>' : '') +
                 '<button type="button" class="btn btn-secondary btn-xs" data-reset>Reset access</button>' +
+                (m.user_status === 'active' && o.status !== 'archived' ? '<button type="button" class="btn btn-secondary btn-xs" data-imp title="Support session as this member">Impersonate</button>' : '') +
+                '<button type="button" class="btn btn-secondary btn-xs" data-out title="Sign this member out of every session">Sign out</button>' +
                 (m.user_status === 'active' ? '<button type="button" class="btn btn-danger btn-xs" data-v="suspended">Suspend</button>' : '<button type="button" class="btn btn-secondary btn-xs" data-v="active">Activate</button>') + '</div>'; } }
           ],
           bindRow: function (tr, m) {
             $('[data-reset]', tr).onclick = function () { resetAccess(m.user_id, m.email).catch(function (e) { toast(e.message, 'error'); }); };
+            var ib = $('[data-imp]', tr);
+            if (ib) ib.onclick = function () { impersonateMember(id, m).catch(function (e) { toast(e.message, 'error'); }); };
+            $('[data-out]', tr).onclick = async function () {
+              var r = await confirmDialog({ title: 'Sign out everywhere', message: 'Revokes every active session of ' + (m.email || 'this member') + '.', confirmLabel: 'Revoke sessions', reason: 'optional' });
+              if (!r) return;
+              try { var out = await api('/api/super-admin/users/' + encodeURIComponent(m.user_id) + '/revoke-sessions', { method: 'POST', body: { reason: r.reason } }); toast((out.revoked || 0) + ' session(s) revoked'); } catch (e) { toast(e.message, 'error'); }
+            };
             var rb = $('[data-role]', tr);
             if (rb) rb.onclick = async function () {
               var opts = [['admin', 'Admin'], ['manager', 'Manager'], ['member', 'User'], ['viewer', 'Viewer']].map(function (x) {
@@ -1313,6 +1444,61 @@
       } else if (key === 'sessions') {
         sessionsList(el, { organization_id: id });
       }
+    });
+  }
+
+  // ── Platform staff (manager / viewer): read-only organizations from the platform-console API ──
+  function viewOrganizationsStaff(root, q) {
+    root.innerHTML = header('Organizations', 'Every customer organization, with members, searches and leads. Read-only for your role: the Super Admin creates, edits and suspends organizations.') + '<div id="oList" data-tour="org-list"></div>';
+    listView($('#oList', root), {
+      url: function (p) { return '/api/admin/organizations' + qs({ q: p.q, status: p.status, offset: (p.page - 1) * p.limit, limit: Math.min(p.limit, 100) }); },
+      rowsKey: 'organizations', initial: { status: q.status || '', q: q.q || '' }, key: 'staff-organizations',
+      filters: [{ key: 'q', label: 'Search name or slug…' }, { key: 'status', type: 'select', label: 'Status', options: ORG_STATUS_OPTS }],
+      columns: [
+        { label: 'Organization', render: function (o) { return '<a class="sa-link cell-main" href="#/organizations/' + esc(o.id) + '">' + esc(o.name) + '</a><span class="cell-sub">' + esc(o.slug || '') + '</span>'; } },
+        { label: 'Status', render: function (o) { return pill(o.status); } },
+        { label: 'Plan', render: function (o) { return esc(o.plan_id || (o.status === 'demo' ? 'trial — no plan' : 'no plan')); } },
+        { label: 'Owner', render: function (o) { return esc(o.owner_email || '—'); } },
+        { label: 'Members', cls: 'num', render: function (o) { return fmtN(o.member_count); } },
+        { label: 'Searches', cls: 'num', render: function (o) { return fmtN(o.search_count); } },
+        { label: 'Leads', cls: 'num', render: function (o) { return fmtN(o.lead_count); } },
+        { label: 'Created', render: function (o) { return esc(fmtDate(o.created_at)); } }
+      ],
+      rowClick: function (o) { go('#/organizations/' + o.id); },
+      empty: { title: 'No organizations', desc: 'Nothing matches these filters.' }
+    });
+  }
+  async function viewOrgDetailStaff(root, q, id) {
+    var d = await api('/api/admin/organizations/' + encodeURIComponent(id));
+    var o = d.organization || {}, m = d.metrics || {}, keys = (o.api_keys || {}).keys || {}, kcov = (o.api_keys || {}).coverage || {};
+    setTitle(o.name || 'Organization', 'Customers › Organizations');
+    var keyRow = function (a, label) {
+      var k = keys[a] || {};
+      var txt = kcov[a] === 'own' ? (k.configured ? 'Own key ' + (k.hint || '') + (k.verified ? '' : ' · not verified') : 'Own key not added') : 'LeadAI-provided';
+      return '<dt>' + esc(label) + '</dt><dd>' + esc(txt) + (k.last_error ? ' <span class="sa-small" style="color:var(--danger-text)">' + esc(k.last_error) + '</span>' : '') + '</dd>';
+    };
+    root.innerHTML = '<div class="sa-row sa-small" style="margin-bottom:6px"><a class="sa-link" href="#/organizations">← Organizations</a></div>' +
+      header(o.name || 'Organization', (o.slug || '') + ' · created ' + fmtDate(o.created_at), pill(o.status) + (o.plan_id ? badge(o.plan_id, 'info') : '')) +
+      '<div class="sa-grid sa-kpis">' + kpi('Members', fmtN(o.member_count || (d.members || []).length), '', { href: '#members' }) +
+      kpi('Searches', fmtN(m.searches_count), '', {}) + kpi('Identified leads', fmtN(m.leads_count), '', {}) + '</div>' +
+      '<div class="sa-grid sa-2 sa-section"><div class="sa-card"><h3>Organization overview</h3><dl class="sa-kv"><dt>Name</dt><dd>' + esc(o.name) + '</dd><dt>Slug</dt><dd class="sa-mono">' + esc(o.slug || '—') + '</dd>' +
+      '<dt>Status</dt><dd>' + pill(o.status) + '</dd><dt>Owner ID</dt><dd class="sa-mono">' + esc(o.owner_id || '—') + '</dd><dt>Website</dt><dd>' + esc(o.website || '—') + '</dd>' +
+      '<dt>Timezone</dt><dd>' + esc(o.timezone || '—') + '</dd><dt>Currency</dt><dd>' + esc(o.currency || '—') + '</dd><dt>Last active</dt><dd>' + esc(fmtDT(o.last_active_at || o.updated_at)) + '</dd></dl></div>' +
+      '<div class="sa-card"><h3>Tenant security &amp; plan</h3><dl class="sa-kv"><dt>Plan</dt><dd>' + esc(o.plan_id || '—') + '</dd><dt>Tenant isolation</dt><dd>' + pill('active', 'Enforced') + '</dd><dt>IDOR protection</dt><dd>' + pill('active', 'Active') + '</dd>' +
+      '<dt>Billing</dt><dd>' + (o.status === 'demo' && o.demo && o.demo.expires_at ? 'Free trial ends ' + esc(fmtDate(o.demo.expires_at)) : '<a class="sa-link" href="#/subscriptions">See subscriptions</a>') + '</dd>' +
+      keyRow('apify', 'Apify key') + keyRow('gemini', 'Gemini key') + '</dl></div></div>' +
+      '<div class="sa-card sa-section" data-section="members" tabindex="-1"><h3>Members</h3><div id="osMembers"></div></div>';
+    bindScrollKpis(root);
+    listView($('#osMembers', root), {
+      data: function () { return Promise.resolve(d.members || []); }, key: 'staff-org-members', sort: 'email',
+      filters: [{ key: 'q', label: 'Search name or email…' }],
+      columns: [
+        { label: 'Member', sort: 'email', render: function (x) { return '<span class="cell-main">' + esc(x.name || x.email || x.user_id) + '</span><span class="cell-sub">' + esc(x.email || '') + '</span>'; } },
+        { label: 'Role', sort: 'role', render: function (x) { return esc(roleLabel(x.role)); } },
+        { label: 'Status', render: function (x) { return pill(x.user_status || x.status); } },
+        { label: 'Joined', render: function (x) { return esc(fmtDate(x.created_at || x.joined_at)); } }
+      ],
+      empty: { title: 'No members' }
     });
   }
 
@@ -1402,32 +1588,80 @@
   }
 
   async function viewAdmins(root, q) {
-    root.innerHTML = header('Admins', 'Organization owners and admins across all organizations, and the platform staff accounts. An admin gets access when their organization\'s free trial starts or its subscription is confirmed.',
-      '<a class="btn btn-secondary btn-sm" href="#/demo">Free trials</a><a class="btn btn-secondary btn-sm" href="#/subscriptions?status=awaiting">Confirmation queue</a>') + '<div id="aTabs"></div>';
-    tabs($('#aTabs', root), [['org', 'Organization admins'], ['staff', 'Platform staff']], q.tab || 'org', function (key, el) {
-      if (key === 'staff') return staffList(el);
-      el.innerHTML = '<div id="aList"></div>';
-      orgAdminList($('#aList', el), q);
-    });
+    // platform staff accounts moved to Security Center → Staff accounts (one staff list)
+    if (q.tab === 'staff') { location.replace('#/security?tab=staff'); return; }
+    root.innerHTML = header('Admins', 'Organization owners and admins across all organizations. An admin gets access when their organization\'s free trial starts or its subscription is confirmed. Platform staff accounts are in Security Center → Staff accounts.',
+      '<a class="btn btn-secondary btn-sm" href="#/demo">Free trials</a><a class="btn btn-secondary btn-sm" href="#/subscriptions?status=awaiting">Confirmation queue</a><a class="btn btn-secondary btn-sm" href="#/security?tab=staff">' + ICON_SVG('shield') + 'Platform staff</a>') + '<div id="aList"></div>';
+    orgAdminList($('#aList', root), q);
   }
 
+  // ── Platform staff accounts (admin_users): one list with every action of both old consoles ──
+  var STAFF_ROLES = [['viewer', 'Viewer — read-only'], ['manager', 'Manager — can change most things']];
+  function staffRoleOpts(cur) { return STAFF_ROLES.map(function (r) { return '<option value="' + r[0] + '"' + (r[0] === cur ? ' selected' : '') + '>' + esc(r[1]) + '</option>'; }).join(''); }
+  async function staffCreateDialog(after) {
+    var r = await openModal({ title: 'New staff account', submitLabel: 'Create account', body:
+      '<p style="margin:0;color:var(--text-secondary)">Platform staff sign in at the admin sign-in page and open this portal with the pages their role allows. Give them the password yourself; they can change it from their profile menu.</p>' +
+      '<div class="sa-form-grid"><div class="sa-field"><label for="scName">Name *</label><input class="form-input" id="scName" name="name" required maxlength="80"></div>' +
+      '<div class="sa-field"><label for="scEmail">Email *</label><input class="form-input" id="scEmail" name="email" type="email" required autocomplete="off"></div></div>' +
+      '<div class="sa-field"><label for="scRole">Role</label><select class="form-select" id="scRole" name="role">' + staffRoleOpts('viewer') + '</select><span class="hint">Only the environment account (SUPERADMIN_EMAIL) is Super Admin.</span></div>' +
+      '<div class="sa-field"><label for="scPw">Password *</label><div class="sa-row" style="gap:6px;flex-wrap:nowrap"><input class="form-input sa-mono" id="scPw" name="password" type="text" autocomplete="off" spellcheck="false" required minlength="8"><button type="button" class="btn btn-secondary btn-sm" data-gen>Generate</button></div><span class="hint">At least 8 characters.</span></div>',
+      onOpen: function (form) { $('[data-gen]', form).onclick = function () { form.elements.password.value = genPassword(); form.elements.password.select(); }; },
+      onSubmit: function (f, fd) {
+        var body = { name: String(fd.get('name') || '').trim(), email: String(fd.get('email') || '').trim().toLowerCase(), role: fd.get('role'), password: String(fd.get('password') || '') };
+        if (!body.name) throw new Error('Name is required.');
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) throw new Error('Enter a valid email address.');
+        if (body.password.length < 8) throw new Error('The password needs at least 8 characters.');
+        return api('/api/admin/users', { method: 'POST', body: body });
+      } });
+    if (r) { toast('Staff account created'); if (after) after(); }
+  }
+  async function staffEditDialog(a, after) {
+    var r = await openModal({ title: 'Edit staff account · ' + (a.email || ''), submitLabel: 'Save', body:
+      '<div class="sa-field"><label for="seName">Name</label><input class="form-input" id="seName" name="name" maxlength="80" value="' + esc(a.name || '') + '"></div>' +
+      '<div class="sa-field"><label for="seRole">Role</label><select class="form-select" id="seRole" name="role">' + staffRoleOpts(a.role === 'manager' ? 'manager' : 'viewer') + '</select></div>' +
+      '<label class="sa-check"><input type="checkbox" name="enabled"' + (a.enabled === false ? '' : ' checked') + '> Account enabled (untick to block sign-in)</label>' +
+      '<p class="sa-small sa-muted" style="margin:0">To change the email or set a password use the row\'s own buttons: they sign the person out everywhere and notify them.</p>',
+      onSubmit: function (f, fd) {
+        return api('/api/admin/users/' + encodeURIComponent(a.id), { method: 'PATCH', body: { name: String(fd.get('name') || '').trim(), role: fd.get('role'), enabled: !!fd.get('enabled') } });
+      } });
+    if (r) { toast('Staff account saved'); if (after) after(); }
+  }
   function staffList(el) {
-    return listView(el, {
-      url: function (p) { return '/api/super-admin/staff' + qs({ q: p.q }); },
+    el.innerHTML = '<div class="sa-row" style="margin-bottom:10px"><span class="sa-small sa-muted" style="flex:1 1 260px">The Super Admin account is set by SUPERADMIN_EMAIL / SUPERADMIN_PASSWORD in the hosting environment and is not listed here.</span><button type="button" class="btn btn-primary btn-sm" id="stNew" data-tour="staff-new">+ New staff account</button></div><div id="stList" data-tour="staff-list"></div>';
+    var lv = listView($('#stList', el), {
+      url: function (p) { return '/api/super-admin/staff' + qs({ q: p.q }); }, key: 'staff',
       filters: [{ key: 'q', label: 'Search staff email or name…' }],
       columns: [
         { label: 'Staff account', render: function (a) { return '<span class="cell-main">' + esc(a.name || a.email) + '</span><span class="cell-sub">' + esc(a.email) + '</span>'; } },
-        { label: 'Role', render: function (a) { return esc(titleCase(a.role || 'viewer')); } },
+        { label: 'Role', render: function (a) { return badge(ROLE_LABEL[a.role] || titleCase(a.role || 'viewer'), a.role === 'manager' ? 'primary' : 'info'); } },
         { label: 'Status', render: function (a) { return pill(a.enabled === false ? 'disabled' : 'active') + (a.must_change_password ? ' ' + pill('warning', 'Must set own password') : ''); } },
         { label: 'Last login', render: function (a) { return esc(ago(a.last_login)); } },
         { label: 'Password changed', render: function (a) { return esc(a.password_changed_at ? fmtDate(a.password_changed_at) : '—'); } },
-        { label: '', cls: 'num', render: function () { return '<div class="row-actions"><button type="button" class="btn btn-secondary btn-xs" data-em>Change email</button><button type="button" class="btn btn-secondary btn-xs" data-pw>Set password</button></div>'; } }
+        { label: '', cls: 'num', render: function (a) {
+          return '<div class="row-actions"><button type="button" class="btn btn-secondary btn-xs" data-ed>Edit</button><button type="button" class="btn btn-secondary btn-xs" data-em>Change email</button><button type="button" class="btn btn-secondary btn-xs" data-pw>Set password</button>' +
+            (a.enabled === false ? '<button type="button" class="btn btn-secondary btn-xs" data-en="1">Enable</button>' : '<button type="button" class="btn btn-danger btn-xs" data-en="0">Disable</button>') +
+            '<button type="button" class="btn btn-danger btn-xs" data-del>Delete</button></div>'; } }
       ],
       bindRow: function (tr, a, reload) {
-        $('[data-em]', tr).onclick = function () { changeEmailDialog('/api/super-admin/staff/' + encodeURIComponent(a.id) + '/email', a.email).then(function (r) { if (r) reload(); }, function (e) { toast(e.message, 'error'); }); };
-        $('[data-pw]', tr).onclick = function () { setPasswordDialog('/api/super-admin/staff/' + encodeURIComponent(a.id) + '/password', a.email).then(function (r) { if (r) reload(); }, function (e) { toast(e.message, 'error'); }); };
+        var fail = function (e) { toast(e.message, 'error'); };
+        $('[data-ed]', tr).onclick = function () { staffEditDialog(a, reload).catch(fail); };
+        $('[data-em]', tr).onclick = function () { changeEmailDialog('/api/super-admin/staff/' + encodeURIComponent(a.id) + '/email', a.email).then(function (r) { if (r) reload(); }, fail); };
+        $('[data-pw]', tr).onclick = function () { setPasswordDialog('/api/super-admin/staff/' + encodeURIComponent(a.id) + '/password', a.email).then(function (r) { if (r) reload(); }, fail); };
+        $('[data-en]', tr).onclick = async function () {
+          var on = this.getAttribute('data-en') === '1';
+          var r = await confirmDialog({ title: (on ? 'Enable ' : 'Disable ') + a.email, message: on ? 'They can sign in again.' : 'They can no longer sign in. Nothing is deleted.', confirmLabel: on ? 'Enable' : 'Disable', danger: !on });
+          if (!r) return;
+          try { await api('/api/admin/users/' + encodeURIComponent(a.id), { method: 'PATCH', body: { enabled: on } }); toast(on ? 'Account enabled' : 'Account disabled'); reload(); } catch (e) { fail(e); }
+        };
+        $('[data-del]', tr).onclick = async function () {
+          var r = await confirmDialog({ title: 'Delete staff account', message: 'Deletes ' + a.email + ' for good. Their audit history stays.', confirmLabel: 'Delete forever', typeToConfirm: a.email });
+          if (!r) return;
+          try { await api('/api/admin/users/' + encodeURIComponent(a.id), { method: 'DELETE' }); toast('Staff account deleted'); reload(); } catch (e) { fail(e); }
+        };
       },
-      empty: { title: 'No platform staff accounts', desc: 'Staff accounts are created in the platform console.' } });
+      empty: { title: 'No platform staff accounts', desc: 'Create one with “New staff account”.' } });
+    $('#stNew', el).onclick = function () { staffCreateDialog(lv.reload).catch(function (e) { toast(e.message, 'error'); }); };
+    return lv;
   }
 
   function orgAdminList(host, q) {
@@ -1446,7 +1680,7 @@
         { label: 'Last login', render: function (a) { return esc(ago(a.last_login)); } },
         { label: 'Joined', sort: 'joined_at', render: function (a) { return esc(fmtDate(a.joined_at)); } },
         { label: '', cls: 'num', render: function (a) {
-          return '<div class="row-actions"><button type="button" class="btn btn-secondary btn-xs" data-pw>Set password</button><button type="button" class="btn btn-secondary btn-xs" data-reset>Reset access</button>' +
+          return '<div class="row-actions"><a class="btn btn-secondary btn-xs" href="#/messaging?to=' + esc(encodeURIComponent(a.user_id)) + '" title="Email or text ' + esc(a.name || a.email) + '">Message</a><button type="button" class="btn btn-secondary btn-xs" data-pw>Set password</button><button type="button" class="btn btn-secondary btn-xs" data-reset>Reset access</button>' +
             (a.user_status === 'active' ? '<button type="button" class="btn btn-danger btn-xs" data-st="suspended">Suspend</button>' : '<button type="button" class="btn btn-secondary btn-xs" data-st="active">Activate</button>') + '</div>'; } }
       ],
       bindRow: function (tr, a, reload) {
@@ -1504,12 +1738,13 @@
     var udTab = function (t) { return '#/users/' + encodeURIComponent(id) + '?tab=' + t; };
     root.innerHTML = '<div class="sa-row sa-small" style="margin-bottom:6px"><a class="sa-link" href="#/users">← Users</a></div>' +
       header(u.name || u.email, u.email + ' · joined ' + fmtDate(u.created_at),
-        pill(u.status || 'active') + (protectedAcct ? pill('info', 'Super Admin') : '<button type="button" class="btn btn-secondary btn-sm" id="udEmail">Change email</button><button type="button" class="btn btn-secondary btn-sm" id="udPw">Set password</button><button type="button" class="btn btn-secondary btn-sm" id="udReset">Reset access</button><button type="button" class="btn btn-secondary btn-sm" id="udRevoke">Sign out everywhere</button>' +
+        pill(u.status || 'active') + '<a class="btn btn-secondary btn-sm" id="udMsg" href="#/messaging?to=' + esc(encodeURIComponent(id)) + '">' + ICON_SVG('send') + 'Send message</a>' +
+        (protectedAcct ? pill('info', 'Super Admin') : '<button type="button" class="btn btn-secondary btn-sm" id="udEmail">Change email</button><button type="button" class="btn btn-secondary btn-sm" id="udPw">Set password</button><button type="button" class="btn btn-secondary btn-sm" id="udReset">Reset access</button><button type="button" class="btn btn-secondary btn-sm" id="udRevoke">Sign out everywhere</button>' +
           ((u.status || 'active') !== 'active' ? '<button type="button" class="btn btn-secondary btn-sm" data-st="active">Activate</button>' : '<button type="button" class="btn btn-danger btn-sm" data-st="suspended">Suspend</button>') +
           (u.status !== 'disabled' ? '<button type="button" class="btn btn-danger btn-sm" data-st="disabled">Deactivate</button>' : ''))) +
       '<div class="sa-grid sa-kpis">' +
       kpi('Searches', fmtN(us.searches), fmtN(us.running) + ' running · ' + fmtN(us.failed) + ' failed', { href: udTab('searches'), tone: us.failed ? 'warn' : '' }) +
-      kpi('Leads', fmtN(us.leads), '', { href: udTab('leads') }) + kpi('Exports', fmtN(us.exports), '', { href: '/admin#/exports' }) +
+      kpi('Leads', fmtN(us.leads), '', { href: udTab('leads') }) + kpi('Exports', fmtN(us.exports), '', { href: '#/exports' }) +
       kpi('Tokens consumed', fmtN(us.tokens_consumed), '', { href: (u.memberships || []).length ? '#/organizations/' + encodeURIComponent(u.memberships[0].organization_id) + '?tab=tokens' : '#/tokens' }) +
       kpi('Active sessions', fmtN(u.active_sessions), '', { href: udTab('sessions') }) + kpi('Last login', ago(u.last_login), '', { href: '#/security?tab=logins&q=' + encodeURIComponent(u.email || '') }) + '</div>' +
       '<div class="sa-section" id="udTabs"></div>';
@@ -1623,10 +1858,10 @@
     root.innerHTML = header('Free trials', trialCfg.auto_approve
       ? 'Website sign-ups start a free ' + (trialCfg.duration_days || '') + '-day trial with ' + fmtN(trialCfg.tokens || 0) + ' tokens at once — no approval needed. Change the length and tokens under Trial settings. A trial converts automatically when its paid subscription is confirmed.'
       : 'Self-serve trials are off: every website sign-up waits for approval here. Turn them on under Trial settings. A demo converts automatically when its paid subscription is confirmed.') +
-      '<div id="dmTabs"></div>';
+      '<div id="dmTabs" data-tour="trial-tabs"></div>';
     tabs($('#dmTabs', root), [['inbox', 'Sign-ups'], ['config', 'Trial settings (days & tokens)'], ['costs', 'Token costs']], q.tab || 'inbox', async function (key, el) {
       if (key === 'inbox') {
-        el.innerHTML = '<div class="sa-chips" id="dmChips"></div><div id="dmList"></div>';
+        el.innerHTML = '<div class="sa-chips" id="dmChips" data-tour="trial-chips"></div><div id="dmList" data-tour="trial-list"></div>';
         var current = q.status || '';
         var lv;
         var renderChips = function (counts) {
@@ -1665,15 +1900,15 @@
         var c = data.config;
         var num = function (k, label, hint) { return '<div class="sa-field"><label for="dc_' + k + '">' + esc(label) + '</label><input class="form-input" id="dc_' + k + '" name="' + k + '" type="number" min="0" value="' + esc(c[k]) + '">' + (hint ? '<span class="hint">' + esc(hint) + '</span>' : '') + '</div>'; };
         el.innerHTML = '<form class="sa-card" id="dcForm" novalidate><h3>What every free trial gets</h3>' +
-          '<label class="sa-check sa-section"><input type="checkbox" name="auto_approve"' + (c.auto_approve ? ' checked' : '') + '> <b>Self-serve free trial</b> — a website sign-up starts the trial at once and opens the dashboard (off: every sign-up waits for approval in Sign-ups)</label>' +
-          '<div class="sa-form-grid sa-section">' +
+          '<label class="sa-check sa-section" data-tour="trial-selfserve"><input type="checkbox" name="auto_approve"' + (c.auto_approve ? ' checked' : '') + '> <b>Self-serve free trial</b> — a website sign-up starts the trial at once and opens the dashboard (off: every sign-up waits for approval in Sign-ups)</label>' +
+          '<div class="sa-form-grid sa-section" data-tour="trial-limits">' +
           num('duration_days', 'Trial length (days)') + num('tokens', 'Tokens per trial', 'Spent on searches, collections, AI analyses and exports — see Token costs') + num('max_searches', 'Max searches') + num('posts_per_search', 'Posts per search') +
           num('comments_per_post', 'Comments per post') + num('max_leads', 'Max leads') + num('max_users', 'Max users') + '</div>' +
           '<div class="sa-field sa-section"><label>Allowed platforms</label><div class="sa-row">' + (data.platforms || []).map(function (p) {
             return '<label class="sa-check"><input type="checkbox" name="allowed_platforms" value="' + esc(p) + '"' + ((c.allowed_platforms || []).indexOf(p) >= 0 ? ' checked' : '') + '> ' + esc(titleCase(p)) + '</label>';
           }).join('') + '</div></div><div class="sa-row sa-section">' +
           ['ai_enabled', 'exports_enabled'].map(function (k) { return '<label class="sa-check"><input type="checkbox" name="' + k + '"' + (c[k] ? ' checked' : '') + '> ' + esc({ ai_enabled: 'AI analysis enabled', exports_enabled: 'CSV exports enabled' }[k]) + '</label>'; }).join('') +
-          '</div><div class="sa-err" id="dcErr" role="alert"></div><div class="sa-row sa-section"><button class="btn btn-primary btn-sm" type="submit">Save trial settings</button><span class="sa-small sa-muted">Applies to trials started from now on. Audited.</span></div></form><div id="dcLc" class="sa-section"></div>';
+          '</div><div class="sa-err" id="dcErr" role="alert"></div><div class="sa-row sa-section"><button class="btn btn-primary btn-sm" type="submit">Save trial settings</button><span class="sa-small sa-muted">Applies to trials started from now on. Audited.</span></div></form><div id="dcLc" class="sa-section" data-tour="trial-lifecycle"></div>';
         lifecycleCard($('#dcLc', el), 'Trial access stops on its end date. The “trial ends soon” and “trial has ended” emails to the organization are sent by lifecycle automation.');
         $('#dcForm', el).onsubmit = async function (e) {
           e.preventDefault();
@@ -1689,7 +1924,7 @@
       } else {
         var costs = (await api('/api/super-admin/token-costs')).costs;
         var help = { search: 'Starting one URL search', collect: 'Collecting more posts / comments', ai_call: 'One AI analysis of a comment', export: 'One CSV export' };
-        el.innerHTML = '<form class="sa-card" id="tcForm" novalidate><h3>Tokens charged per action</h3><div class="sa-form-grid">' + Object.keys(costs).map(function (k) {
+        el.innerHTML = '<form class="sa-card" id="tcForm" data-tour="token-costs" novalidate><h3>Tokens charged per action</h3><div class="sa-form-grid">' + Object.keys(costs).map(function (k) {
           return '<div class="sa-field"><label for="tc_' + k + '">' + esc(titleCase(k)) + '</label><input class="form-input" id="tc_' + k + '" name="' + esc(k) + '" type="number" min="0" value="' + esc(costs[k]) + '"><span class="hint">' + esc(help[k] || '') + '</span></div>';
         }).join('') + '</div><div class="sa-err" id="tcErr" role="alert"></div><div class="sa-row sa-section"><button class="btn btn-primary btn-sm" type="submit">Save token costs</button><span class="sa-small sa-muted">Applies to every organization immediately. Audited.</span></div></form>';
         $('#tcForm', el).onsubmit = async function (e) {
@@ -1782,14 +2017,14 @@
       '<h4 style="margin:6px 0 0">API keys &amp; price</h4>' +
       '<p class="sa-small sa-muted" style="margin:0">The prices above are <b>all included</b>: LeadAI provides Apify and Gemini. A customer who brings their own key for an API pays less by the amount below.</p>' +
       '<label class="sa-check"><input type="checkbox" name="allows_own_keys" data-pe-own' + (p.allows_byok !== false ? ' checked' : '') + '> Allow customers to use their own API keys</label>' +
-      '<div class="sa-form-grid" data-pe-addons>' + API_KEYS.map(function (a) {
+      '<div class="sa-form-grid" data-pe-addons data-tour="plan-addons">' + API_KEYS.map(function (a) {
         return ['monthly', 'yearly'].map(function (c) {
           return '<div class="sa-field"><label for="pa_' + a + '_' + c + '">' + esc(apiLbl[a] || API_SHORT[a]) + ' · ' + (c === 'monthly' ? 'per month' : 'per year') + '</label>' +
             '<input class="form-input" id="pa_' + a + '_' + c + '" name="addon:' + a + ':' + c + '" type="number" min="0" step="0.01" inputmode="decimal" value="' + esc(adds[a][c]) + '" data-pe-addon>' +
             '<span class="hint">Taken off when the customer brings this key.</span></div>';
         }).join('');
       }).join('') + '</div>' +
-      '<div class="sa-field" data-section="pe-grid"><span class="sa-small" style="font-weight:600;color:var(--text-secondary)">What the customer pays <span class="sa-muted" style="font-weight:400">· preview from the numbers above; the server checks them on save</span></span><div data-pe-grid aria-live="polite"></div></div>' +
+      '<div class="sa-field" data-section="pe-grid" data-tour="plan-price-grid"><span class="sa-small" style="font-weight:600;color:var(--text-secondary)">What the customer pays <span class="sa-muted" style="font-weight:400">· preview from the numbers above; the server checks them on save</span></span><div data-pe-grid aria-live="polite"></div></div>' +
       '<h4 style="margin:6px 0 0">Limits</h4><div class="sa-form-grid">' + schema.limit_keys.map(function (k) {
         return '<div class="sa-field"><label for="pl_' + k + '">' + esc(titleCase(k)) + '</label><input class="form-input" id="pl_' + k + '" name="limit:' + k + '" type="number" min="0" step="1" value="' + esc(lim[k] == null ? '' : lim[k]) + '" placeholder="not set"></div>';
       }).join('') + '</div>' +
@@ -1840,23 +2075,24 @@
   }
 
   async function viewPlans(root, q) {
-    var data = await api('/api/super-admin/plans');
+    var staff = isStaff();
+    var data = await api(staff ? '/api/admin/plans' : '/api/super-admin/plans');
     var plans = data.plans || [];
     var reload = function () { route(); };
     var live = plans.filter(function (p) { return p.status === 'active'; });
     root.innerHTML = header('Plans', 'The single plan catalog — limits and features drive entitlements, billing and the public pricing page.',
-      '<a class="btn btn-secondary btn-sm" href="#/pricing">Preview pricing page</a><button type="button" class="btn btn-primary btn-sm" id="plNew">+ New plan</button>') +
-      '<div class="sa-grid sa-kpis">' + kpi('Plans', fmtN(plans.length), fmtN(live.length) + ' active', { href: '#/plans?status=active', icon: 'layers' }) +
-      kpi('Public', fmtN(plans.filter(function (p) { return p.is_public && p.status === 'active'; }).length), 'shown on the website', { href: '#/pricing', icon: 'globe' }) +
-      kpi('Live subscriptions', fmtN(plans.reduce(function (a, p) { return a + (p.live_subscriptions || 0); }, 0)), 'across all plans', { href: '#/subscriptions', icon: 'repeat' }) + '</div>' +
-      '<div class="sa-section" id="plList"></div>';
+      staff ? badge('Read-only for your role', 'muted') : '<a class="btn btn-secondary btn-sm" href="#/pricing">Preview pricing page</a><button type="button" class="btn btn-primary btn-sm" id="plNew" data-tour="plan-new">+ New plan</button>') +
+      '<div class="sa-grid sa-kpis" data-tour="plan-kpis">' + kpi('Plans', fmtN(plans.length), fmtN(live.length) + ' active', { href: '#/plans?status=active', icon: 'layers' }) +
+      kpi('Public', fmtN(plans.filter(function (p) { return p.is_public && p.status === 'active'; }).length), 'shown on the website', { href: staff ? '' : '#/pricing', icon: 'globe' }) +
+      (staff ? '' : kpi('Live subscriptions', fmtN(plans.reduce(function (a, p) { return a + (p.live_subscriptions || 0); }, 0)), 'across all plans', { href: '#/subscriptions', icon: 'repeat' })) + '</div>' +
+      '<div class="sa-section" id="plList" data-tour="plan-list"></div>';
     listView($('#plList', root), {
       data: function () { return Promise.resolve(plans); }, key: 'plans', sort: 'display_order', initial: { status: (q || {}).status || '' },
       filters: [{ key: 'q', label: 'Search plan name or slug…' }, { key: 'status', type: 'select', label: 'Status', options: [['', 'All statuses'], ['active', 'Active'], ['inactive', 'Inactive'], ['archived', 'Archived']] }],
       columns: [
         { label: 'Plan', sort: 'name', render: function (p) { return '<span class="cell-main">' + esc(p.name) + '</span><span class="cell-sub sa-mono">' + esc(p.slug) + '</span>'; } },
         { label: 'Status', sort: 'status', render: function (p) { return pill(p.status); } },
-        { label: 'Visibility', render: function (p) { return (p.is_public ? badge('Public', 'info') : badge('Hidden', 'muted')) + (p.is_default ? ' ' + badge('Default', 'primary') : ''); } },
+        { label: 'Visibility', render: function (p) { return (p.is_public ? badge('Public', 'info') : badge('Hidden', 'muted')) + (p.is_default ? ' ' + badge('Default', 'primary') : '') + (p.is_trial ? ' ' + badge('Trial plan', 'primary') : ''); } },
         { label: 'Monthly', sort: 'price_monthly', cls: 'num', render: function (p) { return esc(fmtMoney(p.price_monthly, p.currency)); } },
         { label: 'Yearly', sort: 'price_yearly', cls: 'num', render: function (p) { return esc(fmtMoney(p.price_yearly, p.currency)); } },
         { label: 'Own keys', sort: 'own_keys', sortVal: function (p) { return planAllowsOwn(p) ? coveragePrice(p.price_monthly, planAddons(p), COVERAGE_OPTS[3][2], 'monthly', true) : -1; },
@@ -1868,14 +2104,15 @@
           } },
         { label: 'Trial', sort: 'trial_days', cls: 'num', render: function (p) { return esc(p.trial_days || 0) + 'd'; } },
         { label: 'Key limits', render: function (p) { var l = p.limits || {}; return '<span class="sa-small">' + esc(['monthly_tokens', 'monthly_searches', 'team_members'].filter(function (k) { return l[k] != null; }).map(function (k) { return titleCase(k) + ': ' + fmtN(l[k]); }).join(' · ') || '—') + '</span>'; } },
-        { label: 'Features', cls: 'num', render: function (p) { return String((p.features || []).length); } },
-        { label: 'Live subs', sort: 'live_subscriptions', cls: 'num', render: function (p) { return fmtN(p.live_subscriptions); } },
+        { label: 'Features', sort: 'features', sortVal: function (p) { return (p.features || []).length; }, csv: function (p) { return (p.features || []).join(' '); },
+          render: function (p) { var f = p.features || []; return '<span class="cell-main" title="' + esc(f.map(titleCase).join(', ')) + '">' + fmtN(f.length) + '</span><span class="cell-sub">' + esc(short(f.map(titleCase).join(', '), 42)) + '</span>'; } },
+        { label: 'Live subs', sort: 'live_subscriptions', cls: 'num', hidden: staff, render: function (p) { return p.live_subscriptions == null ? '—' : fmtN(p.live_subscriptions); } },
         { label: 'Order', sort: 'display_order', cls: 'num', hidden: true, render: function (p) { return esc(p.display_order == null ? '—' : p.display_order); } },
-        { label: '', cls: 'num', render: function (p) {
+        staff ? null : { label: '', cls: 'num', render: function (p) {
           return '<div class="row-actions"><button type="button" class="btn btn-secondary btn-xs" data-edit>Edit</button>' + (p.status !== 'archived' ? '<button type="button" class="btn btn-danger btn-xs" data-arch' + (p.live_subscriptions ? ' disabled title="Plan has live subscriptions"' : '') + '>Archive</button>' : '') + '</div>'; } }
-      ],
-      rowClick: function (p) { planEditor(p, reload).catch(function (e) { toast(e.message, 'error'); }); },
-      bindRow: function (tr, p) {
+      ].filter(Boolean),
+      rowClick: staff ? null : function (p) { planEditor(p, reload).catch(function (e) { toast(e.message, 'error'); }); },
+      bindRow: staff ? null : function (tr, p) {
         $('[data-edit]', tr).onclick = function () { planEditor(p, reload).catch(function (e) { toast(e.message, 'error'); }); };
         var a = $('[data-arch]', tr);
         if (a) a.onclick = async function () {
@@ -1886,7 +2123,7 @@
       },
       empty: { title: 'No plans yet', desc: 'Create the first plan to start selling.' }
     });
-    $('#plNew', root).onclick = function () { planEditor(null, reload).catch(function (e) { toast(e.message, 'error'); }); };
+    if (!staff) $('#plNew', root).onclick = function () { planEditor(null, reload).catch(function (e) { toast(e.message, 'error'); }); };
   }
   async function viewPricing(root) {
     var res = await fetch('/api/public/pricing', { credentials: 'same-origin' });
@@ -1908,8 +2145,8 @@
     try { tc = (await api('/api/super-admin/demo-config')).config || {}; } catch (e) { /* the note is optional */ }
     root.innerHTML = header('Pricing preview', 'Exactly what the public website shows (GET /api/public/pricing). Edit prices and limits in Plans.' +
       (tc.duration_days ? ' The “N-day trial” labels come from each plan; website sign-ups actually get the ' + tc.duration_days + '-day free trial set in Free trials → Trial settings.' : ''),
-      '<div class="sa-chips" style="margin:0"><button type="button" class="sa-chip active" data-c="monthly">Monthly</button><button type="button" class="sa-chip" data-c="yearly">Yearly</button></div><a class="btn btn-secondary btn-sm" href="#/plans">Edit plans</a><a class="btn btn-secondary btn-sm" href="/pricing" target="_blank" rel="noopener">Open website ↗</a>') +
-      '<div class="sa-grid sa-3" id="prCards"></div>';
+      '<div class="sa-chips" style="margin:0" data-tour="pricing-cycle"><button type="button" class="sa-chip active" data-c="monthly">Monthly</button><button type="button" class="sa-chip" data-c="yearly">Yearly</button></div><a class="btn btn-secondary btn-sm" href="#/plans">Edit plans</a><a class="btn btn-secondary btn-sm" href="/pricing" target="_blank" rel="noopener">Open website ↗</a>') +
+      '<div class="sa-grid sa-3" id="prCards" data-tour="pricing-cards"></div>';
     $$('[data-c]', root).forEach(function (b) { b.onclick = function () { cycle = b.getAttribute('data-c'); $$('[data-c]', root).forEach(function (x) { x.classList.toggle('active', x === b); }); render(); }; });
     render();
   }
@@ -2021,11 +2258,11 @@
     stats = first[0]; list = first[1] || first[0];
     root.innerHTML = header('API keys', 'Apify (scraping) and Gemini (AI): the keys LeadAI provides to customers, and the keys customers bring themselves. Keys are never shown here — only masked hints.',
       '<button type="button" class="btn btn-secondary btn-sm" id="pkRefresh">' + ICON_SVG('repeat') + 'Refresh</button><a class="btn btn-secondary btn-sm" href="#/plans">' + ICON_SVG('layers') + 'Plans &amp; own-key prices</a>') +
-      '<div class="sa-grid sa-kpis sa-pk-kpis" data-pk-kpis></div>' +
+      '<div class="sa-grid sa-kpis sa-pk-kpis" data-pk-kpis data-tour="keys-kpis"></div>' +
       '<div class="sa-pk-head" data-section="pk-platform" tabindex="-1"><h2>Keys LeadAI provides</h2><span class="sa-small sa-muted">Every organization on LeadAI-provided for an API runs on these keys.</span></div>' +
-      '<div class="sa-grid sa-2" data-pk-platform></div>' +
-      '<div class="sa-card sa-section" data-section="pk-orgs" tabindex="-1"><h3><span>Customers\' own keys <span class="sa-small sa-muted">organizations that bring an Apify or Gemini key</span></span></h3>' +
-      '<div class="sa-filters"><div class="sa-chips" role="group" aria-label="Show">' + PK_SHOW.map(function (x) {
+      '<div class="sa-grid sa-2" data-pk-platform data-tour="keys-platform"></div>' +
+      '<div class="sa-card sa-section" data-section="pk-orgs" data-tour="keys-orgs" tabindex="-1"><h3><span>Customers\' own keys <span class="sa-small sa-muted">organizations that bring an Apify or Gemini key</span></span></h3>' +
+      '<div class="sa-filters"><div class="sa-chips" role="group" aria-label="Show" data-tour="keys-show">' + PK_SHOW.map(function (x) {
         return '<button type="button" class="sa-chip" data-show="' + x[0] + '" aria-pressed="false">' + esc(x[1]) + (x[0] === 'problems' ? ' <b data-pk-pcount></b>' : '') + '</button>';
       }).join('') + '</div>' +
       '<div class="sa-q sa-grow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>' +
@@ -2211,6 +2448,19 @@
       } });
     if (r) { toast('Subscription extended'); if (after) after(); }
   }
+  /** Add days to a trialing subscription's trial (platform-console action, POST /api/admin/subscriptions/{id}/extend-trial). */
+  async function extendTrial(sub, after) {
+    var r = await openModal({ title: 'Extend trial', submitLabel: 'Extend trial', body:
+      '<p style="margin:0;color:var(--text-secondary)">Adds days to the trial of this subscription' + (sub.trial_end ? ' (ends ' + esc(fmtDate(sub.trial_end)) + ' now)' : '') + '. Website free trials (organizations without a subscription) are extended on Free trials instead.</p>' +
+      '<div class="sa-field"><label for="etDays">Extra days</label><input class="form-input" id="etDays" name="extra_days" type="number" min="1" max="90" value="14" required></div>' +
+      reasonField('etReason'),
+      onSubmit: function (f, fd) {
+        var n = parseInt(fd.get('extra_days'), 10);
+        if (!(n >= 1 && n <= 90)) throw new Error('Enter 1 to 90 days.');
+        return api('/api/admin/subscriptions/' + encodeURIComponent(sub.id || sub._id) + '/extend-trial', { method: 'POST', body: { extra_days: n, reason: needReason(fd) } });
+      } });
+    if (r) { toast('Trial extended' + (r.subscription && r.subscription.trial_end ? ' to ' + fmtDate(r.subscription.trial_end) : '')); if (after) after(); }
+  }
   /** Record a renewal paid outside the online checkout (POST …/renew): next period, tokens, paid invoice. */
   async function renewSub(sub, after) {
     var r = await openModal({ title: 'Record a renewal payment', submitLabel: 'Record renewal', body:
@@ -2264,8 +2514,9 @@
         { label: 'Amount', cls: 'num', render: invAmount },
         { label: 'Status', render: function (i) { return pill(i.status) + ((i.refunds || []).some(function (x) { return x.chargeback; }) ? ' ' + pill('failed', 'Chargeback') : ''); } },
         { label: 'Date', render: function (i) { return esc(fmtDate(invDate(i))); } },
-        { label: '', cls: 'num', render: function (i) { return '<div class="row-actions">' + (invRefundable(i) ? '<button type="button" class="btn btn-secondary btn-xs" data-refund>Refund</button>' : '') + (i.subscription_id ? '<button type="button" class="btn btn-secondary btn-xs" data-sub>Subscription</button>' : '') + '</div>'; } }
+        { label: '', cls: 'num', render: function (i) { return '<div class="row-actions">' + (i.receipt_url ? '<a class="btn btn-secondary btn-xs" href="' + esc(i.receipt_url) + '" target="_blank" rel="noopener">Receipt ↗</a>' : '') + (invRefundable(i) ? '<button type="button" class="btn btn-secondary btn-xs" data-refund>Refund</button>' : '') + (i.subscription_id ? '<button type="button" class="btn btn-secondary btn-xs" data-sub>Subscription</button>' : '') + '</div>'; } }
       ],
+      toolbar: '<a class="btn btn-secondary btn-sm" href="/api/admin/billing/export" title="Billing &amp; revenue CSV of every invoice">' + ICON_SVG('download') + 'Invoices CSV</a>',
       bindRow: function (tr, i, reload) {
         var rb = $('[data-refund]', tr), sb = $('[data-sub]', tr);
         if (rb) rb.onclick = function () { refundInvoiceDialog(i).then(function (r) { if (r) reload(); }, function (e) { toast(e.message, 'error'); }); };
@@ -2286,7 +2537,7 @@
     var d = await api('/api/super-admin/lifecycle');
     var counts = d.counts || {}, items = d.pending || [], total = lcTotal(counts), on = !!d.auto_apply;
     var again = function () { return lifecycleAutomation(el).catch(function (e) { el.innerHTML = errorState(e, again); }); };
-    el.innerHTML = '<div class="sa-card"><h3><span>Lifecycle automation</span>' + (on ? badge('Automatic', 'success') : badge('Preview only', 'warning')) + '</h3>' +
+    el.innerHTML = '<div class="sa-card" data-tour="lc-switch"><h3><span>Lifecycle automation</span>' + (on ? badge('Automatic', 'success') : badge('Preview only', 'warning')) + '</h3>' +
       '<p class="sa-small" style="margin:0 0 10px;color:var(--text-secondary)">Time-driven changes: subscriptions cancelled for the end of their period, renewals that are overdue, and free trials that end soon or have ended (their admins are emailed; trial access itself always stops at the end date). ' +
       (on ? 'Automation is on: a background check applies these every 15 minutes.' : 'Automation is off: nothing changes on its own. Review the pending changes below and apply them now, or turn automation on.') + '</p>' +
       '<label class="sa-check"><input type="checkbox" id="lcAuto"' + (on ? ' checked' : '') + '> <b>Apply these changes automatically</b></label>' +
@@ -2294,7 +2545,7 @@
       '<div class="sa-grid sa-kpis sa-section">' + Object.keys(LC_LABEL).map(function (k) {
         return kpi(LC_LABEL[k][0], fmtN(counts[k] || 0), esc(LC_LABEL[k][1]), { href: '#lc-list', tone: counts[k] && k === 'past_due' ? 'warn' : '' });
       }).join('') + '</div>' +
-      '<div class="sa-card sa-section" data-section="lc-list" tabindex="-1"><h3><span>Pending changes <span class="sa-small sa-muted">what the next check would do' + (items.length < total ? ' · first ' + fmtN(items.length) : '') + '</span></span></h3><div id="lcList"></div></div>';
+      '<div class="sa-card sa-section" data-section="lc-list" data-tour="lc-pending" tabindex="-1"><h3><span>Pending changes <span class="sa-small sa-muted">what the next check would do' + (items.length < total ? ' · first ' + fmtN(items.length) : '') + '</span></span></h3><div id="lcList"></div></div>';
     bindScrollKpis(el);
     listView($('#lcList', el), {
       data: function () { return Promise.resolve(items); }, key: 'lifecycle-pending',
@@ -2343,9 +2594,10 @@
     var a = [];
     switch (s.status) {
       case 'pending_admin_confirmation': a.push(['confirm', 'Confirm', 'btn-primary'], ['cancelled', 'Reject', 'btn-danger']); break;
-      case 'active': case 'trialing': a.push(['plan', 'Change plan', 'btn-secondary'], ['extend', 'Extend', 'btn-secondary']); if (s.status === 'active') a.push(['renew', 'Record renewal', 'btn-secondary']);
+      case 'active': case 'trialing': a.push(['plan', 'Change plan', 'btn-secondary'], ['extend', 'Extend', 'btn-secondary']); if (s.status === 'trialing') a.push(['trial', 'Extend trial', 'btn-secondary']); if (s.status === 'active') a.push(['renew', 'Record renewal', 'btn-secondary']);
+        a.push(['credits', 'Grant credits', 'btn-secondary']);
         a.push(['suspended', 'Suspend', 'btn-danger'], ['cancelled', 'Cancel', 'btn-danger']); if (s.status === 'active') a.push(['expired', 'Expire', 'btn-danger']); break;
-      case 'past_due': a.push(['renew', 'Record renewal', 'btn-primary'], ['suspended', 'Suspend', 'btn-danger'], ['cancelled', 'Cancel', 'btn-danger'], ['expired', 'Expire', 'btn-danger']); break;
+      case 'past_due': a.push(['renew', 'Record renewal', 'btn-primary'], ['credits', 'Grant credits', 'btn-secondary'], ['suspended', 'Suspend', 'btn-danger'], ['cancelled', 'Cancel', 'btn-danger'], ['expired', 'Expire', 'btn-danger']); break;
       case 'suspended': a.push(['active', 'Resume', 'btn-primary'], ['extend', 'Extend', 'btn-secondary'], ['cancelled', 'Cancel', 'btn-danger'], ['expired', 'Expire', 'btn-danger']); break;
       case 'pending_payment': case 'payment_received': a.push(['cancelled', 'Cancel', 'btn-danger']); break;
       case 'expired': a.push(['cancelled', 'Cancel', 'btn-danger']); break;
@@ -2353,7 +2605,8 @@
     return a;
   }
   function runSubAction(s, key, after) {
-    var p = key === 'confirm' ? subConfirm(s, after) : key === 'plan' ? changePlan(s, after) : key === 'extend' ? extendSub(s, after) : key === 'renew' ? renewSub(s, after) : subStatus(s, key, after);
+    var p = key === 'confirm' ? subConfirm(s, after) : key === 'plan' ? changePlan(s, after) : key === 'extend' ? extendSub(s, after) : key === 'renew' ? renewSub(s, after)
+      : key === 'trial' ? extendTrial(s, after) : key === 'credits' ? grantCreditsDialog(s.organization_id, s.organization_name, after) : subStatus(s, key, after);
     return p.catch(function (e) { toast(e.message, 'error'); });
   }
   function subDrawer(id, after) {
@@ -2380,8 +2633,9 @@
   }
 
   async function viewSubscriptions(root, q) {
+    if (isStaff()) return viewSubscriptionsStaff(root, q);
     root.innerHTML = header('Subscriptions', 'Payment success never activates anything: verified payments wait in the confirmation queue until you confirm them. Lifecycle automation ends, renews and expires subscriptions and free trials over time.',
-      '<a class="btn btn-secondary btn-sm" href="#/plans">Plans</a><a class="btn btn-secondary btn-sm" href="#/payments">Payments</a>') + '<div id="sbTabs"></div>';
+      '<a class="btn btn-secondary btn-sm" href="#/plans">Plans</a><a class="btn btn-secondary btn-sm" href="#/payments">Payments</a><a class="btn btn-secondary btn-sm" href="#/settings?tab=payments">Payment Gateways</a>') + '<div id="sbTabs" data-tour="sub-tabs"></div>';
     tabs($('#sbTabs', root), [['queue', 'Confirmation queue'], ['all', 'All subscriptions'], ['automation', 'Lifecycle automation']], (q.status && q.status !== 'awaiting') || q.coverage ? 'all' : (q.tab || 'queue'), function (key, el) {
       if (key === 'automation') return lifecycleAutomation(el);
       if (key === 'queue') {
@@ -2426,11 +2680,12 @@
   }
 
   async function viewPayments(root, q) {
+    if (isStaff()) return viewInvoicesStaff(root, q);
     root.innerHTML = header('Payments', 'Provider-verified payments, failures and refunds. Only signed webhooks / provider checks can mark a payment succeeded.',
-      '<a class="btn btn-secondary btn-sm" href="#/subscriptions">Subscriptions</a>') + '<div id="pyTabs"></div>';
+      '<a class="btn btn-secondary btn-sm" href="#/subscriptions">Subscriptions</a><a class="btn btn-secondary btn-sm" href="#/settings?tab=payments">Payment Gateways Setup</a>') + '<div id="pyTabs" data-tour="pay-tabs"></div>';
     tabs($('#pyTabs', root), [['payments', 'Payments'], ['invoices', 'Invoices & refunds']], q.tab || 'payments', function (key, el) {
       if (key === 'invoices') return invoicesList(el);
-      el.innerHTML = '<div class="sa-grid sa-kpis" id="pySum"></div><div class="sa-section" id="pyList"></div>';
+      el.innerHTML = '<div class="sa-grid sa-kpis" id="pySum" data-tour="pay-kpis"></div><div class="sa-section" id="pyList" data-tour="pay-list"></div>';
       paymentsList(el, q);
     });
   }
@@ -2474,6 +2729,44 @@
     });
   }
 
+  // ── Platform staff (manager / viewer): read-only billing lists from the platform-console API ──
+  function viewSubscriptionsStaff(root, q) {
+    root.innerHTML = header('Subscriptions', 'Every customer subscription. Read-only for your role: the Super Admin confirms, changes and cancels subscriptions.', pageLink('#/plans', 'Plans') + pageLink('#/payments', 'Invoices')) + '<div id="sbList"></div>';
+    listView($('#sbList', root), {
+      url: function (p) { return '/api/admin/subscriptions' + qs({ status: p.status, plan: p.plan, offset: (p.page - 1) * p.limit, limit: p.limit }); },
+      rowsKey: 'subscriptions', initial: { status: q.status && q.status !== 'awaiting' ? q.status : '' }, key: 'staff-subscriptions',
+      filters: [{ key: 'status', type: 'select', label: 'Status', options: [['', 'All statuses'], ['active', 'Active'], ['trialing', 'Trialing'], ['past_due', 'Past due'], ['pending_admin_confirmation', 'Awaiting confirmation'], ['suspended', 'Suspended'], ['expired', 'Expired'], ['cancelled', 'Cancelled']] },
+        { key: 'plan', label: 'Plan slug' }],
+      columns: [
+        { label: 'Organization', render: function (s) { return '<a class="sa-link cell-main" href="#/organizations/' + esc(s.organization_id) + '">' + esc(s.organization_name || short(s.organization_id)) + '</a><span class="cell-sub sa-mono">' + esc(short(s.id || s._id, 12)) + '</span>'; } },
+        { label: 'Plan', render: function (s) { return esc(s.plan_id || '—'); } },
+        { label: 'Status', render: function (s) { return pill(s.status); } },
+        { label: 'Amount', cls: 'num', render: function (s) { return esc(fmtMoney(s.amount, s.currency)) + '<span class="cell-sub">' + esc(s.billing_cycle || '') + '</span>'; } },
+        { label: 'Period end', render: function (s) { return esc(fmtDate(s.current_period_end)) + (s.trial_end ? '<span class="cell-sub">trial ends ' + esc(fmtDate(s.trial_end)) + '</span>' : ''); } },
+        { label: 'Created', render: function (s) { return esc(fmtDate(s.created_at)); } }
+      ],
+      empty: { title: 'No subscriptions', desc: 'Website free trials have no subscription: they are listed under Organizations.' }
+    });
+  }
+  function viewInvoicesStaff(root, q) {
+    root.innerHTML = header('Invoices', 'Every invoice across customers (the latest 200). Read-only for your role.',
+      '<a class="btn btn-secondary btn-sm" href="/api/admin/billing/export">' + ICON_SVG('download') + 'Export invoices CSV</a>') + '<div id="ivList" data-tour="pay-list"></div>';
+    listView($('#ivList', root), {
+      data: function () { return api('/api/admin/invoices').then(function (d) { return d.invoices || []; }); }, key: 'staff-invoices', sort: '-date',
+      initial: { status: q.status || '' },
+      filters: [{ key: 'q', label: 'Invoice # or organization…' }, { key: 'status', type: 'select', label: 'Status', options: [['', 'All statuses'], ['paid', 'Paid'], ['open', 'Open'], ['partially_refunded', 'Partly refunded'], ['refunded', 'Refunded'], ['void', 'Void']] }],
+      columns: [
+        { label: 'Invoice', sort: 'number', sortVal: invNumber, render: function (i) { return '<span class="cell-main sa-mono">' + esc(invNumber(i)) + '</span><span class="cell-sub">' + esc(i.description || i.plan_name || '') + '</span>'; } },
+        { label: 'Organization', render: function (i) { return i.organization_id ? '<a class="sa-link" href="#/organizations/' + esc(i.organization_id) + '">' + esc(i.organization_name || 'org ' + short(i.organization_id)) + '</a>' : '—'; } },
+        { label: 'Total', sort: 'total', sortVal: invTotal, cls: 'num', render: invAmount },
+        { label: 'Status', sort: 'status', render: function (i) { return pill(i.status); } },
+        { label: 'Invoice date', sort: 'date', sortVal: function (i) { var t = toDate(invDate(i)); return t ? t.getTime() : 0; }, render: function (i) { return esc(fmtDate(invDate(i))); } },
+        { label: '', cls: 'num', render: function (i) { return i.receipt_url ? '<a class="btn btn-secondary btn-xs" href="' + esc(i.receipt_url) + '" target="_blank" rel="noopener">View receipt ↗</a>' : '<span class="sa-small sa-muted">Generated</span>'; } }
+      ],
+      empty: { title: 'No invoices', desc: 'An invoice is recorded when a payment is confirmed or a renewal is recorded.' }
+    });
+  }
+
   // ════════════════════════════════════════════════════════
   //  TOKENS & USAGE
   // ════════════════════════════════════════════════════════
@@ -2489,7 +2782,7 @@
     var orgCell = function (r) { return '<a class="sa-link" href="#/organizations/' + esc(r.organization_id) + '?tab=tokens">' + esc(r.organization_name || short(r.organization_id)) + '</a>'; };
     root.innerHTML = header('Tokens & usage', 'Balances, consumption, warnings and anomalies across all organizations.',
       '<a class="btn btn-secondary btn-sm" href="#/demo?tab=costs">Token costs</a>') +
-      '<div class="sa-grid sa-kpis">' + kpi('Allocated', fmtN(t.allocated), fmtN(t.organizations) + ' metered orgs', { href: '#/tokens?sort=-allocated&section=balances' }) + kpi('Used', fmtN(t.used), usageBar(t.allocated ? t.used * 100 / t.allocated : 0), { href: '#/tokens?sort=-used&section=balances' }) +
+      '<div class="sa-grid sa-kpis" data-tour="tok-kpis">' + kpi('Allocated', fmtN(t.allocated), fmtN(t.organizations) + ' metered orgs', { href: '#/tokens?sort=-allocated&section=balances' }) + kpi('Used', fmtN(t.used), usageBar(t.allocated ? t.used * 100 / t.allocated : 0), { href: '#/tokens?sort=-used&section=balances' }) +
       kpi('Remaining', fmtN(t.remaining), 'lowest balances first', { href: '#/tokens?sort=remaining&section=balances' }) + kpi('Consumed (24h)', fmtN(s.consumed_24h), 'daily trend in analytics', { href: '#/analytics?range=7d' }) +
       kpi('Usage warnings', fmtN(s.warnings.length), '≥ 80% used', { href: '#/tokens?section=warnings', tone: s.warnings.length ? 'warn' : '' }) + kpi('Anomalies', fmtN(s.anomalies.length), '24h > 3× daily avg', { href: '#/tokens?section=anomalies', tone: s.anomalies.length ? 'bad' : '' }) + '</div>' +
       '<div class="alert alert-info sa-section"><div class="alert-body"><div class="alert-title">Over-limit behaviour</div><div>' + esc(s.over_limit_behaviour) + '</div></div></div>' +
@@ -2541,7 +2834,7 @@
         o.apifyOnly ? { label: 'Apify run', render: function (s) { return '<span class="sa-mono">' + esc(short(s.apify_run_id, 14) || '—') + '</span><span class="cell-sub">' + esc(s.actor_id || '') + (s.usage_usd ? ' · $' + esc(Number(s.usage_usd).toFixed(4)) : '') + '</span>'; } } : null,
         { label: 'Status', sort: 'status', render: function (s) { return pill(s.status) + (s.error ? '<span class="cell-sub" style="color:var(--danger-text)" title="' + esc(s.error) + '">' + esc(short(s.error, 40)) + '</span>' : ''); } },
         { label: 'Started', sort: 'created_at', render: function (s) { return esc(fmtDT(s.created_at)); } },
-        { label: '', cls: 'num', render: function (s) { return '<div class="row-actions"><button type="button" class="btn btn-secondary btn-xs" data-chain>Investigate</button><a class="btn btn-secondary btn-xs" href="/admin#/jobs/details:' + esc(encodeURIComponent(s.run_id)) + '" target="_blank" rel="noopener">Job ↗</a></div>'; } }
+        { label: '', cls: 'num', render: function (s) { return '<div class="row-actions"><button type="button" class="btn btn-secondary btn-xs" data-chain>Investigate</button><a class="btn btn-secondary btn-xs" href="#/jobs/' + esc(encodeURIComponent(s.run_id)) + '" title="Full run report, retry and cancel">Job</a></div>'; } }
       ].filter(Boolean),
       rowClick: function (s) { chainDrawer(s.run_id); },
       bindRow: function (tr, s) { $('[data-chain]', tr).onclick = function () { chainDrawer(s.run_id); }; },
@@ -2563,7 +2856,7 @@
         { label: 'Score', sort: 'lead_score', cls: 'num', render: function (l) { return esc(l.lead_score == null ? '—' : l.lead_score); } },
         { label: 'Organization', render: function (l) { return '<a class="sa-link" href="#/organizations/' + esc(l.organization_id) + '">' + esc(l.organization_name || short(l.organization_id)) + '</a>'; } },
         { label: 'Found', sort: 'created_at', render: function (l) { return esc(fmtDate(l.created_at)); } },
-        { label: '', cls: 'num', render: function (l) { return '<div class="row-actions">' + (l.search_run_id ? '<button type="button" class="btn btn-secondary btn-xs" data-chain>Source run</button>' : '') + '<a class="btn btn-secondary btn-xs" href="/admin#/leads/details:' + esc(encodeURIComponent(l.id)) + '" target="_blank" rel="noopener">Open ↗</a></div>'; } }
+        { label: '', cls: 'num', render: function (l) { return '<div class="row-actions">' + (l.search_run_id ? '<button type="button" class="btn btn-secondary btn-xs" data-chain>Source run</button>' : '') + '<a class="btn btn-secondary btn-xs" href="#/leads/' + esc(encodeURIComponent(l.id)) + '" title="Lead detail: status, notes, follow-ups">Open</a></div>'; } }
       ],
       bindRow: function (tr, l) { var b = $('[data-chain]', tr); if (b) b.onclick = function () { chainDrawer(l.search_run_id); }; },
       empty: { title: 'No leads', desc: 'Leads appear once searches have analysed comments.' }
@@ -2574,7 +2867,7 @@
     var s = c.search, cnt = c.counts;
     var node = function (label, value, href, bad) {
       var inner = '<b>' + esc(label) + '</b>' + value;
-      return href ? '<a class="node' + (bad ? ' bad' : '') + '" href="' + esc(href) + '"' + (/^\/admin/.test(href) ? ' target="_blank" rel="noopener"' : '') + ' style="text-decoration:none;color:inherit">' + inner + '</a>' : '<span class="node' + (bad ? ' bad' : '') + '">' + inner + '</span>';
+      return href ? '<a class="node' + (bad ? ' bad' : '') + '" href="' + esc(href) + '" style="text-decoration:none;color:inherit">' + inner + '</a>' : '<span class="node' + (bad ? ' bad' : '') + '">' + inner + '</span>';
     };
     var arrow = '<span class="arrow" aria-hidden="true">→</span>';
     var failed = /error|failed/.test(s.status || '');
@@ -2584,11 +2877,11 @@
       node('Admin', esc((c.admins[0] || {}).email || '—') + (c.admins.length > 1 ? ' +' + (c.admins.length - 1) : ''), c.admins[0] ? '#/users/' + c.admins[0].user_id : null) + arrow +
       node('User', esc((c.user || {}).email || '—'), c.user && c.user.id ? '#/users/' + c.user.id : null) + arrow +
       node('Search', pill(s.status), null, failed) + arrow +
-      node('Apify job', esc(jobs.length ? short(jobs[0].apify_run_id || 'run', 12) : 'none'), '/admin#/jobs/details:' + encodeURIComponent(s.run_id), jobs.some(function (j) { return j.status === 'failed'; })) + arrow +
-      node('Pages', fmtN(cnt.pages), '/admin#/pages?run=' + encodeURIComponent(s.run_id)) + arrow +
-      node('Posts', fmtN(cnt.posts), '/admin#/posts?run=' + encodeURIComponent(s.run_id)) + arrow +
-      node('Comments', fmtN(cnt.comments) + ' <span class="sa-small sa-muted">(' + fmtN(cnt.analyzed) + ' analysed)</span>', '/admin#/ci') + arrow +
-      node('Leads', fmtN(cnt.leads), '#/ops/leads?run=' + encodeURIComponent(s.run_id)) + '</nav>' +
+      node('Apify job', esc(jobs.length ? short(jobs[0].apify_run_id || 'run', 12) : 'none'), '#/jobs/' + encodeURIComponent(s.run_id), jobs.some(function (j) { return j.status === 'failed'; })) + arrow +
+      node('Pages', fmtN(cnt.pages), '#/pages?run=' + encodeURIComponent(s.run_id)) + arrow +
+      node('Posts', fmtN(cnt.posts), '#/posts?run=' + encodeURIComponent(s.run_id)) + arrow +
+      node('Comments', fmtN(cnt.comments) + ' <span class="sa-small sa-muted">(' + fmtN(cnt.analyzed) + ' analysed)</span>', '#/ci?run=' + encodeURIComponent(s.run_id)) + arrow +
+      node('Leads', fmtN(cnt.leads), '#/leads?run=' + encodeURIComponent(s.run_id)) + '</nav>' +
       (c.error ? '<div class="alert alert-danger"><div class="alert-body"><div class="alert-title">Error</div><div class="sa-mono">' + esc(c.error) + '</div></div></div>' : '') +
       '<div class="sa-grid sa-2 sa-section"><div class="sa-card"><h3>Search run</h3><dl class="sa-kv"><dt>Run ID</dt><dd class="sa-mono">' + esc(s.run_id) + '</dd><dt>URL</dt><dd>' + esc(s.query) + '</dd><dt>Platform</dt><dd>' + esc(titleCase(s.platform || '—')) + '</dd>' +
       '<dt>Phase</dt><dd>' + esc(s.phase || '—') + '</dd><dt>Message</dt><dd>' + esc(s.message || '—') + '</dd><dt>Started</dt><dd>' + esc(fmtDT(s.created_at)) + '</dd><dt>Completed</dt><dd>' + esc(fmtDT(s.completed_at)) + '</dd></dl></div>' +
@@ -2608,51 +2901,52 @@
   }
   async function viewChain(root, q, runId) {
     var c = (await api('/api/super-admin/searches/' + encodeURIComponent(runId) + '/chain')).chain;
-    setTitle('Investigation', 'LeadAI Operations › Searches');
-    root.innerHTML = '<div class="sa-row sa-small" style="margin-bottom:6px"><a class="sa-link" href="#/ops/searches">← Searches</a></div>' +
+    setTitle('Investigation', 'Operations › URL Search Agent');
+    root.innerHTML = '<div class="sa-row sa-small" style="margin-bottom:6px"><a class="sa-link" href="#/ops/agent?tab=searches">← Searches</a><a class="sa-link" href="#/jobs/' + esc(encodeURIComponent(runId)) + '">Run report →</a></div>' +
       header('Failure investigation', 'Organization → Admin → User → Search → Apify job → Pages → Posts → Comments → Leads') + chainHtml(c);
   }
 
   async function opsKpis(el) {
     var s = (await api('/api/super-admin/leadai/summary')).summary;
     el.innerHTML = '<div class="sa-grid sa-kpis">' +
-      kpi('Searches', fmtN(s.searches.total), fmtN(s.searches.last_24h) + ' in 24h', { href: '#/ops/searches' }) +
-      kpi('Running', fmtN(s.searches.running), '', { href: '#/ops/searches?status=running' }) +
-      kpi('Failed', fmtN(s.searches.failed), '', { href: '#/ops/searches?status=failed', tone: s.searches.failed ? 'warn' : '' }) +
-      kpi('Apify jobs', fmtN(s.apify_jobs.total), fmtN(s.apify_jobs.failed_24h) + ' failed in 24h', { href: '#/ops/jobs', tone: s.apify_jobs.failed_24h ? 'bad' : '' }) +
-      kpi('Pages', fmtN(s.pages), '', { href: '/admin#/pages' }) + kpi('Posts', fmtN(s.posts), '', { href: '/admin#/posts' }) +
-      kpi('Comments', fmtN(s.comments), fmtN(s.analyzed) + ' analysed', { href: '/admin#/ci' }) +
-      kpi('Leads', fmtN(s.leads), fmtN(s.hot_leads) + ' hot', { href: '#/ops/leads' }) + '</div>';
+      kpi('Searches', fmtN(s.searches.total), fmtN(s.searches.last_24h) + ' in 24h', { href: '#/ops/agent?tab=searches' }) +
+      kpi('Running', fmtN(s.searches.running), '', { href: '#/ops/agent?tab=searches&status=running' }) +
+      kpi('Failed', fmtN(s.searches.failed), 'retry them on Jobs', { href: '#/jobs?tab=failed', tone: s.searches.failed ? 'warn' : '' }) +
+      kpi('Apify jobs', fmtN(s.apify_jobs.total), fmtN(s.apify_jobs.failed_24h) + ' failed in 24h', { href: '#/ops/agent?tab=apify', tone: s.apify_jobs.failed_24h ? 'bad' : '' }) +
+      kpi('Pages', fmtN(s.pages), '', { href: '#/pages' }) + kpi('Posts', fmtN(s.posts), '', { href: '#/posts' }) +
+      kpi('Comments', fmtN(s.comments), fmtN(s.analyzed) + ' analysed', { href: '#/ci' }) +
+      kpi('Leads', fmtN(s.leads), fmtN(s.hot_leads) + ' hot', { href: '#/leads' }) + '</div>';
     bindGo(el);
     return s;
   }
 
-  async function viewOpsAgent(root) {
+  async function viewOpsAgent(root, q) {
+    q = q || {};
     var flags = (await api('/api/super-admin/feature-flags')).flags;
     var f = {}; flags.forEach(function (x) { f[x.key] = x.value; });
-    root.innerHTML = header('URL Search Agent', 'Paste-a-URL lead discovery: agent status, platforms and live jobs across all organizations.',
-      '<a class="btn btn-secondary btn-sm" href="#/flags">Feature flags</a>' + adminLink('limits', 'Scraping limits') + adminLink('platforms', 'Platforms & actors')) +
+    root.innerHTML = header('URL Search Agent', 'Paste-a-URL lead discovery across all organizations: agent switches, platforms, every search with its organization and user, Apify runs with cost, and leads.',
+      '<a class="btn btn-secondary btn-sm" href="#/flags">Feature flags</a>' + pageLink('#/limits', 'Scraping limits', 'sliders') + pageLink('#/platforms', 'Platforms & actors', 'globe') + pageLink('#/operations', 'Operations overview', 'activity')) +
       '<div class="sa-grid sa-3"><div class="sa-card"><h3>Agent</h3><dl class="sa-kv"><dt>URL Search</dt><dd>' + pill(f['features.url_search.enabled'] ? 'active' : 'disabled', f['features.url_search.enabled'] ? 'Enabled' : 'Disabled') + '</dd>' +
-      '<dt>AI analysis</dt><dd>' + pill(f['features.ai_analysis.enabled'] ? 'active' : 'disabled', f['features.ai_analysis.enabled'] ? 'Enabled' : 'Disabled') + '</dd><dt>Maintenance</dt><dd>' + pill(f['maintenance.enabled'] ? 'warn' : 'active', f['maintenance.enabled'] ? 'On' : 'Off') + '</dd></dl></div>' +
+      '<dt>AI analysis</dt><dd>' + pill(f['ai.enabled'] ? 'active' : 'disabled', f['ai.enabled'] ? 'Enabled' : 'Disabled') + '</dd><dt>Maintenance</dt><dd>' + pill(f['maintenance.enabled'] ? 'warn' : 'active', f['maintenance.enabled'] ? 'On' : 'Off') + '</dd></dl></div>' +
       '<div class="sa-card"><h3>Platforms</h3><dl class="sa-kv">' + ['facebook', 'instagram', 'linkedin', 'youtube'].map(function (p) { return '<dt>' + esc(titleCase(p)) + '</dt><dd>' + pill(f['platform.' + p + '.enabled'] ? 'active' : 'disabled', f['platform.' + p + '.enabled'] ? 'Enabled' : 'Disabled') + '</dd>'; }).join('') + '</dl></div>' +
-      '<div class="sa-card"><h3>Operate</h3><ul class="sa-feed"><li><a class="sa-link" href="#/ops/searches?status=running">Running searches</a></li><li><a class="sa-link" href="#/ops/jobs?status=failed">Failed Apify jobs</a></li><li><a class="sa-link" href="/admin#/failed" target="_blank" rel="noopener">Retry failed jobs ↗</a></li><li><a class="sa-link" href="/admin#/apify" target="_blank" rel="noopener">Apify connection ↗</a></li></ul></div></div>' +
-      '<div class="sa-section" id="agK"></div><div class="sa-card sa-section"><h3>Live jobs</h3><div id="agList"></div></div>';
-    await opsKpis($('#agK', root));
-    searchesList($('#agList', root), {}, { initial: { status: 'running' } });
+      '<div class="sa-card"><h3>Operate</h3><ul class="sa-feed"><li><a class="sa-link" href="#/ops/agent?tab=searches&amp;status=running">Running searches</a></li><li><a class="sa-link" href="#/ops/agent?tab=apify&amp;status=failed">Failed Apify jobs</a></li><li><a class="sa-link" href="#/jobs?tab=failed">Retry failed jobs →</a></li><li><a class="sa-link" href="#/apify">Apify connection →</a></li></ul></div></div>' +
+      '<div class="sa-section" id="agK"></div><div class="sa-section" id="agTabs" data-tour="ops-agent-tabs"></div>';
+    opsKpis($('#agK', root)).catch(function () {});
+    var tab = q.tab || 'searches';
+    tabs($('#agTabs', root), [['searches', 'Searches'], ['apify', 'Apify jobs'], ['leads', 'Leads']], tab, function (key, el) {
+      var keep = key === tab ? q : {};
+      if (key === 'apify') return searchesList(el, {}, { apifyOnly: true, initial: { status: keep.status || '' } });
+      if (key === 'leads') {
+        el.innerHTML = '<p class="sa-small sa-muted" style="margin:0 0 10px">Every organization\'s leads, contact details masked. Open a lead for status, notes and follow-ups.</p><div id="agLeads"></div>';
+        return leadsList($('#agLeads', el), keep.run ? { run_id: keep.run } : {}, { initial: { organization_id: keep.org || '' } });
+      }
+      return searchesList(el, {}, { initial: { status: q.tab ? keep.status || '' : 'running', q: keep.q || '', from: keep.from || '', to: keep.to || '' } });
+    });
   }
-  async function viewOpsSearches(root, q) {
-    root.innerHTML = header('Searches', 'Every URL search across all organizations. Click a row to investigate the full chain.', adminLink('jobs', 'Jobs browser')) + '<div id="osK"></div><div class="sa-section" id="osList"></div>';
-    opsKpis($('#osK', root)).catch(function () {});
-    searchesList($('#osList', root), {}, { initial: { status: q.status || '', q: q.q || '', from: q.from || '', to: q.to || '' } });
-  }
-  async function viewOpsJobs(root, q) {
-    root.innerHTML = header('Apify jobs', 'Scraper runs with actor, run id, cost and errors.', adminLink('failed', 'Failed jobs & retry') + adminLink('apify', 'Apify registry')) + '<div id="ojList"></div>';
-    searchesList($('#ojList', root), {}, { apifyOnly: true, initial: { status: q.status || '' } });
-  }
-  async function viewOpsLeads(root, q) {
-    root.innerHTML = header('Leads', 'Global lead monitor. Contact details are masked here; open a lead in the platform console for item-level work.', adminLink('leads', 'Lead browser')) + '<div id="olList"></div>';
-    leadsList($('#olList', root), q.run ? { run_id: q.run } : {}, { initial: { organization_id: q.org || '' } });
-  }
+  // the old Searches / Apify jobs / Leads routes: aliases to Jobs and Leads; these are the fallbacks when those pages are not loaded
+  async function viewOpsSearches(root, q) { return viewOpsAgent(root, Object.assign({}, q, { tab: 'searches' })); }
+  async function viewOpsJobs(root, q) { return viewOpsAgent(root, Object.assign({}, q, { tab: 'apify' })); }
+  async function viewOpsLeads(root, q) { return viewOpsAgent(root, Object.assign({}, q, { tab: 'leads' })); }
 
   // ════════════════════════════════════════════════════════
   //  AI MANAGEMENT
@@ -2679,9 +2973,86 @@
     if (r) { toast('Prompt version saved'); if (after) after(); }
   }
 
+  // ── AI runtime (the platform-console AI / Gemini page): status, switches, live test ──
+  var AI_TOGGLES = [['ai.enabled', 'AI analysis', 'Run the Gemini stage on collected comments. When off, rules-only scoring applies.'],
+    ['ai.rule_fallback', 'Rule fallback', 'If the model is unreachable, fall back to deterministic rules instead of failing the run.']];
+  var AI_NUMBERS = [['ai.max_calls_per_job', 'Max calls per job', 'Gemini calls budgeted for a single search run.', 0, 10000, 10],
+    ['ai.temperature', 'Temperature', 'Model sampling temperature (0–1).', 0, 1, 0.05]];
+  function hrefIf(hash) { var k = String(hash).replace(/^#\/?/, '').split('?')[0]; return can(routeRole(k)) ? hash : ''; }
+  async function aiRuntime(el, key) {
+    var d = await api('/api/admin/ai'), st = d.settings || {}, c = d.counts || {}, edit = can('manager');
+    if (key === 'analysis') {
+      el.innerHTML = '<div class="sa-grid sa-kpis" data-tour="ai-status">' +
+        kpi('Model', st['ai.model'] || '—', 'changed in Global Settings', { href: hrefIf('#/settings'), icon: 'brain' }) +
+        kpi('Gemini key', d.gemini_key_configured ? 'Configured' : 'Missing', d.gemini_key_configured ? 'LeadAI\'s key is set' : 'rule fallback only', { href: hrefIf('#/provider-keys'), icon: 'key', tone: d.gemini_key_configured ? '' : 'bad' }) +
+        kpi('Analyzed (all time)', fmtN(c.analyzed), 'comments through the pipeline', { href: hrefIf('#/ci'), icon: 'msg' }) +
+        kpi('This month', fmtN(c.this_month), 'analyzed since the 1st', { icon: 'chart' }) +
+        kpi('Leads saved', fmtN(c.leads), 'comments marked as leads', { href: hrefIf('#/leads'), icon: 'star' }) + '</div>' +
+        '<div class="alert alert-info sa-section"><div class="alert-body">LeadAI\'s Gemini key (GEMINI_API_KEY) is changed, tested and stored encrypted on ' + (can('super_admin') ? '<a href="#/provider-keys">API keys</a>' : 'the Super Admin\'s API keys page') + (can('manager') ? ' or on <a href="#/environment">Environment</a>' : '') + '. Organizations on their own Gemini key use theirs. Lead scoring weights live on <a href="#/scoring">Lead scoring</a>.</div></div>';
+      return;
+    }
+    if (key === 'runtime') {
+      el.innerHTML = '<div class="sa-card" data-tour="ai-runtime"><h3><span>Runtime settings <span class="sa-small sa-muted">saved instantly</span></span>' + (edit ? '' : badge('Read-only for your role', 'muted')) + '</h3>' +
+        AI_TOGGLES.map(function (t) {
+          return '<div class="sa-flag"><label class="sa-toggle"><input type="checkbox" id="ai_' + t[0].replace(/\./g, '_') + '" data-ai="' + esc(t[0]) + '"' + (st[t[0]] ? ' checked' : '') + (edit ? '' : ' disabled') + '><span></span></label><div><label for="ai_' + t[0].replace(/\./g, '_') + '" style="font-weight:600;font-size:13px">' + esc(t[1]) + '</label><div class="sa-small sa-muted">' + esc(t[2]) + '</div></div></div>';
+        }).join('') +
+        AI_NUMBERS.map(function (n) {
+          return '<div class="sa-flag"><div style="flex:1;min-width:0"><label for="ai_' + n[0].replace(/\./g, '_') + '" style="font-weight:600;font-size:13px">' + esc(n[1]) + '</label><div class="sa-small sa-muted">' + esc(n[2]) + ' Range ' + n[3] + '–' + n[4] + '.</div></div>' +
+            '<input class="form-input" style="width:120px" type="number" id="ai_' + n[0].replace(/\./g, '_') + '" data-ainum="' + esc(n[0]) + '" min="' + n[3] + '" max="' + n[4] + '" step="' + n[5] + '" value="' + esc(st[n[0]] == null ? n[3] : st[n[0]]) + '"' + (edit ? '' : ' disabled') + '></div>';
+        }).join('') + '</div>';
+      if (!edit) return;
+      $$('[data-ai]', el).forEach(function (cb) {
+        cb.onchange = async function () {
+          var k = cb.getAttribute('data-ai'), body = {}; body[k] = cb.checked;
+          try { await api('/api/admin/ai', { method: 'PUT', body: body }); toast((AI_TOGGLES.filter(function (t) { return t[0] === k; })[0] || [0, k])[1] + ' → ' + (cb.checked ? 'on' : 'off')); }
+          catch (e) { cb.checked = !cb.checked; toast(e.message, 'error'); }
+        };
+      });
+      $$('[data-ainum]', el).forEach(function (inp) {
+        var t;
+        inp.addEventListener('input', function () {
+          clearTimeout(t);
+          t = setTimeout(async function () {
+            var k = inp.getAttribute('data-ainum'), m = AI_NUMBERS.filter(function (n) { return n[0] === k; })[0], v = parseFloat(inp.value);
+            if (isNaN(v) || v < m[3] || v > m[4]) { toast(m[1] + ': enter ' + m[3] + '–' + m[4], 'warning'); return; }
+            var body = {}; body[k] = v;
+            try { await api('/api/admin/ai', { method: 'PUT', body: body }); toast(m[1] + ' → ' + v); } catch (e) { toast(e.message, 'error'); }
+          }, 600);
+        });
+      });
+      return;
+    }
+    // live test
+    el.innerHTML = '<form class="sa-card" id="aiTestForm" data-tour="ai-test"><h3><span>Live test <span class="sa-small sa-muted">runs the real analysis on your text</span></span>' + (edit ? '' : badge('Needs the Manager role', 'muted')) + '</h3>' +
+      '<div class="sa-field"><label for="aiSample">Sample comment</label><textarea class="form-textarea" id="aiSample" name="text" rows="3" maxlength="2000">Need a website redesign for my salon, budget around 5-7k, can share more details on WhatsApp 9812345678.</textarea></div>' +
+      '<div class="sa-field" style="max-width:320px"><label for="aiAuthor">Author</label><input class="form-input" id="aiAuthor" name="author" value="Test User" maxlength="80"></div>' +
+      '<div class="sa-row sa-section"><button type="submit" class="btn btn-primary btn-sm"' + (edit ? '' : ' disabled') + '>' + ICON_SVG('zap') + 'Run live test</button><span class="sa-small sa-muted">Uses one Gemini call (or the rules when AI is off).</span></div></form>' +
+      '<div class="sa-card sa-section" id="aiResult" hidden aria-live="polite"></div>';
+    $('#aiTestForm', el).onsubmit = async function (e) {
+      e.preventDefault();
+      var fd = new FormData(this), text = String(fd.get('text') || '').trim();
+      if (!text) { toast('Write a sample comment first', 'warning'); return; }
+      try {
+        var res = await busy($('button[type=submit]', this), function () { return api('/api/admin/ai/test', { method: 'POST', body: { text: text, author: String(fd.get('author') || 'Test User') } }); });
+        var box = $('#aiResult', el); box.hidden = false;
+        var contact = res.contact && typeof res.contact === 'object' ? Object.keys(res.contact).filter(function (k) { return res.contact[k]; }) : [];
+        box.innerHTML = '<h3><span>Test result</span>' + badge(res.analyzed_by || 'gemini', res.analyzed_by === 'rule' ? 'muted' : 'primary') + '</h3><dl class="sa-kv">' +
+          '<dt>Lead?</dt><dd>' + (res.is_useful ? pill('active', 'Yes') : pill('muted', 'No')) + '</dd><dt>Reason</dt><dd>' + esc(res.reason || '—') + '</dd>' +
+          '<dt>Quality</dt><dd>' + esc(res.lead_quality || '—') + '</dd><dt>Priority</dt><dd>' + esc(res.priority || '—') + '</dd><dt>Buyer</dt><dd>' + esc(res.buyer || '—') + '</dd>' +
+          contact.map(function (k) { return '<dt>' + esc(titleCase(k)) + '</dt><dd class="sa-mono">' + esc(String(res.contact[k])) + '</dd>'; }).join('') +
+          '<dt>Lead score</dt><dd><b>' + esc(res.lead_score == null ? 0 : res.lead_score) + '</b></dd><dt>Signal score</dt><dd>' + esc(res.signal_score == null ? 0 : res.signal_score) + '</dd>' +
+          ((res.signals || []).length ? '<dt>Signals</dt><dd>' + res.signals.map(function (x) { return badge(x, 'info'); }).join(' ') + '</dd>' : '') + '</dl>';
+        toast('AI test complete');
+      } catch (err) { toast(err.message, 'error'); }
+    };
+  }
+
   async function viewAI(root, q) {
-    root.innerHTML = header('AI management', 'Usage and cost, versioned prompts with activation / rollback, and model registry.', adminLink('ai', 'Runtime settings & live test')) + '<div id="aiTabs"></div>';
-    tabs($('#aiTabs', root), [['overview', 'Overview'], ['prompts', 'Prompts & versions'], ['models', 'Models']], q.tab || 'overview', async function (key, el) {
+    var sup = can('super_admin');
+    root.innerHTML = header('AI management', sup ? 'Usage and cost, the runtime switches and a live test, versioned prompts with activation / rollback, and the model registry.' : 'Gemini analysis of collected comments: status, runtime switches and a live test of the real pipeline.') + '<div id="aiTabs" data-tour="ai-tabs"></div>';
+    var items = (sup ? [['overview', 'Overview']] : []).concat([['analysis', 'Analysis'], ['runtime', 'Runtime settings'], ['test', 'Live test']]).concat(sup ? [['prompts', 'Prompts & versions'], ['models', 'Models']] : []);
+    tabs($('#aiTabs', root), items, q.tab || items[0][0], async function (key, el) {
+      if (key === 'analysis' || key === 'runtime' || key === 'test') return aiRuntime(el, key);
       if (key === 'overview') {
         var range = q.range || '30d';
         var m = (await api('/api/super-admin/ai/overview?range=' + range)).metrics;
@@ -2689,9 +3060,9 @@
         el.innerHTML = '<div class="sa-chips">' + ['24h', '7d', '30d', '90d'].map(function (r) { return '<a class="sa-chip' + (r === range ? ' active' : '') + '" href="#/ai?range=' + r + '">' + r + '</a>'; }).join('') + '</div>' +
           '<div class="sa-grid sa-kpis">' + kpi('Requests', fmtN(m.total_requests), fmtN(m.requests_today) + ' today', { href: '#/analytics?range=' + (['7d', '30d', '90d'].indexOf(range) >= 0 ? range : '7d') }) +
           kpi('Failed', fmtN(m.failed_requests), fmtN(m.fallback_requests) + ' rule fallbacks', { href: '#/integrations', tone: m.failed_requests ? 'warn' : '' }) +
-          kpi('Avg latency', fmtN(m.avg_latency_ms) + ' ms', 'runtime settings & live test', { href: '/admin#/ai' }) + kpi('Tokens', fmtN(m.total_tokens), fmtN(m.avg_tokens) + ' avg / call', { href: '#/ai?tab=models' }) +
+          kpi('Avg latency', fmtN(m.avg_latency_ms) + ' ms', 'runtime settings & live test', { href: '#/ai?tab=runtime' }) + kpi('Tokens', fmtN(m.total_tokens), fmtN(m.avg_tokens) + ' avg / call', { href: '#/ai?tab=models' }) +
           kpi('Est. cost', '$' + Number(m.estimated_cost_usd || 0).toFixed(4), 'by organization', { href: '#/ai?range=' + range + '&section=ai-cost' }) +
-          kpi('Leads by AI', fmtN(m.ai_leads_generated), fmtN(m.ai_comments_analyzed) + ' comments analysed', { href: '#/ops/leads' }) + '</div>' +
+          kpi('Leads by AI', fmtN(m.ai_leads_generated), fmtN(m.ai_comments_analyzed) + ' comments analysed', { href: '#/leads' }) + '</div>' +
           '<div class="sa-grid sa-2 sa-section"><div class="sa-card"><h3>Requests over time</h3>' + (series.length ? lineChart(series.map(function (x) { return pick(x, ['requests', 'count', 'total']); }), series.map(function (x) { return x.date || x._id || ''; }), { title: 'AI requests' }) : emptyState('No AI calls in this range')) + '</div>' +
           '<div class="sa-card"><h3>Usage by model</h3>' + barList((m.usage_by_model || []).map(function (x) { return { label: x.model || x._id || 'unknown', value: pick(x, ['requests', 'count']) }; }), { emptyTitle: 'No model usage' }) + '</div>' +
           '<div class="sa-card"><h3>Usage by organization</h3>' + barList((m.usage_by_org || []).map(function (x) { return { label: x.organization_name || x.organization_id, value: x.requests || 0 }; }), { emptyTitle: 'No organization usage' }) + '</div>' +
@@ -2764,7 +3135,78 @@
   // ════════════════════════════════════════════════════════
   //  ANALYTICS
   // ════════════════════════════════════════════════════════
+  // ── Analytics: business & product (Super Admin) + leads & scraping (every staff role) ──
+  var LEAD_STATUSES = ['new', 'contacted', 'qualified', 'follow_up', 'converted', 'lost', 'disqualified', 'archived'];
+  var AN_OPS = { days: 14, from: '', to: '', platform: '', lead_status: '' };
   async function viewAnalytics(root, q) {
+    var sup = can('super_admin');
+    root.innerHTML = header('Analytics', sup ? 'Business and product metrics across all organizations, and the leads & scraping view of the lead engine.' : 'Leads and scraping across all organizations: jobs, leads, quality, scores and platform performance.') + '<div id="anTabs" data-tour="an-tabs"></div>';
+    var items = (sup ? [['business', 'Business & product']] : []).concat([['ops', 'Leads & scraping']]);
+    tabs($('#anTabs', root), items, q.tab || items[0][0], function (key, el) {
+      return key === 'ops' ? analyticsOps(el) : analyticsBusiness(el, q);
+    });
+  }
+  function anDist(obj, empty) {
+    var items = Object.keys(obj || {}).map(function (k) { return { label: titleCase(k), value: Number(obj[k]) || 0 }; }).filter(function (x) { return x.value; });
+    return barList(items, { emptyTitle: empty || 'No data in range' });
+  }
+  async function analyticsOps(el) {
+    var f = AN_OPS;
+    var params = f.from || f.to ? { from_date: f.from, to_date: f.to } : { days: f.days };
+    params.platform = f.platform; params.lead_status = f.lead_status;
+    var both = await Promise.all([api('/api/admin/analytics' + qs(params)),
+      api('/api/admin/dashboard' + qs({ days: f.days || 30 })).catch(function () { return null; })]);
+    var d = both[0], t = d.totals || {}, js = d.jobs_series || [], ls = d.leads_series || [];
+    var lk = both[1] && (both[1].kpis || []).filter(function (k) { return k.key === 'leads'; })[0];
+    var wow = lk && lk.change != null ? lk.change : null;
+    var rangeTxt = f.from || f.to ? (f.from || '…') + ' – ' + (f.to || 'today') : f.days === 0 ? 'today' : 'last ' + f.days + ' days';
+    el.innerHTML = '<form class="sa-filters" id="aoForm" data-tour="an-ops-filters"><div class="sa-chips" style="margin:0" role="group" aria-label="Range">' +
+      [[0, 'Today'], [7, '7 days'], [14, '14 days'], [30, '30 days'], [90, '90 days']].map(function (r) {
+        var on = !f.from && !f.to && f.days === r[0];
+        return '<button type="button" class="sa-chip' + (on ? ' active' : '') + '" data-days="' + r[0] + '"' + (on ? ' aria-pressed="true"' : ' aria-pressed="false"') + '>' + r[1] + '</button>';
+      }).join('') + '</div>' +
+      '<label class="sa-date"><span>From</span><input class="form-input" type="date" name="from" value="' + esc(f.from) + '"></label><label class="sa-date"><span>To</span><input class="form-input" type="date" name="to" value="' + esc(f.to) + '"></label>' +
+      '<label class="sr-only" for="aoPlat">Platform</label><select class="form-select" id="aoPlat" name="platform">' + PLATFORM_OPTS.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === f.platform ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' +
+      '<label class="sr-only" for="aoSt">Lead status</label><select class="form-select" id="aoSt" name="lead_status"><option value="">Any lead status</option>' + LEAD_STATUSES.map(function (x) { return '<option value="' + x + '"' + (x === f.lead_status ? ' selected' : '') + '>' + esc(titleCase(x)) + '</option>'; }).join('') + '</select>' +
+      '<button class="btn btn-secondary btn-sm" type="submit">Apply</button>' + (f.platform || f.lead_status || f.from || f.to ? '<button class="btn btn-ghost btn-sm" type="button" data-aoclear>Clear</button>' : '') + '</form>' +
+      '<div class="sa-grid sa-kpis" data-tour="an-ops-kpis">' +
+      kpi('Leads in range', fmtN(t.leads), wow != null ? (wow >= 0 ? '▲ ' : '▼ ') + Math.abs(wow).toFixed(1) + '% week over week' : esc(rangeTxt), { href: hrefIf('#/leads'), icon: 'star' }) +
+      kpi('Success rate', t.success_rate != null ? t.success_rate + '%' : '—', fmtN(t.failed) + ' failed of ' + fmtN(t.jobs), { href: hrefIf('#/jobs?tab=failed'), icon: 'activity', tone: t.failed ? 'warn' : '' }) +
+      kpi('Pages', fmtN(t.pages), 'collected in range', { href: hrefIf('#/pages'), icon: 'file' }) +
+      kpi('Comments', fmtN(t.comments), 'collected in range', { href: hrefIf('#/ci'), icon: 'msg' }) + '</div>' +
+      '<div class="sa-grid sa-2 sa-section">' +
+      '<div class="sa-card"><h3>Jobs per day</h3>' + (js.length ? lineChart(js.map(function (x) { return x.jobs || 0; }), js.map(function (x) { return x.date; }), { title: 'Jobs per day', height: 120 }) : emptyState('No jobs in range')) + '</div>' +
+      '<div class="sa-card"><h3>Failed jobs per day</h3>' + (js.length ? lineChart(js.map(function (x) { return x.failed || 0; }), js.map(function (x) { return x.date; }), { title: 'Failed jobs per day', height: 120 }) : emptyState('No jobs in range')) + '</div>' +
+      '<div class="sa-card"><h3>Leads per day</h3>' + (ls.length ? lineChart(ls.map(function (x) { return x.leads || 0; }), ls.map(function (x) { return x.date; }), { title: 'Leads per day', height: 120 }) : emptyState('No leads analysed in range')) + '</div>' +
+      '<div class="sa-card"><h3>Job statuses</h3>' + anDist(d.job_statuses, 'No jobs yet') + '</div>' +
+      '<div class="sa-card"><h3>Leads by platform</h3>' + anDist(d.leads_by_platform, 'No leads yet') + '</div>' +
+      '<div class="sa-card"><h3>Lead quality</h3>' + anDist(d.quality, 'No analysed comments yet') + '</div>' +
+      '<div class="sa-card"><h3>Lead score distribution</h3>' + barList(Object.keys(d.score_distribution || {}).map(function (k) { return { label: k, value: Number(d.score_distribution[k]) || 0 }; }), { emptyTitle: 'No scored leads in range' }) + '</div>' +
+      '<div class="sa-card"><h3>Lead pipeline status</h3>' + anDist(d.lead_statuses, 'No leads in range') + '</div></div>' +
+      '<div class="sa-card sa-section"><h3>Platform performance</h3>' + ((d.platform_perf || []).length ? '<div class="sa-table-wrap"><table class="sa-table"><thead><tr><th scope="col">Platform</th><th scope="col" class="num">Runs</th><th scope="col" class="num">Completed</th><th scope="col" class="num">Failed</th><th scope="col" class="num">Success</th><th scope="col" class="num">Leads</th></tr></thead><tbody>' +
+        d.platform_perf.map(function (x) {
+          return '<tr class="clickable" tabindex="0" data-plat="' + esc(x.platform) + '"><td><a class="sa-link" href="#/platforms/' + esc(encodeURIComponent(x.platform)) + '">' + esc(titleCase(x.platform)) + '</a></td><td class="num">' + fmtN(x.runs) + '</td><td class="num">' + fmtN(x.completed) + '</td><td class="num">' + fmtN(x.failed) + '</td><td class="num">' + (x.success_rate != null ? esc(x.success_rate) + '%' : '—') + '</td><td class="num">' + fmtN(x.leads) + '</td></tr>';
+        }).join('') + '</tbody></table></div>' : emptyState('No platform data in range')) + '</div>' +
+      '<div class="sa-card sa-section"><h3>Top pages by leads</h3>' + ((d.top_pages || []).length ? '<div class="sa-table-wrap"><table class="sa-table"><thead><tr><th scope="col">Page</th><th scope="col" class="num">Leads</th></tr></thead><tbody>' +
+        d.top_pages.map(function (x) { return '<tr><td class="cell-main">' + esc(x.page || '—') + '</td><td class="num">' + fmtN(x.leads) + '</td></tr>'; }).join('') + '</tbody></table></div>' : emptyState('No lead data yet')) + '</div>';
+    bindCharts(el); bindGo(el);
+    var again = function () { el.innerHTML = skeleton('rows'); analyticsOps(el).catch(function (e) { el.innerHTML = errorState(e, again); }); };
+    $$('[data-days]', el).forEach(function (b) { b.onclick = function () { var n = +b.getAttribute('data-days'); Object.assign(f, { days: n, from: '', to: '' }); if (!n) { var iso = isoLocal(new Date()); f.from = iso; f.to = iso; } again(); }; });
+    $('#aoForm', el).onsubmit = function (e) {
+      e.preventDefault(); var fd = new FormData(this);
+      f.from = String(fd.get('from') || ''); f.to = String(fd.get('to') || ''); f.platform = String(fd.get('platform') || ''); f.lead_status = String(fd.get('lead_status') || '');
+      if (!f.from && !f.to && !f.days) f.days = 14;
+      again();
+    };
+    var clr = $('[data-aoclear]', el); if (clr) clr.onclick = function () { Object.assign(f, { days: 14, from: '', to: '', platform: '', lead_status: '' }); again(); };
+    $$('tr[data-plat]', el).forEach(function (tr) {
+      var open = function () { go('#/platforms/' + encodeURIComponent(tr.getAttribute('data-plat'))); };
+      tr.addEventListener('click', function (e) { if (!e.target.closest('a')) open(); });
+      tr.addEventListener('keydown', function (e) { if (e.key === 'Enter') open(); });
+    });
+  }
+  function isoLocal(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  async function analyticsBusiness(root, q) {
     var range = q.range || (q.from ? '' : '30d');
     var gran = ['day', 'week', 'month'].indexOf(q.g) >= 0 ? q.g : 'day';
     var a = await api('/api/super-admin/analytics' + qs({ range: range || '30d', from: q.from, to: q.to, organization_id: q.org, granularity: gran }));
@@ -2773,7 +3215,7 @@
     function chart(title, s, href, o) {
       o = o || {};
       var cur = o.currency || s.currency || 'USD';
-      return '<div class="sa-card"><h3><span>' + esc(title) + '</span>' + (href ? '<a class="sa-link" href="' + esc(href) + '"' + (/^\/admin/.test(href) ? ' target="_blank" rel="noopener"' : '') + '>Drill down →</a>' : '') + '</h3>' +
+      return '<div class="sa-card"><h3><span>' + esc(title) + '</span>' + (href ? '<a class="sa-link" href="' + esc(href) + '">Drill down →</a>' : '') + '</h3>' +
         '<div class="total">' + esc(o.money ? fmtMoney(s.total, cur) : fmtN(s.total)) + (o.distinct ? ' <span class="sa-small sa-muted">distinct</span>' : '') + '</div>' +
         lineChart(s.values, labels, { money: o.money, currency: cur, title: title, total: s.total, unit: unit }) + '</div>';
     }
@@ -2786,8 +3228,8 @@
     // drill-down range = the analysed range (bucket labels are YYYY-MM / week starts)
     var fromTo = qs({ from: String(a.from || '').slice(0, 10), to: String(a.to || '').slice(0, 10) }).replace('?', '');
     var b = a.business, p = a.product, snap = a.snapshot;
-    root.innerHTML = header('Analytics', 'Business and product metrics · ' + fmtDate(a.from) + ' – ' + fmtDate(a.to) + ' · per ' + (UNIT_NAME[unit] || UNIT_NAME.day)[0] + ' (UTC' + (unit === 'week' ? ', weeks start Monday' : '') + ')' + (q.org ? ' · organization ' + q.org : ' · all organizations'),
-      '<button type="button" class="btn btn-secondary btn-sm" id="anTable">Table view</button>') +
+    root.innerHTML = '<div class="sa-row" style="margin-bottom:10px"><p class="sa-small sa-muted" style="margin:0;flex:1 1 260px">Business and product metrics · ' + esc(fmtDate(a.from) + ' – ' + fmtDate(a.to) + ' · per ' + (UNIT_NAME[unit] || UNIT_NAME.day)[0] + ' (UTC' + (unit === 'week' ? ', weeks start Monday' : '') + ')' + (q.org ? ' · organization ' + q.org : ' · all organizations')) + '</p>' +
+      '<button type="button" class="btn btn-secondary btn-sm" id="anTable">Table view</button></div>' +
       '<form class="sa-filters" id="anForm"><div class="sa-chips" style="margin:0">' + ['7d', '30d', '90d', '365d'].map(function (r) { return '<a class="sa-chip' + (r === range ? ' active' : '') + '" href="#/analytics' + qs({ range: r, org: q.org, g: gran === 'day' ? '' : gran }) + '"' + (r === range ? ' aria-current="true"' : '') + '>' + r + '</a>'; }).join('') + '</div>' +
       '<div class="sa-chips" style="margin:0" role="group" aria-label="Group by">' + [['day', 'Day'], ['week', 'Week'], ['month', 'Month']].map(function (g) { return '<a class="sa-chip' + (g[0] === unit ? ' active' : '') + '" href="#/analytics' + qs({ range: range, from: q.from, to: q.to, org: q.org, g: g[0] === 'day' ? '' : g[0] }) + '"' + (g[0] === unit ? ' aria-current="true"' : '') + '>' + g[1] + '</a>'; }).join('') + '</div>' +
       '<label class="sa-small sa-muted" for="anFrom">From</label><input class="form-input" type="date" id="anFrom" name="from" value="' + esc(q.from || '') + '"><label class="sa-small sa-muted" for="anTo">To</label><input class="form-input" type="date" id="anTo" name="to" value="' + esc(q.to || '') + '">' +
@@ -2799,8 +3241,8 @@
       chart('Subscriptions activated', b.subscriptions_activated, '#/subscriptions?status=active') + chart('Churn', b.churn, '#/subscriptions?status=cancelled') + revenueCharts(b.revenue, '#/payments?status=succeeded') +
       '<div class="sa-card"><h3>Plan distribution (active)</h3>' + barList(Object.keys(snap.plan_distribution).map(function (k) { return { label: k, value: snap.plan_distribution[k] }; }).sort(function (x, y) { return y.value - x.value; }), { emptyTitle: 'No active subscriptions' }) + '</div></div>' +
       '<h3 class="sa-section" style="font-size:15px">Product</h3><div class="sa-grid sa-3">' +
-      chart('Searches', p.searches, '#/ops/searches?' + fromTo) + chart('Failed searches', p.failed_searches, '#/ops/searches?status=failed&' + fromTo) + chart('Active users', p.active_users, '#/users', { distinct: true }) +
-      chart('Apify jobs', p.apify_jobs, '#/ops/jobs') + chart('Leads', p.leads, '#/ops/leads') + chart('AI calls', p.ai_calls, '#/ai') +
+      chart('Searches', p.searches, '#/ops/agent?tab=searches&' + fromTo) + chart('Failed searches', p.failed_searches, '#/ops/agent?tab=searches&status=failed&' + fromTo) + chart('Active users', p.active_users, '#/users', { distinct: true }) +
+      chart('Apify jobs', p.apify_jobs, '#/ops/agent?tab=apify') + chart('Leads', p.leads, '#/leads') + chart('AI calls', p.ai_calls, '#/ai') +
       chart('Tokens consumed', p.tokens_consumed, '#/tokens') + chart('Errors (high severity)', p.errors, '#/security') + chart('New users', p.new_users, '#/users') + '</div>' +
       '<div id="anTbl" hidden class="sa-card sa-section"></div>';
     bindCharts(root); bindGo(root);
@@ -3088,8 +3530,15 @@
       } else if (key === 'settings') {
         var d = await api(CMS + '/settings');
         var vals = d.settings || {}, fields = d.fields || schema.settings;
-        el.innerHTML = '<form class="sa-card" id="wsForm" novalidate><h3>Website settings</h3><div class="sa-form-grid">' + fields.map(function (f) {
+        // the brand has one source: Global Settings (the website, apps and emails all use it)
+        var FROM_GLOBAL = { brand_name: 'General', tagline: 'General', logo_url: 'Branding', favicon_url: 'Branding' };
+        el.innerHTML = '<form class="sa-card" id="wsForm" novalidate><h3>Website settings</h3>' +
+          '<div class="alert alert-info sa-section" role="note"><b>Brand name, tagline, logo and favicon come from Global Settings</b> — change them in ' +
+          '<a class="sa-link" href="#/settings?tab=general">Global Settings › General</a> (name, tagline) and ' +
+          '<a class="sa-link" href="#/settings?tab=branding">Global Settings › Branding</a> (logo, favicon, colours). The website, the apps and emails all follow them. ' +
+          'The matching fields below are only used when Global Settings leaves them empty.</div><div class="sa-form-grid">' + fields.map(function (f) {
           var id = 'ws_' + f.key, v = vals[f.key];
+          if (FROM_GLOBAL[f.key]) f = Object.assign({}, f, { label: f.label + ' (fallback — set in Global Settings › ' + FROM_GLOBAL[f.key] + ')' });
           if (f.kind === 'bool') return '<label class="sa-check" style="grid-column:1/-1"><input type="checkbox" name="' + esc(f.key) + '"' + (v === true || v === 'true' ? ' checked' : '') + '> ' + esc(f.label) + '</label>';
           if (f.kind === 'color') return '<div class="sa-field"><label for="' + id + '">' + esc(f.label) + '</label><div class="sa-row" style="flex-wrap:nowrap"><input type="color" aria-label="' + esc(f.label) + ' picker" data-mirror="' + id + '" value="' + esc(/^#[0-9a-f]{6}$/i.test(v || '') ? v : tokenHex('--primary')) + '" style="width:42px;height:38px;border:0;background:none"><input class="form-input" id="' + id + '" name="' + esc(f.key) + '" value="' + esc(v || '') + '" placeholder="#RRGGBB" pattern="#[0-9a-fA-F]{6}"></div></div>';
           return '<div class="sa-field"><label for="' + id + '">' + esc(f.label) + '</label><input class="form-input" id="' + id + '" name="' + esc(f.key) + '" type="' + (f.kind === 'email' ? 'email' : f.kind === 'url' ? 'url' : 'text') + '" value="' + esc(v == null ? '' : v) + '"></div>';
@@ -3249,7 +3698,8 @@
     return m ? '#/' + m[1] : link;
   }
   async function viewNotifications(root, q) {
-    root.innerHTML = header('Notifications', 'Platform events for super admins: trial sign-ups, payments, approvals, failures and security events.') + '<div id="ntTabs"></div>';
+    root.innerHTML = header('Notifications', 'Platform events for super admins: trial sign-ups, payments, approvals, failures and security events.',
+      '<a class="btn btn-secondary btn-sm" href="#/settings?tab=notifications">Email Gateway Setup</a>') + '<div id="ntTabs"></div>';
     tabs($('#ntTabs', root), [['inbox', 'Inbox'], ['outbox', 'Email outbox'], ['config', 'Configuration']], q.tab || 'inbox', async function (key, el) {
       if (key === 'inbox') {
         var unread = q.unread === '1';
@@ -3336,8 +3786,31 @@
     return lv;
   }
   async function viewAudit(root, q) {
-    root.innerHTML = header('Audit logs', 'Tamper-resistant trail of every important action: who, what, when, organization, resource, before/after and result. Read-only.') + '<div id="auList"></div>';
-    auditList($('#auList', root), q.org ? { organization_id: q.org } : {}, { initial: { action: q.action || '', category: q.category || '' } });
+    root.innerHTML = header('Audit logs', 'Tamper-resistant trail of every important action: who, what, when, organization, resource, before/after and result. Read-only.') + '<div id="auList" data-tour="audit-filters"></div>';
+    if (isStaff()) return staffAuditList($('#auList', root), q);
+    auditList($('#auList', root), q.org ? { organization_id: q.org } : {}, { initial: { action: q.action || '', category: q.category || '', q: q.q || '' } });
+  }
+  /** Platform staff: the same audit trail through GET /api/admin/audit-logs (category + action/user search). */
+  function staffAuditList(el, q) {
+    var detailText = function (dt) { return dt && typeof dt === 'object' ? Object.keys(dt).map(function (k) { var v = dt[k]; return k + '=' + (typeof v === 'object' ? JSON.stringify(v) : String(v)); }).join(' · ') : ''; };
+    listView(el, {
+      url: function (p) { return '/api/admin/audit-logs' + qs({ category: p.category, q: p.q, offset: (p.page - 1) * p.limit, limit: Math.min(p.limit, 200) }); },
+      limit: 50, initial: { category: q.category || '', q: q.q || q.action || '' }, key: 'staff-audit',
+      filters: [{ key: 'q', label: 'Action or user…' }, { key: 'category', type: 'select', label: 'Category', options: [['', 'All categories']] }],
+      onData: function (d) {
+        var sel = $('select[data-f=category]', el);
+        if (sel && d.categories && sel.options.length <= 1) d.categories.filter(Boolean).sort().forEach(function (c) { var op = document.createElement('option'); op.value = c; op.textContent = c; if (c === q.category) op.selected = true; sel.appendChild(op); });
+      },
+      columns: [
+        { label: 'When', render: function (a) { return esc(fmtDT(a.at)); } },
+        { label: 'Who', render: function (a) { return esc(a.actor_email || a.user || 'system') + '<span class="cell-sub">' + esc(a.actor_role || a.role || '') + '</span>'; } },
+        { label: 'Action', render: function (a) { return '<span class="sa-mono">' + esc(a.action) + '</span><span class="cell-sub">' + esc(a.category || '') + '</span>'; } },
+        { label: 'Details', render: function (a) { var t = detailText(a.details); return '<span class="sa-small" title="' + esc(t) + '">' + esc(short(t, 90)) + '</span>'; } },
+        { label: 'Result', render: function (a) { return pill(a.status || (a.success === false ? 'failure' : 'success')); } }
+      ],
+      rowClick: auditDrawer,
+      empty: { title: 'No audit events', desc: 'Nothing matches these filters.' }
+    });
   }
 
   // ════════════════════════════════════════════════════════
@@ -3368,17 +3841,82 @@
       empty: { title: 'No active sessions' }
     });
   }
+  // Security settings (session timeout, login protection, lockout, impersonation): the
+  // platform-console Security page. Everyone may read them; only the Super Admin saves.
+  // The audit log is always on (app/admin/audit.py), so it is shown, not offered as a switch.
+  var SEC_FIELDS = [
+    ['security.session_timeout_hours', 'Session timeout (hours)', 'Admin and customer sessions end after this many hours of inactivity.', 1, 8760],
+    ['security.lockout_threshold', 'Failed sign-ins before lockout', 'Consecutive failed sign-ins that lock an account.', 1, 50],
+    ['security.lockout_minutes', 'Lockout duration (minutes)', 'How long a locked account stays locked.', 1, 1440],
+    ['security.impersonation_minutes', 'Impersonation time limit (minutes)', 'Support sessions (Impersonate) end automatically after this time.', 5, 240]];
+  var SEC_TOGGLES = [['security.login_protection', 'Login protection', 'Rate-limit sign-in attempts and lock accounts after repeated failures.']];
+  async function securitySettings(el) {
+    var d = await api('/api/admin/security'), st = d.settings || {}, sup = can('super_admin');
+    var again = function () { return securitySettings(el).catch(function (e) { el.innerHTML = errorState(e, again); }); };
+    el.innerHTML = '<form class="sa-card" id="secForm" data-tour="sec-session" novalidate><h3><span>Session &amp; sign-in security</span>' + (sup ? '' : badge('Read-only for your role', 'muted')) + '</h3>' +
+      '<div class="sa-form-grid">' + SEC_FIELDS.map(function (f) {
+        var id = 'sec_' + f[0].replace(/\./g, '_');
+        return '<div class="sa-field"><label for="' + id + '">' + esc(f[1]) + '</label><input class="form-input" type="number" id="' + id + '" name="' + esc(f[0]) + '" min="' + f[3] + '" max="' + f[4] + '" step="1" value="' + esc(st[f[0]] == null ? '' : st[f[0]]) + '" data-orig="' + esc(st[f[0]] == null ? '' : st[f[0]]) + '"' + (sup ? '' : ' disabled') + '>' +
+          '<span class="hint">' + esc(f[2]) + ' ' + f[3] + '–' + f[4] + '.' + (f[0] === 'security.session_timeout_hours' && d.session_timeout_hours_env ? ' Environment default: ' + esc(d.session_timeout_hours_env) + ' h.' : '') + '</span></div>';
+      }).join('') + '</div>' +
+      SEC_TOGGLES.map(function (t) {
+        var id = 'sec_' + t[0].replace(/\./g, '_'), on = st[t[0]] !== false;
+        return '<div class="sa-flag"><label class="sa-toggle"><input type="checkbox" id="' + id + '" name="' + esc(t[0]) + '" data-orig="' + (on ? '1' : '0') + '"' + (on ? ' checked' : '') + (sup ? '' : ' disabled') + '><span></span></label><div><label for="' + id + '" style="font-weight:600;font-size:13px">' + esc(t[1]) + '</label><div class="sa-small sa-muted">' + esc(t[2]) + '</div></div></div>';
+      }).join('') +
+      '<dl class="sa-kv sa-section"><dt>Login protection now</dt><dd>' + (d.login_protection_active ? pill('active', 'Active') : pill('warn', 'Disabled')) + '</dd>' +
+      '<dt>Audit log</dt><dd>' + pill('active', 'Always on') + ' <span class="sa-small sa-muted">every admin action is recorded; it cannot be switched off</span></dd>' +
+      '<dt>Session epoch</dt><dd><span class="sa-mono">' + esc(String(st['security.session_epoch'] == null ? 0 : st['security.session_epoch'])) + '</span> <span class="sa-small sa-muted">raised each time every admin session is revoked</span></dd>' +
+      '<dt>Signed in as</dt><dd>' + esc((d.me || {}).email || (S.me || {}).email || '—') + ' ' + badge(roleName(), sup ? 'warning' : 'info') + '</dd></dl>' +
+      (sup ? '<div class="sa-row sa-section"><button type="submit" class="btn btn-primary btn-sm">Save security settings</button><span class="sa-small sa-muted" data-secdirty></span><span class="sa-spacer"></span>' +
+        '<button type="button" class="btn btn-danger btn-sm" id="secRevokeAll">' + ICON_SVG('refresh') + 'Revoke all admin sessions</button></div>' : '<p class="sa-small sa-muted sa-section" style="margin-bottom:0">Only the Super Admin can change these settings. Change your own password from your profile menu (top right).</p>') +
+      '</form><div class="sa-card sa-section"><h3>More</h3><div class="sa-row">' + pageLink('#/roles', 'Roles & permissions', 'key') + pageLink('#/settings', 'Global settings', 'gear') + pageLink('#/audit', 'Audit log', 'list') + '</div></div>';
+    if (!sup) return;
+    var form = $('#secForm', el);
+    var changes = function () {
+      var ch = {};
+      $$('[data-orig]', form).forEach(function (i) {
+        if (i.type === 'checkbox') { if ((i.checked ? '1' : '0') !== i.getAttribute('data-orig')) ch[i.name] = i.checked; }
+        else if (String(i.value).trim() !== i.getAttribute('data-orig')) ch[i.name] = i.value === '' ? null : Number(i.value);
+      });
+      return ch;
+    };
+    var mark = function () { var n = Object.keys(changes()).length; $('[data-secdirty]', form).textContent = n ? n + ' unsaved change(s)' : ''; };
+    form.addEventListener('input', mark); form.addEventListener('change', mark);
+    form.onsubmit = async function (e) {
+      e.preventDefault();
+      var ch = changes(), keys = Object.keys(ch);
+      if (!keys.length) { toast('No changes to save', 'info'); return; }
+      for (var i = 0; i < SEC_FIELDS.length; i++) {
+        var f = SEC_FIELDS[i]; if (!(f[0] in ch)) continue;
+        var v = ch[f[0]];
+        if (v == null || !Number.isInteger(v) || v < f[3] || v > f[4]) { toast(f[1] + ': enter a whole number from ' + f[3] + ' to ' + f[4], 'error'); return; }
+      }
+      try { await busy($('button[type=submit]', form), function () { return api('/api/admin/security', { method: 'PUT', body: ch }); }); toast(keys.length + ' security setting(s) saved'); again(); }
+      catch (err) { toast(err.message, 'error'); }
+    };
+    $('#secRevokeAll', el).onclick = async function () {
+      var r = await confirmDialog({ title: 'Revoke all admin sessions', message: 'Every admin and staff session ends at once, including yours: everyone signs in again. Customer sessions are not affected (revoke those on Active sessions).', confirmLabel: 'Revoke all' });
+      if (!r) return;
+      try { await api('/api/admin/security/revoke-sessions', { method: 'POST' }); toast('All admin sessions revoked — sign in again'); setTimeout(function () { location.href = '/login?superadmin=1'; }, 1200); }
+      catch (err) { toast(err.message, 'error'); }
+    };
+  }
   async function viewSecurity(root, q) {
+    if (isStaff()) {
+      root.innerHTML = header('Security', 'Session lifetime, sign-in protection and account lockout for the whole platform.') + '<div id="seBody"></div>';
+      return securitySettings($('#seBody', root));
+    }
     var both = await Promise.all([api('/api/super-admin/security/overview'), api('/api/super-admin/security-events?limit=1').catch(function () { return {}; })]);
     var ov = both[0], o = ov.overview, g = ov.groups, evCounts = both[1].counts || {};
     // a group box (rate limits, permission, cross-tenant) opens the event list on that group's most frequent type
     var evType = function (types) { var t = (types || []).slice().sort(function (a, b) { return (evCounts[b] || 0) - (evCounts[a] || 0); })[0]; return t ? '#/security?type=' + encodeURIComponent(t) : '#/security'; };
-    root.innerHTML = header('Security center', 'Logins, lockouts, security events, sessions, permission violations and cross-tenant attempts.', adminLink('security', 'Security configuration')) +
+    root.innerHTML = header('Security center', 'Logins, lockouts, security events, sessions, platform staff accounts and the security settings.', '<a class="btn btn-secondary btn-sm" href="#/security?tab=config">' + ICON_SVG('sliders') + 'Security settings</a><a class="btn btn-secondary btn-sm" href="#/security?tab=staff">' + ICON_SVG('shield') + 'Staff accounts</a>') +
       '<div class="sa-grid sa-kpis">' + kpi('Failed logins (24h)', fmtN(o.failed_logins_24h), fmtN(o.failed_logins_7d) + ' in 7 days', { href: '#/security?type=login_failed', tone: o.failed_logins_24h > 20 ? 'bad' : o.failed_logins_24h ? 'warn' : '' }) +
       kpi('Active lockouts', fmtN(o.active_lockouts), '', { href: '#/security?tab=lockouts&active_only=true', tone: o.active_lockouts ? 'warn' : '' }) + kpi('Rate-limit events (7d)', fmtN(o.rate_limit_events_7d), '', { href: evType(g.rate_limit) }) +
       kpi('Permission violations (7d)', fmtN(o.permission_violations_7d), '', { href: evType(g.permission), tone: o.permission_violations_7d ? 'warn' : '' }) + kpi('Cross-tenant attempts (7d)', fmtN(o.cross_tenant_attempts_7d), '', { href: evType(g.cross_tenant), tone: o.cross_tenant_attempts_7d ? 'bad' : '' }) +
       kpi('High severity (7d)', fmtN(o.high_severity_7d), '', { href: '#/security?severity=high', tone: o.high_severity_7d ? 'bad' : '' }) + kpi('Active sessions', fmtN(o.active_sessions), '', { href: '#/security?tab=sessions' }) + kpi('Logins (24h)', fmtN(o.successful_logins_24h), '', { href: '#/security?tab=logins&success=true' }) + '</div><div class="sa-section" id="seTabs"></div>';
-    tabs($('#seTabs', root), [['events', 'Security events'], ['logins', 'Login activity'], ['lockouts', 'Lockouts'], ['sessions', 'Active sessions'], ['config', 'Configuration']], q.tab || 'events', function (key, el) {
+    tabs($('#seTabs', root), [['events', 'Security events'], ['logins', 'Login activity'], ['lockouts', 'Lockouts'], ['sessions', 'Active sessions'], ['staff', 'Staff accounts'], ['config', 'Security settings']], q.tab || 'events', function (key, el) {
+      if (key === 'staff') return staffList(el);
       if (key === 'events') {
         var typeOpts = [['', 'All types'], ['login_failed', 'Failed login'], ['account_locked', 'Account locked']].concat(g.rate_limit.map(function (t) { return [t, titleCase(t)]; }), g.permission.map(function (t) { return [t, titleCase(t)]; }), g.cross_tenant.map(function (t) { return [t, titleCase(t)]; }), [['invalid_webhook_signature', 'Invalid webhook signature']]);
         listView(el, {
@@ -3431,8 +3969,7 @@
       } else if (key === 'sessions') {
         sessionsList(el, {});
       } else {
-        el.innerHTML = '<div class="sa-card"><h3>Security configuration</h3><p class="sa-small" style="color:var(--text-secondary)">Session timeout, login protection, lockout threshold/minutes and impersonation duration are managed in the platform console security settings. Audit logging is always on and cannot be disabled.</p><div class="sa-row">' +
-          adminLink('security', 'Security settings') + adminLink('settings', 'Global settings') + '<a class="btn btn-secondary btn-sm" href="#/roles">Roles & permissions</a></div></div>';
+        return securitySettings(el);
       }
     });
   }
@@ -3474,17 +4011,17 @@
     var i = (await api('/api/super-admin/integrations')).integrations;
     var ap = i.apify, ai = i.ai, pay = i.payments, em = i.email;
     root.innerHTML = header('Integrations', 'Connection status only — secret values are never sent to the browser.') + '<div class="sa-grid sa-2">' +
-      '<div class="sa-card"><h3>Apify <a class="sa-link" href="/admin#/apify" target="_blank" rel="noopener">Manage ↗</a></h3><dl class="sa-kv"><dt>API token</dt><dd>' + yes(ap.configured) + ' <a class="sa-link sa-small" href="#/provider-keys">Replace or test →</a></dd><dt>Last connection test</dt><dd>' + (ap.last_test_ok == null ? '<span class="sa-muted">never</span>' : pill(ap.last_test_ok ? 'active' : 'failed', ap.last_test_ok ? 'Passed' : 'Failed')) + ' <span class="sa-small sa-muted">' + esc(ap.last_test_at ? fmtDT(ap.last_test_at) : '') + '</span></dd>' +
+      '<div class="sa-card"><h3>Apify <a class="sa-link" href="#/apify">Manage →</a></h3><dl class="sa-kv"><dt>API token</dt><dd>' + yes(ap.configured) + ' <a class="sa-link sa-small" href="#/provider-keys">Replace or test →</a></dd><dt>Last connection test</dt><dd>' + (ap.last_test_ok == null ? '<span class="sa-muted">never</span>' : pill(ap.last_test_ok ? 'active' : 'failed', ap.last_test_ok ? 'Passed' : 'Failed')) + ' <span class="sa-small sa-muted">' + esc(ap.last_test_at ? fmtDT(ap.last_test_at) : '') + '</span></dd>' +
       '<dt>Jobs (24h)</dt><dd>' + fmtN(ap.jobs_24h) + ' · <span style="color:' + (ap.failures_24h ? 'var(--danger-text)' : 'inherit') + '">' + fmtN(ap.failures_24h) + ' failed</span></dd><dt>Usage (30d)</dt><dd>$' + esc(Number(ap.usage_usd_30d || 0).toFixed(2)) + '</dd>' +
       Object.keys(ap.actors).map(function (p) { return '<dt>' + esc(titleCase(p)) + '</dt><dd><span class="sa-mono">' + esc(ap.actors[p] || '—') + '</span> ' + (ap.platforms_enabled[p] ? pill('active', 'On') : pill('disabled', 'Off')) + '</dd>'; }).join('') + '</dl></div>' +
       '<div class="sa-card"><h3>AI provider <a class="sa-link" href="#/ai">AI management →</a></h3><dl class="sa-kv"><dt>Provider</dt><dd>' + esc(titleCase(ai.provider)) + '</dd><dt>API key</dt><dd>' + yes(ai.configured) + (String(ai.provider || '').toLowerCase() === 'gemini' ? ' <a class="sa-link sa-small" href="#/provider-keys">Replace or test →</a>' : '') + '</dd><dt>AI enabled</dt><dd>' + yes(ai.enabled, 'Enabled', 'Disabled') + '</dd><dt>Model</dt><dd class="sa-mono">' + esc(ai.model) + '</dd><dt>Calls (24h)</dt><dd>' + fmtN(ai.requests_24h) + ' · ' + fmtN(ai.failures_24h) + ' failed</dd></dl></div>' +
-      '<div class="sa-card"><h3>Payment provider</h3><dl class="sa-kv"><dt>Active provider</dt><dd>' + pill(pay.provider === 'mock' ? 'warn' : 'active', titleCase(pay.provider)) + '</dd><dt>Stripe secret key</dt><dd>' + yes(pay.stripe_key_configured) + '</dd><dt>Stripe webhook secret</dt><dd>' + yes(pay.stripe_webhook_secret_configured) + '</dd><dt>BILLING_WEBHOOK_SECRET</dt><dd>' + yes(pay.billing_webhook_secret_configured) + '</dd><dt>Failed payments (7d)</dt><dd>' + fmtN(pay.failed_payments_7d) + '</dd></dl>' +
-      (pay.provider === 'mock' ? '<p class="sa-small sa-muted">The mock provider is active because no Stripe secret key is configured.</p>' : '') + '</div>' +
-      '<div class="sa-card"><h3>Email <a class="sa-link" href="#/notifications?tab=outbox">Outbox →</a></h3><dl class="sa-kv"><dt>SMTP host</dt><dd>' + yes(em.smtp_configured, 'Configured', 'Not configured — queue only') + '</dd><dt>SMTP auth</dt><dd>' + yes(em.smtp_auth_configured) + '</dd><dt>PUBLIC_BASE_URL</dt><dd>' + yes(em.public_base_url_configured, 'Set', 'Not set — links are relative') + '</dd>' +
+      '<div class="sa-card"><h3>Payment provider <a class="sa-link" href="#/settings?tab=payments">Set up →</a></h3><dl class="sa-kv"><dt>Active provider</dt><dd>' + pill(pay.provider === 'mock' ? 'warn' : 'active', pay.provider === 'mock' ? 'Mock (test only)' : titleCase(pay.provider)) + '</dd><dt>Razorpay keys</dt><dd>' + yes(pay.razorpay_key_configured) + '</dd><dt>Razorpay webhook secret</dt><dd>' + yes(pay.razorpay_webhook_secret_configured) + '</dd><dt>Stripe secret key</dt><dd>' + yes(pay.stripe_key_configured) + '</dd><dt>Stripe webhook secret</dt><dd>' + yes(pay.stripe_webhook_secret_configured) + '</dd><dt>BILLING_WEBHOOK_SECRET</dt><dd>' + yes(pay.billing_webhook_secret_configured) + '</dd><dt>Failed payments (7d)</dt><dd>' + fmtN(pay.failed_payments_7d) + '</dd></dl>' +
+      (pay.provider === 'mock' ? '<p class="sa-small sa-muted">The test-only mock page is used because no Razorpay or Stripe keys are set, so no real money is collected. <a class="sa-link" href="#/settings?tab=payments">Set up payments →</a></p>' : '') + '</div>' +
+      '<div class="sa-card"><h3>Email <a class="sa-link" href="#/settings?tab=notifications">Set up →</a> <a class="sa-link" href="#/notifications?tab=outbox">Outbox →</a></h3><dl class="sa-kv"><dt>SMTP host</dt><dd>' + yes(em.smtp_configured, 'Configured', 'Not configured — queue only') + '</dd><dt>SMTP auth</dt><dd>' + yes(em.smtp_auth_configured) + '</dd><dt>PUBLIC_BASE_URL</dt><dd>' + yes(em.public_base_url_configured, 'Set', 'Not set — links are relative') + '</dd>' +
       '<dt>Outbox</dt><dd>' + fmtN(em.outbox.queued) + ' queued · ' + fmtN(em.outbox.sent) + ' sent · ' + fmtN(em.outbox.failed) + ' failed</dd></dl></div>' +
       '<div class="sa-card"><h3>Storage</h3><dl class="sa-kv"><dt>Exports</dt><dd>' + fmtN(i.storage.exports) + '</dd><dt>Website media files</dt><dd>' + fmtN(i.storage.media_files) + '</dd></dl></div>' +
-      '<div class="sa-card"><h3>Database <a class="sa-link" href="/admin#/database" target="_blank" rel="noopener">Details ↗</a></h3><dl class="sa-kv"><dt>Connection</dt><dd>' + yes(i.database.connected, 'Connected', 'Unreachable') + '</dd><dt>Ping latency</dt><dd>' + esc(i.database.latency_ms == null ? '—' : i.database.latency_ms + ' ms') + '</dd></dl></div></div>' +
-      '<p class="sa-small sa-muted sa-section">The Apify and Gemini keys LeadAI provides to customers are replaced and tested on <a href="#/provider-keys">API keys</a>. Other secrets are edited only in the locked environment panel of the platform console (<a href="/admin#/environment" target="_blank" rel="noopener">Environment ↗</a>).</p>';
+      '<div class="sa-card"><h3>Database <a class="sa-link" href="#/database">Details →</a></h3><dl class="sa-kv"><dt>Connection</dt><dd>' + yes(i.database.connected, 'Connected', 'Unreachable') + '</dd><dt>Ping latency</dt><dd>' + esc(i.database.latency_ms == null ? '—' : i.database.latency_ms + ' ms') + '</dd></dl></div></div>' +
+      '<p class="sa-small sa-muted sa-section">The Apify and Gemini keys LeadAI provides to customers are replaced and tested on <a href="#/provider-keys">API keys</a>. Other secrets are edited only on the guard-password protected <a href="#/environment">Environment</a> page.</p>';
     // environment-only variables that still have a value stored in the app
     try {
       var lo = await api('/api/super-admin/config/legacy-overrides');
@@ -3509,18 +4046,50 @@
   }
 
   // health component -> the module that owns it
-  var HEALTH_GO = { api: '/admin#/health', database: '/admin#/database', apify: '#/ops/jobs', ai: '#/ai?range=24h', payments: '#/payments',
-    email: '#/notifications?tab=outbox', jobs: '#/ops/searches?status=running', failed_jobs: '#/ops/searches?status=failed', errors: '/admin#/logs' };
+  var HEALTH_GO = { api: '#/health?section=platform-checks', database: '#/database', apify: '#/ops/agent?tab=apify', ai: '#/ai?range=24h', payments: '#/payments',
+    email: '#/notifications?tab=outbox', jobs: '#/ops/agent?tab=searches&status=running', failed_jobs: '#/jobs?tab=failed', errors: '#/logs?level=ERROR' };
+  var CHECK_LABEL = { mongo: 'MongoDB', apify: 'Apify', gemini: 'Gemini', logs: 'Log file', maintenance: 'Maintenance', recent_errors: 'Failed jobs (24h)' };
+  var CHECK_GO = { mongo: '#/database', apify: '#/apify', gemini: '#/ai?tab=analysis', logs: '#/logs', maintenance: '#/maintenance', recent_errors: '#/jobs?tab=failed' };
+  /** The platform-console health checks (GET /api/admin/health): every staff role may read them. */
+  function platformChecksHtml(ph) {
+    var ch = ph.checks || {};
+    var up = Number(ph.uptime_s || 0), upTxt = up >= 86400 ? Math.floor(up / 86400) + 'd ' + Math.floor(up % 86400 / 3600) + 'h' : up >= 3600 ? Math.floor(up / 3600) + 'h ' + Math.floor(up % 3600 / 60) + 'm' : Math.round(up / 60) + 'm';
+    return '<div class="sa-card sa-section" data-section="platform-checks" tabindex="-1" data-tour="health-hero"><h3><span>Platform checks <span class="sa-small sa-muted">overall ' + esc(ph.overall || '—') + ' · checked ' + esc(ago(ph.checked_at)) + (ph.version ? ' · v' + esc(ph.version) : '') + (ph.uptime_s != null ? ' · up ' + esc(upTxt) : '') + '</span></span>' + pill(ph.overall === 'ok' ? 'ok' : 'warn', ph.overall === 'ok' ? 'Healthy' : 'Degraded') + '</h3>' +
+      '<div class="sa-grid sa-kpis">' + Object.keys(ch).map(function (k) {
+        var c = ch[k] || {}, ok = c.ok !== undefined ? c.ok : k === 'maintenance' ? !c.enabled : k === 'recent_errors' ? !c.count_24h : true;
+        var bits = [];
+        if (c.latency_ms != null) bits.push(c.latency_ms + ' ms');
+        if (c.token_hint) bits.push('token ' + c.token_hint);
+        if (c.last_test_ok != null) bits.push('last test ' + (c.last_test_ok ? 'passed' : 'failed'));
+        if (k === 'maintenance') bits.push(c.enabled ? 'maintenance mode is ON' : 'off');
+        if (k === 'recent_errors') bits.push(fmtN(c.count_24h || 0) + ' failed search' + (c.count_24h === 1 ? '' : 'es') + ' in 24h');
+        if (c.path) bits.push(c.path);
+        if (c.error) bits.push(c.error);
+        var lbl = k === 'recent_errors' ? fmtN(c.count_24h || 0) : ok ? 'OK' : (k === 'maintenance' ? 'On' : 'Failed');
+        return kpi(CHECK_LABEL[k] || titleCase(k), '', esc(bits.join(' · ') || (ok ? 'working' : 'not working')), { href: hrefIf(CHECK_GO[k] || ''), tone: ok ? '' : k === 'maintenance' || k === 'recent_errors' ? 'warn' : 'bad',
+          valueHtml: '<span class="sa-dot ' + (ok ? 'ok' : k === 'maintenance' || k === 'recent_errors' ? 'warn' : 'err') + '" aria-hidden="true"></span> ' + esc(lbl) });
+      }).join('') + '</div></div>';
+  }
   async function viewHealth(root) {
-    var h = (await api('/api/super-admin/health')).health;
+    if (isStaff()) {
+      var ph0 = await api('/api/admin/health');
+      setHealthPill(ph0.overall === 'ok' ? 'ok' : 'warn');
+      root.innerHTML = header('System health', 'Live checks of the services behind LeadAI · refreshes every 30 seconds.', '<button type="button" class="btn btn-secondary btn-sm" id="hRef">' + ICON_SVG('refresh') + 'Refresh</button>' + pageLink('#/logs', 'Logs', 'terminal') + pageLink('#/database', 'Database', 'database')) + platformChecksHtml(ph0);
+      $('#hRef', root).onclick = function () { route(); };
+      S.timers.push(setInterval(function () { if (!document.hidden && /^#\/?health/.test(location.hash)) route(true); }, 30000));
+      return;
+    }
+    var hr = await Promise.all([api('/api/super-admin/health'), api('/api/admin/health').catch(function () { return null; })]);
+    var h = hr[0].health, ph = hr[1];
     setHealthPill(h.overall);
-    root.innerHTML = header('System health', 'Checked ' + ago(h.checked_at) + ' · refreshes every 30 seconds.', '<button type="button" class="btn btn-secondary btn-sm" id="hRef">↻ Refresh</button>' + adminLink('health', 'Platform console health') + adminLink('logs', 'Logs')) +
+    root.innerHTML = header('System health', 'Checked ' + ago(h.checked_at) + ' · refreshes every 30 seconds.', '<button type="button" class="btn btn-secondary btn-sm" id="hRef">' + ICON_SVG('refresh') + 'Refresh</button>' + pageLink('#/logs', 'Logs', 'terminal') + pageLink('#/database', 'Database', 'database')) +
       '<div class="sa-grid sa-kpis">' + h.components.map(function (c) {
         return kpi(c.label, '', esc(c.detail), { href: HEALTH_GO[c.key] || '#/integrations', tone: c.status === 'warn' ? 'warn' : c.status === 'ok' ? '' : 'bad',
           valueHtml: '<span class="sa-dot ' + esc(c.status) + '" aria-hidden="true"></span> ' + esc(c.status === 'ok' ? 'Healthy' : c.status === 'warn' ? 'Attention' : 'Unhealthy') });
       }).join('') + '</div>' +
       '<div class="sa-grid sa-2 sa-section"><div class="sa-card"><h3>Recent server errors (5xx)</h3>' + ((h.recent_errors || []).length ? '<ul class="sa-feed">' + h.recent_errors.map(function (e) { return '<li><div><b>' + esc(e.title) + '</b><div class="sa-small sa-muted">' + esc(e.message) + '</div></div><span class="when">' + esc(ago(e.created_at)) + '</span></li>'; }).join('') + '</ul>' : emptyState('No server errors in 7 days')) + '</div>' +
-      '<div class="sa-card"><h3>Collections</h3>' + barList(Object.keys(h.collection_counts || {}).map(function (k) { return { label: k, value: h.collection_counts[k] }; })) + '</div></div>';
+      '<div class="sa-card"><h3>Collections <a class="sa-link" href="#/database">Sizes &amp; indexes →</a></h3>' + barList(Object.keys(h.collection_counts || {}).map(function (k) { return { label: k, value: h.collection_counts[k] }; })) + '</div></div>' +
+      (ph ? platformChecksHtml(ph) : '');
     $('#hRef', root).onclick = function () { route(); };
     S.timers.push(setInterval(function () { if (!document.hidden && /^#\/?health/.test(location.hash)) route(true); }, 30000));
   }
@@ -3640,12 +4209,60 @@
       };
     });
   }
+  var FEATURE_META = { 'features.url_search.enabled': ['URL search', 'Allow searching by direct URL in the user app.'],
+    'features.exports.enabled': ['Exports', 'Allow CSV export endpoints.'],
+    'features.demo_registration.enabled': ['Free-trial sign-ups', 'When off, the public website stops accepting new trial sign-ups.'],
+    'ai.enabled': ['AI analysis', 'Global switch for AI comment analysis (the rules still run).'] };
+  /** Platform staff: the feature and platform switches (GET/PUT /api/admin/features; managers save). */
+  async function staffFeatures(el) {
+    var st = (await api('/api/admin/features')).settings || {}, edit = can('manager');
+    var row = function (k, label, hint) {
+      var id = 'ft_' + k.replace(/\./g, '_');
+      return '<div class="sa-flag"><label class="sa-toggle"><input type="checkbox" id="' + id + '" data-ft="' + esc(k) + '"' + (st[k] ? ' checked' : '') + (edit ? '' : ' disabled') + '><span></span></label><div><label for="' + id + '" style="font-weight:600;font-size:13px">' + esc(label) + '</label><div class="sa-small sa-muted">' + esc(hint) + '</div></div></div>';
+    };
+    var feats = Object.keys(st).filter(function (k) { return /^features\./.test(k); }), plats = Object.keys(st).filter(function (k) { return /^platform\./.test(k); });
+    el.innerHTML = (edit ? '' : '<div class="alert alert-info"><div class="alert-body">Read-only for your role: a Manager or the Super Admin changes these switches.</div></div>') +
+      '<div class="sa-grid sa-2 sa-section"><div class="sa-card"><h3>Product features</h3>' + feats.map(function (k) { var m = FEATURE_META[k] || [titleCase(k.split('.')[1] || k), '']; return row(k, m[0], m[1]); }).join('') + '</div>' +
+      '<div class="sa-card"><h3>Scraping platforms</h3>' + plats.map(function (k) { var pl = k.split('.')[1]; return row(k, titleCase(pl), 'Scraping on ' + pl + ' is ' + (st[k] ? 'enabled' : 'disabled') + '. Actors are set on Platforms.'); }).join('') + '</div></div>';
+    if (!edit) return;
+    $$('[data-ft]', el).forEach(function (cb) {
+      cb.onchange = async function () {
+        var k = cb.getAttribute('data-ft'), on = cb.checked, body = {}; body[k] = on;
+        if (!on && !(await confirmDialog({ title: 'Turn off ' + ((FEATURE_META[k] || [k])[0]) + '?', message: 'New actions that need it are blocked immediately. Existing data is not changed.', confirmLabel: 'Turn off' }))) { cb.checked = true; return; }
+        try { await api('/api/admin/features', { method: 'PUT', body: body }); toast(((FEATURE_META[k] || [titleCase(k)])[0]) + ' → ' + (on ? 'on' : 'off')); }
+        catch (e) { cb.checked = !on; toast(e.message, 'error'); }
+      };
+    });
+  }
   async function viewFlags(root) {
-    root.innerHTML = header('Feature flags', 'Global switches for product features, scraping platforms, maintenance and notifications.', adminLink('features', 'Platform console features')) + '<div id="ffBody"></div>';
+    root.innerHTML = header('Feature flags', 'Global switches for product features (URL search, exports, free-trial sign-ups, AI analysis), scraping platforms' + (isStaff() ? '.' : ', maintenance and notifications.')) + '<div id="ffBody"></div>';
+    if (isStaff()) return staffFeatures($('#ffBody', root));
     await flagsEditor($('#ffBody', root), ['features', 'platforms', 'maintenance']);
   }
+  /** Platform staff: maintenance switch and notice (GET/POST /api/admin/maintenance; managers save). */
+  async function staffMaintenance(el) {
+    var d = await api('/api/admin/maintenance'), edit = can('manager');
+    var again = function () { return staffMaintenance(el).catch(function (e) { el.innerHTML = errorState(e, again); }); };
+    el.innerHTML = '<div class="sa-card" data-tour="maint-card"><h3><span>Maintenance mode</span>' + (d.enabled ? pill('warn', 'Active') : pill('active', 'Off')) + '</h3>' +
+      '<div class="sa-flag"><label class="sa-toggle"><input type="checkbox" id="mtOn"' + (d.enabled ? ' checked' : '') + (edit ? '' : ' disabled') + '><span></span></label><div><label for="mtOn" style="font-weight:600;font-size:13px">Maintenance active</label><div class="sa-small sa-muted">' + (d.enabled ? 'Searches are refused and customers see the notice below.' : 'Search and sign-in behave normally.') + '</div></div></div>' +
+      '<form class="sa-field sa-section" id="mtMsgForm"><label for="mtMsg">Notice shown to customers</label><textarea class="form-textarea" id="mtMsg" name="message" rows="2" maxlength="4000"' + (edit ? '' : ' disabled') + '>' + esc(d.message || '') + '</textarea>' +
+      (edit ? '<div class="sa-row" style="margin-top:6px"><button type="submit" class="btn btn-primary btn-sm">Save notice</button><span class="sa-small sa-muted">Saving the notice also turns maintenance on.</span></div>' : '<span class="hint">Read-only for your role.</span>') + '</form></div>';
+    if (!edit) return;
+    $('#mtOn', el).onchange = async function () {
+      var on = this.checked, cb = this;
+      if (on && !(await confirmDialog({ title: 'Turn maintenance mode on?', message: 'Customers see a maintenance page until you turn it off. Admin pages, sign-in and health stay reachable.', confirmLabel: 'Turn on' }))) { cb.checked = false; return; }
+      try { await api('/api/admin/maintenance', { method: 'POST', body: { enabled: on } }); toast('Maintenance ' + (on ? 'enabled' : 'disabled')); again(); } catch (e) { cb.checked = !on; toast(e.message, 'error'); }
+    };
+    $('#mtMsgForm', el).onsubmit = async function (e) {
+      e.preventDefault();
+      var msg = String(new FormData(this).get('message') || '').trim();
+      if (!msg) { toast('Write a notice first', 'warning'); return; }
+      try { await busy($('button[type=submit]', this), function () { return api('/api/admin/maintenance', { method: 'POST', body: { enabled: true, message: msg } }); }); toast('Notice saved — maintenance is on'); again(); } catch (err) { toast(err.message, 'error'); }
+    };
+  }
   async function viewMaintenance(root) {
-    root.innerHTML = header('Maintenance', 'Maintenance mode blocks the customer app with a 503 page. Admin consoles, sign-in and health stay reachable.', adminLink('maintenance', 'Maintenance tools') + adminLink('settings', 'Global settings')) + '<div id="mtLc" style="margin-bottom:12px"></div><div id="mtBody"></div>';
+    root.innerHTML = header('Maintenance', 'Maintenance mode blocks the customer app with a 503 page. Admin pages, sign-in and health stay reachable.', pageLink('#/settings', 'Global settings', 'gear')) + '<div id="mtLc" style="margin-bottom:12px"></div><div id="mtBody"></div>';
+    if (isStaff()) return staffMaintenance($('#mtBody', root));
     await Promise.all([flagsEditor($('#mtBody', root), ['maintenance']), lifecycleCard($('#mtLc', root), 'It ends, marks past due and expires subscriptions and free trials over time.')]);
   }
 
@@ -3667,6 +4284,711 @@
   }
 
   // ════════════════════════════════════════════════════════
+  //  MESSAGING: email + SMS to anyone, the automatic sign-up / sign-in
+  //  messages and the gateway. The backend never returns a secret, only
+  //  whether one is set; secret fields here are write-only.
+  // ════════════════════════════════════════════════════════
+  var MSG_API = '/api/super-admin/messaging';
+  // [audience, label, who it is] — the backend takes one group per message
+  var MSG_AUDIENCES = [
+    ['', 'No group', 'Only the people and organizations you pick below'],
+    ['org_admins', 'All organization owners & admins', 'The owner and every admin of every organization'],
+    ['all_users', 'All users', 'Every active customer account, admins included (not partners)'],
+    ['partners', 'All partners', 'Every active affiliate and reseller']
+  ];
+  var MSG_CH = { email: 'Email', sms: 'SMS' };
+  var SMS_PROV = {
+    '': ['Not set up', 'Nothing is delivered: texts wait in the SMS outbox, so you can see what would have gone out.'],
+    twilio: ['Twilio', 'Worldwide. Needs the Account SID and Auth Token from the Twilio console, and a sender: a Twilio number or a Messaging Service SID (MG…).'],
+    fast2sms: ['Fast2SMS', 'India only (+91 numbers), on the Quick SMS route. Needs the API key from the Fast2SMS dashboard.'],
+    webhook: ['Webhook', 'Any other provider, e.g. MSG91 or Textlocal: LeadAI POSTs {"to", "message", "kind"} as JSON to your HTTPS address, with the optional token as "Authorization: Bearer …".']
+  };
+  var SMS_NEED = { TWILIO_ACCOUNT_SID: 'Account SID', TWILIO_AUTH_TOKEN: 'Auth token', TWILIO_FROM: 'Sender', FAST2SMS_API_KEY: 'API key', SMS_WEBHOOK_URL: 'Webhook URL' };
+  var SMS_KIND = { welcome: 'Welcome', login_alert: 'Sign-in alert', admin_message: 'Message', test: 'Test', password_reset_code: 'Password reset code', verification_code: 'Verification code', generic: 'Other' };
+  var MSG_DRAFT = null, MSG_LAST = null, MSG_AUD_N = null;
+  function msgDraft() {
+    return MSG_DRAFT || (MSG_DRAFT = { audience: '', people: [], orgs: [], email: true, sms: false, subject: '', body: '', short: false, sms_body: '' });
+  }
+  function msgProvName(p) { return (SMS_PROV[p || ''] || [titleCase(p)])[0]; }
+  function msgChannels(chs) { return (chs || []).map(function (c) { return badge(MSG_CH[c] || c, c === 'sms' ? 'primary' : 'info'); }).join(' '); }
+  function msgAlert(tone, html) { return '<div class="alert alert-' + tone + '" style="margin-top:8px"><div class="alert-body">' + html + '</div></div>'; }
+  function msgPeopleN(n) { return fmtN(n) + ' ' + (n === 1 ? 'person' : 'people'); }
+  // GSM-7 text: 160 characters per SMS (153 each when split). Anything else (emoji, Hindi…) is UCS-2: 70 (67).
+  var GSM_RE = /^[@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&'()*+,\-.\/0-9:;<=>?¡A-ZÄÖÑÜ§¿a-zäöñüà^{}\\\[~\]|€]*$/;
+  function smsInfo(text) {
+    text = String(text || '');
+    var gsm = GSM_RE.test(text);
+    var n = gsm ? text.length + (text.match(/[\^{}\\\[~\]|€]/g) || []).length : text.length;
+    var one = gsm ? 160 : 70, part = gsm ? 153 : 67;
+    return { n: n, gsm: gsm, limit: one, segments: !n ? 0 : n <= one ? 1 : Math.ceil(n / part) };
+  }
+  function smsCounter(box, text) {
+    var s = smsInfo(text);
+    box.classList.toggle('over', s.segments > 1);
+    box.innerHTML = '<span>' + fmtN(s.n) + ' / ' + s.limit + ' characters</span><span>' +
+      (s.segments > 1 ? s.segments + ' SMS — sent as one long text, billed as ' + s.segments : s.segments + ' SMS') +
+      (s.gsm ? '' : ' · emoji or non-Latin letters: 70 per SMS') + '</span>';
+  }
+  /** Rough group sizes for the summary (the server removes duplicates and inactive accounts). */
+  function msgAudienceCounts() {
+    if (MSG_AUD_N) return MSG_AUD_N;
+    var total = function (p) { return api(p).then(function (r) { return r.total != null ? r.total : null; }, function () { return null; }); };
+    MSG_AUD_N = Promise.all([total('/api/super-admin/admins?limit=1&status=active'), total('/api/super-admin/users?limit=1&status=active'),
+      total('/api/super-admin/partners?limit=1&status=active')]).then(function (a) { return { org_admins: a[0], all_users: a[1], partners: a[2] }; });
+    return MSG_AUD_N;
+  }
+
+  async function viewMessaging(root, q) {
+    MSG_AUD_N = null;
+    var r = await Promise.all([api(MSG_API), api('/api/super-admin/messages?limit=200').catch(function () { return null; })]);
+    var ctx = { ov: r[0], sent: r[1] ? r[1].messages || [] : null };
+    var showTab;
+    root.innerHTML = header('Messaging', 'Email or text (SMS) anyone on the platform: one person, whole organizations, every organization admin, every user or every partner. Choose the automatic sign-up and sign-in messages, and set up the gateway that delivers them.') +
+      '<div class="sa-grid sa-kpis" id="msgKpis" data-tour="msg-kpis"></div><div class="sa-section" id="msgTabs" data-tour="msg-tabs"></div>';
+    ctx.kpis = function () {
+      var ov = ctx.ov, em = ov.email || {}, sm = ov.sms || {}, au = ov.automatic || {};
+      var on = ['welcome_sms', 'login_alert_email', 'login_alert_sms'].filter(function (k) { return au[k]; }).length;
+      var lim = sm.daily_limit || 0, pct = lim ? (sm.sent_today || 0) * 100 / lim : 0;
+      var sending = (ctx.sent || []).filter(function (m) { return m.status === 'sending'; }).length;
+      var need = (sm.missing || []).map(function (n) { return SMS_NEED[n] || n; }).join(', ');
+      var box = $('#msgKpis', root);
+      if (!box) return;
+      box.innerHTML =
+        kpi('Email', em.configured ? 'Delivering' : 'Outbox only', esc(em.configured ? 'from ' + (em.from || '—') : 'no email server: emails wait in the outbox'), { href: '#/messaging?tab=gateway', icon: 'mail', tone: em.configured ? '' : 'warn' }) +
+        kpi('SMS', sm.configured ? msgProvName(sm.provider) : sm.provider ? msgProvName(sm.provider) + ' · incomplete' : 'Not set up', esc(sm.configured ? 'texts are delivered' : sm.provider ? 'missing ' + need : 'texts wait in the SMS outbox'), { href: '#/messaging?tab=gateway', icon: 'phone', tone: sm.configured ? '' : 'warn' }) +
+        kpi('Texts today', fmtN(sm.sent_today), esc('of ' + fmtN(lim) + ' a day · ' + fmtN(sm.per_number_daily_limit) + ' per number'), { href: '#/messaging?tab=gateway&section=sms-outbox', icon: 'chart', tone: pct >= 100 ? 'bad' : pct >= 80 ? 'warn' : '' }) +
+        kpi('Automatic messages', on + ' of 3 on', 'welcome text · sign-in alerts', { href: '#/messaging?tab=auto', icon: 'bolt' }) +
+        kpi('Messages sent', ctx.sent ? fmtN(ctx.sent.length) + (ctx.sent.length >= 200 ? '+' : '') : '—', sending ? esc(sending + ' sending now') : ctx.sent && ctx.sent.length ? esc('last ' + ago(ctx.sent[0].created_at)) : 'none yet', { href: '#/messaging?tab=sent', icon: 'send' });
+      // the boxes switch tabs in place (no reload of the page)
+      $$('[data-go]', box).forEach(function (b) {
+        b._go = true;
+        b.addEventListener('click', function (e) {
+          e.preventDefault();
+          var p = new URLSearchParams(b.getAttribute('data-go').split('?')[1] || '');
+          showTab(p.get('tab') || 'send', true);
+          if (p.get('section')) revealSection(p.get('section'));
+        });
+      });
+    };
+    ctx.reloadOv = async function () { try { ctx.ov = await api(MSG_API); ctx.kpis(); } catch (e) { /* the tabs show errors */ } };
+    ctx.reloadSent = async function () { try { ctx.sent = (await api('/api/super-admin/messages?limit=200')).messages || []; ctx.kpis(); } catch (e) { /* keep the old count */ } };
+    ctx.show = function (k, section) { showTab(k, true); if (section) revealSection(section); };
+    var to = q.to;
+    showTab = tabs($('#msgTabs', root), [['send', 'Send message'], ['sent', 'Sent messages'], ['auto', 'Automatic messages'], ['gateway', 'Gateway']], to ? 'send' : (q.tab || 'send'), function (key, el) {
+      if (key === 'sent') return msgSentTab(el, ctx);
+      if (key === 'auto') return msgAutoTab(el, ctx);
+      if (key === 'gateway') return msgGatewayTab(el, ctx);
+      var t = to; to = null; // prefill once
+      return msgSendTab(el, ctx, t);
+    });
+    ctx.kpis();
+  }
+
+  // ── Send message ──
+  function msgPickBox(id, ph) {
+    return '<div class="sa-rel sa-msg-pick"><input class="form-input" type="search" id="' + id + '" placeholder="' + esc(ph) + '" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="' + id + 'Pop">' +
+      '<div class="sa-pop" id="' + id + 'Pop" role="listbox" aria-label="Matches" hidden></div></div>';
+  }
+  /** Search-as-you-type picker: o = {search(q) -> Promise<items>, render(item), picked(item), add(item), hint}. */
+  function msgPicker(inp, o) {
+    var pop = document.getElementById(inp.id + 'Pop'), t, seq = 0, list = [];
+    try { new MutationObserver(function () { inp.setAttribute('aria-expanded', String(!pop.hidden)); }).observe(pop, { attributes: true, attributeFilter: ['hidden'] }); } catch (e) { /* old browser */ }
+    function close() { pop.hidden = true; }
+    async function load(focusFirst) {
+      var my = ++seq, qv = inp.value.trim();
+      try {
+        var items = await o.search(qv);
+        if (my !== seq || !inp.isConnected) return;
+        list = items;
+        pop.innerHTML = '<div class="sa-pop-head">' + esc(qv ? 'Matches' : o.hint) + '</div>' + (items.length ? items.map(function (it, i) {
+          var on = o.picked(it);
+          return '<button type="button" class="sa-pop-item" role="option" data-pi="' + i + '" aria-selected="' + on + '"' + (on ? ' disabled title="Already picked"' : '') + '>' + o.render(it) + '</button>';
+        }).join('') : '<div class="sa-state" style="padding:14px"><p>' + esc(qv ? 'Nothing matches “' + qv + '”' : 'Nothing to show') + '</p></div>');
+        $$('.sa-pop').forEach(function (p) { if (p !== pop) p.hidden = true; });
+        pop.hidden = false;
+        $$('[data-pi]', pop).forEach(function (b) {
+          b.onclick = function () { o.add(list[+b.getAttribute('data-pi')]); inp.value = ''; close(); inp.focus(); };
+        });
+        if (focusFirst) { var f = $('.sa-pop-item:not([disabled])', pop); if (f) f.focus(); }
+      } catch (e) {
+        if (my !== seq) return;
+        pop.innerHTML = '<div class="sa-state" style="padding:14px"><p>' + esc(e.message) + '</p></div>'; pop.hidden = false;
+      }
+    }
+    inp.addEventListener('input', function () { clearTimeout(t); t = setTimeout(function () { load(false); }, 250); });
+    inp.addEventListener('click', function () { if (pop.hidden) load(false); });
+    inp.addEventListener('keydown', function (e) {
+      var first = !pop.hidden && $('.sa-pop-item:not([disabled])', pop);
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (first) first.focus(); else load(true); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (first) first.click(); }
+      else if (e.key === 'Escape' && !pop.hidden) { e.preventDefault(); e.stopPropagation(); close(); }
+    });
+    pop.addEventListener('keydown', function (e) {
+      var items = $$('.sa-pop-item:not([disabled])', pop), i = items.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (items[i + 1]) items[i + 1].focus(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); if (i > 0) items[i - 1].focus(); else inp.focus(); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); inp.focus(); }
+      else if (e.key === 'Tab') close();
+    });
+  }
+  function msgPersonHtml(p) {
+    return '<span style="min-width:0;flex:1"><b>' + esc(p.name || p.email || 'Unnamed') + '</b>' + (p.status && p.status !== 'active' ? ' ' + pill(p.status) : '') +
+      '<small>' + esc([p.email, p.organization, p.role ? roleLabel(p.role) : ''].filter(Boolean).join(' · ')) + '</small></span>' +
+      '<span class="sa-msg-ph">' + (p.has_phone ? '<span class="sa-mono">' + esc(p.phone) + '</span>' : badge('No phone', 'warning')) + '</span>';
+  }
+  function msgSendTab(el, ctx, toId) {
+    var d = msgDraft(), ov = ctx.ov, audN = {};
+    el.innerHTML = '<div data-msgres></div><div class="sa-msg-layout">' +
+      '<section class="sa-card" data-tour="msg-recipients" aria-labelledby="msgWho"><h3 id="msgWho">1 · Who gets it</h3>' +
+      '<fieldset class="sa-msg-fs"><legend>A whole group</legend><div class="sa-msg-groups">' + MSG_AUDIENCES.map(function (a) {
+        return '<label class="sa-msg-group"><input type="radio" name="msgAud" value="' + a[0] + '"' + (d.audience === a[0] ? ' checked' : '') + '><span><b>' + esc(a[1]) + '</b><small>' + esc(a[2]) +
+          (a[0] ? ' · <span data-audn="' + a[0] + '">counting…</span>' : '') + '</small></span></label>';
+      }).join('') + '</div></fieldset>' +
+      '<div class="sa-field"><label for="msgPeopleQ">People</label>' + msgPickBox('msgPeopleQ', 'Search by name, email or phone…') +
+      '<span class="hint">Users, organization admins and partners. “No phone” means they can only get the email.</span></div>' +
+      '<div class="sa-msg-chips" data-chips="people" role="list" aria-label="People you picked"></div>' +
+      '<div class="sa-field" style="margin-top:12px"><label for="msgOrgQ">Whole organizations</label>' + msgPickBox('msgOrgQ', 'Search organizations…') +
+      '<span class="hint">Every active member of the organization gets it.</span></div>' +
+      '<div class="sa-msg-chips" data-chips="orgs" role="list" aria-label="Organizations you picked"></div></section>' +
+      '<section class="sa-card" data-tour="msg-compose" aria-labelledby="msgWhat"><h3 id="msgWhat">2 · The message</h3>' +
+      '<fieldset class="sa-msg-fs" data-tour="msg-channels"><legend>Send by</legend><div class="sa-row" style="gap:18px">' +
+      '<label class="sa-check"><input type="checkbox" data-ch="email"' + (d.email ? ' checked' : '') + '> Email</label>' +
+      '<label class="sa-check"><input type="checkbox" data-ch="sms"' + (d.sms ? ' checked' : '') + '> SMS (text message)</label></div><div data-chnote></div></fieldset>' +
+      '<div class="sa-field"><label for="msgSubject">Subject <span class="sa-muted" data-subreq></span></label><input class="form-input" id="msgSubject" maxlength="200" autocomplete="off" value="' + esc(d.subject) + '"></div>' +
+      '<div class="sa-field" style="margin-top:12px"><label for="msgBody">Message *</label><textarea class="form-textarea" id="msgBody" rows="7" maxlength="5000" style="min-height:150px">' + esc(d.body) + '</textarea>' +
+      '<div class="sa-msg-count" data-bodycount></div></div>' +
+      '<div data-smsbox style="margin-top:12px"><label class="sa-check"><input type="checkbox" id="msgShort"' + (d.short ? ' checked' : '') + '> Write a shorter text for SMS</label>' +
+      '<div class="sa-field" data-shortbox style="margin-top:8px"><label for="msgSms">SMS text</label><textarea class="form-textarea" id="msgSms" rows="3" maxlength="640" style="min-height:80px" aria-describedby="msgSmsCount">' + esc(d.sms_body) + '</textarea>' +
+      '<div class="sa-msg-count" id="msgSmsCount" data-smscount></div></div>' +
+      '<div data-autobox style="margin-top:8px"><div class="sa-small sa-muted">Without a shorter text, the SMS is the subject and the message:</div><div class="sa-msg-prev" data-smsprev></div><div class="sa-msg-count" data-smscount2></div></div></div>' +
+      '</section></div>' +
+      '<div class="sa-card sa-msg-bar" data-tour="msg-send"><div class="sa-msg-sum" data-sum role="status" aria-live="polite"></div>' +
+      '<div class="sa-msg-acts"><button type="button" class="btn btn-ghost btn-sm" data-clear>Start over</button><button type="button" class="btn btn-primary" data-send>' + ICON_SVG('send') + 'Send…</button></div>' +
+      '<div class="sa-err" data-errs role="alert"></div></div>';
+    var subj = $('#msgSubject', el), bodyEl = $('#msgBody', el), smsEl = $('#msgSms', el), shortEl = $('#msgShort', el);
+    function audLabel(k) { return (MSG_AUDIENCES.filter(function (a) { return a[0] === k; })[0] || [])[1] || k; }
+    function chosen() { return ['email', 'sms'].filter(function (c) { return d[c]; }); }
+    function autoSms() { var s = d.subject.trim(), b = d.body.trim(); return (s ? s + ': ' : '') + b; }
+    function estimate() {
+      var n = 0, exact = true, unknown = false, parts = [];
+      if (d.audience) { exact = false; parts.push(audLabel(d.audience)); if (audN[d.audience] == null) unknown = true; else n += audN[d.audience]; }
+      if (d.orgs.length) { exact = false; parts.push(d.orgs.length + ' organization' + (d.orgs.length === 1 ? '' : 's')); d.orgs.forEach(function (o) { n += o.member_count || 0; }); }
+      if (d.people.length) { parts.push(msgPeopleN(d.people.length)); n += d.people.length; }
+      return { n: n, exact: exact, unknown: unknown, parts: parts };
+    }
+    function sumLine() {
+      var e = estimate(), ch = chosen().map(function (c) { return MSG_CH[c]; }).join(' + ') || '…';
+      if (!e.parts.length) return '';
+      return 'Send to ' + (e.unknown ? 'everyone in ' + e.parts.join(' + ') : (e.exact ? '' : 'up to ') + msgPeopleN(e.n)) + ' by ' + ch;
+    }
+    function chips() {
+      var pc = $('[data-chips=people]', el), oc = $('[data-chips=orgs]', el);
+      pc.innerHTML = d.people.map(function (p, i) {
+        var nm = p.name || p.email || 'Unnamed', warn = d.sms && !p.has_phone;
+        return '<span class="sa-msg-chip' + (warn ? ' warn' : '') + '" role="listitem"><span><b>' + esc(nm) + (p.status && p.status !== 'active' ? ' · ' + esc(PILL_LABEL[p.status] || titleCase(p.status)) : '') + '</b><small>' + esc(p.email || '—') + ' · ' +
+          (p.has_phone ? '<span class="sa-mono">' + esc(p.phone) + '</span>' : '<span class="sa-msg-nophone">no phone</span>') + '</small></span>' +
+          '<button type="button" data-rmp="' + i + '" aria-label="Remove ' + esc(nm) + '">✕</button></span>';
+      }).join('');
+      oc.innerHTML = d.orgs.map(function (o, i) {
+        return '<span class="sa-msg-chip" role="listitem"><span><b>' + esc(o.name) + '</b><small>' + esc(msgPeopleN(o.member_count || 0)) + ' · whole organization</small></span>' +
+          '<button type="button" data-rmo="' + i + '" aria-label="Remove ' + esc(o.name) + '">✕</button></span>';
+      }).join('');
+      $$('[data-rmp]', pc).forEach(function (b) { b.onclick = function () { d.people.splice(+b.getAttribute('data-rmp'), 1); chips(); sync(); $('#msgPeopleQ', el).focus(); }; });
+      $$('[data-rmo]', oc).forEach(function (b) { b.onclick = function () { d.orgs.splice(+b.getAttribute('data-rmo'), 1); chips(); sync(); $('#msgOrgQ', el).focus(); }; });
+    }
+    function sync() {
+      $('[data-subreq]', el).textContent = d.email ? '*' : '(optional for a text)';
+      $('[data-bodycount]', el).innerHTML = '<span>' + fmtN(d.body.length) + ' / 5,000 characters</span>';
+      $('[data-smsbox]', el).hidden = !d.sms;
+      $('[data-shortbox]', el).hidden = !d.short;
+      $('[data-autobox]', el).hidden = d.short;
+      smsCounter($('[data-smscount]', el), d.sms_body.trim());
+      var auto = autoSms();
+      $('[data-smsprev]', el).textContent = auto || 'Your subject and message appear here.';
+      smsCounter($('[data-smscount2]', el), auto);
+      if (auto.length > 640) $('[data-smscount2]', el).insertAdjacentHTML('beforeend', '<span>Texts are cut at 640 characters: write a shorter text.</span>');
+      // channel notes: what will really happen
+      var notes = [];
+      if (d.email && !(ov.email || {}).configured) notes.push(msgAlert('warning', 'No email server is set up, so emails wait in the <a href="#/notifications?tab=outbox">email outbox</a> and are not delivered.'));
+      if (d.sms && !(ov.sms || {}).configured) notes.push(msgAlert('warning', 'The SMS gateway isn’t set up, so texts only wait in the SMS outbox: nobody receives them. <button type="button" class="sa-link" data-gogw>Set up the gateway</button>'));
+      var noPhone = d.people.filter(function (p) { return !p.has_phone; }).length;
+      if (d.sms && (noPhone || d.audience || d.orgs.length)) {
+        notes.push(msgAlert('info', (noPhone ? esc(noPhone + ' of the people you picked ' + (noPhone === 1 ? 'has no phone number and gets' : 'have no phone number and get') + (d.email ? ' the email only.' : ' nothing.')) + ' ' : '') +
+          (d.audience || d.orgs.length ? 'People without a phone number on their account are skipped for SMS.' : '')));
+      }
+      var inactive = d.people.filter(function (p) { return p.status && p.status !== 'active'; }).length;
+      if (inactive) notes.push(msgAlert('warning', esc(inactive + ' of the people you picked ' + (inactive === 1 ? 'isn’t' : 'aren’t') + ' active and won’t get it.')));
+      $('[data-chnote]', el).innerHTML = notes.join('');
+      var gw = $('[data-gogw]', el); if (gw) gw.onclick = function () { ctx.show('gateway', 'sms-settings'); };
+      // summary
+      var e = estimate(), line = sumLine();
+      $('[data-sum]', el).innerHTML = line ? '<b>' + esc(line) + '</b><div class="sa-small sa-muted">' + esc(e.parts.join(' + ') + (e.exact ? '' : ' · each person gets one copy, even when they are in more than one')) + '</div>'
+        : '<b>Nobody picked yet</b><div class="sa-small sa-muted">Choose a group, people or organizations.</div>';
+    }
+    function paintCounts() {
+      Object.keys(audN).forEach(function (k) { var s = $('[data-audn="' + k + '"]', el); if (s) s.textContent = audN[k] == null ? 'size unknown' : 'about ' + msgPeopleN(audN[k]); });
+    }
+    $$('input[name=msgAud]', el).forEach(function (r) { r.onchange = function () { d.audience = r.value; sync(); }; });
+    $$('[data-ch]', el).forEach(function (c) { c.onchange = function () { d[c.getAttribute('data-ch')] = c.checked; chips(); sync(); }; });
+    subj.oninput = function () { d.subject = subj.value; sync(); };
+    bodyEl.oninput = function () { d.body = bodyEl.value; sync(); };
+    smsEl.oninput = function () { d.sms_body = smsEl.value; sync(); };
+    shortEl.onchange = function () { d.short = shortEl.checked; sync(); if (d.short) smsEl.focus(); };
+    msgPicker($('#msgPeopleQ', el), {
+      hint: 'People (A–Z)',
+      search: function (qv) { return api(MSG_API + '/people' + qs({ q: qv, limit: 12 })).then(function (x) { return x.people || []; }); },
+      render: msgPersonHtml,
+      picked: function (p) { return d.people.some(function (x) { return x.id === p.id; }); },
+      add: function (p) { if (!d.people.some(function (x) { return x.id === p.id; })) d.people.push(p); chips(); sync(); }
+    });
+    msgPicker($('#msgOrgQ', el), {
+      hint: 'Organizations (A–Z)',
+      search: function (qv) { return api('/api/super-admin/organizations' + qs({ search: qv, limit: 12, sort: 'name' })).then(function (x) { return x.organizations || []; }); },
+      render: function (o) { return '<span style="min-width:0;flex:1"><b>' + esc(o.name) + '</b><small>' + esc(msgPeopleN(o.member_count || 0) + (o.slug ? ' · ' + o.slug : '')) + '</small></span><span class="sa-msg-ph">' + pill(o.status) + '</span>'; },
+      picked: function (o) { return d.orgs.some(function (x) { return x.id === o.id; }); },
+      add: function (o) { if (!d.orgs.some(function (x) { return x.id === o.id; })) d.orgs.push({ id: o.id, name: o.name, member_count: o.member_count }); chips(); sync(); }
+    });
+    $('[data-clear]', el).onclick = function () { MSG_DRAFT = null; MSG_LAST = null; msgSendTab(el, ctx); $('#msgPeopleQ', el).focus(); };
+    $('[data-send]', el).onclick = async function () {
+      var errs = [];
+      if (!d.audience && !d.people.length && !d.orgs.length) errs.push(['Choose who gets it: a group, people or an organization.', '#msgPeopleQ']);
+      if (!d.email && !d.sms) errs.push(['Choose Email, SMS or both.', '[data-ch=email]']);
+      if (d.email && !d.subject.trim()) errs.push(['An email needs a subject.', '#msgSubject']);
+      if (!d.body.trim()) errs.push(['Write a message.', '#msgBody']);
+      if (d.sms && d.short && !d.sms_body.trim()) errs.push(['Write the SMS text, or untick “Write a shorter text for SMS”.', '#msgSms']);
+      $('[data-errs]', el).innerHTML = errs.map(function (x) { return esc(x[0]); }).join('<br>');
+      if (errs.length) { var f = $(errs[0][1], el); if (f) f.focus(); return; }
+      var ch = chosen(), smsText = d.short ? d.sms_body.trim() : autoSms(), si = smsInfo(smsText);
+      var who = (d.audience ? [audLabel(d.audience)] : []).concat(d.orgs.map(function (o) { return o.name + ' (whole organization)'; }), d.people.map(function (p) { return p.name || p.email; }));
+      var res = await openModal({ title: 'Send this message?', submitLabel: 'Send now', body:
+        '<p style="margin:0;font-size:15px"><b>' + esc(sumLine()) + '</b></p>' +
+        '<dl class="sa-kv"><dt>To</dt><dd>' + esc(who.slice(0, 8).join(', ') + (who.length > 8 ? ' and ' + (who.length - 8) + ' more' : '')) + '</dd>' +
+        '<dt>By</dt><dd>' + msgChannels(ch) + '</dd>' +
+        (d.email ? '<dt>Subject</dt><dd>' + esc(d.subject.trim()) + '</dd>' : '') +
+        (d.sms ? '<dt>Text</dt><dd>' + esc(short(smsText, 160)) + ' <span class="sa-small sa-muted">(' + si.segments + ' SMS each)</span></dd>' : '') + '</dl>' +
+        '<div class="alert alert-warning"><div class="alert-body">Messages go out at once and can’t be recalled. Each person gets one copy, even when they are in more than one group.</div></div>',
+        onSubmit: function () {
+          var payload = { channels: ch, subject: d.subject.trim(), body: d.body.trim(), user_ids: d.people.map(function (p) { return p.id; }), organization_ids: d.orgs.map(function (o) { return o.id; }) };
+          if (d.audience) payload.audience = d.audience;
+          if (d.sms && d.short) payload.sms_body = d.sms_body.trim();
+          return api('/api/super-admin/messages', { method: 'POST', body: payload });
+        } });
+      if (!res) return;
+      MSG_LAST = res.message; MSG_DRAFT = null;
+      toast('Sending to ' + msgPeopleN(res.message.recipient_count));
+      ctx.reloadSent();
+      msgSendTab(el, ctx);
+      var t = $('[data-msgres] .alert', el); if (t) { t.setAttribute('tabindex', '-1'); t.focus(); }
+    };
+    if (MSG_LAST) {
+      var L = MSG_LAST;
+      $('[data-msgres]', el).innerHTML = '<div class="alert alert-success" style="margin-bottom:12px"><div class="alert-body"><div class="alert-title">Sending to ' + esc(msgPeopleN(L.recipient_count)) + ' by ' + esc((L.channels || []).map(function (c) { return MSG_CH[c]; }).join(' + ')) + '</div>' +
+        '<div>It goes out in the background. The delivery details show who got it and any errors.</div>' +
+        '<div class="sa-row" style="margin-top:8px"><button type="button" class="btn btn-primary btn-sm" data-lastopen>View delivery details</button><button type="button" class="btn btn-secondary btn-sm" data-lastsent>All sent messages</button><button type="button" class="btn btn-ghost btn-sm" data-lastx>Dismiss</button></div></div></div>';
+      $('[data-lastopen]', el).onclick = function () { msgDrawer(L.id, ctx.reloadSent); };
+      $('[data-lastsent]', el).onclick = function () { MSG_LAST = null; ctx.show('sent'); };
+      $('[data-lastx]', el).onclick = function () { MSG_LAST = null; $('[data-msgres]', el).innerHTML = ''; };
+    }
+    chips(); sync();
+    msgAudienceCounts().then(function (n) { audN = n; if (el.isConnected) { paintCounts(); sync(); } });
+    if (toId) {
+      // "Send message" on a user / admin: start a fresh message to that person
+      (async function () {
+        try {
+          var u = (await api('/api/super-admin/users/' + encodeURIComponent(toId))).user || {};
+          var found = (await api(MSG_API + '/people' + qs({ q: u.email || u.name || '', limit: 25 }))).people || [];
+          var p = found.filter(function (x) { return x.id === toId; })[0];
+          if (!p) throw new Error('This person can’t be messaged (the account may be deleted).');
+          MSG_LAST = null; MSG_DRAFT = null; d = msgDraft(); d.people = [p];
+          if (!el.isConnected) return;
+          msgSendTab(el, ctx);
+          var s = $('#msgSubject', el); if (s) s.focus();
+          toast('Writing to ' + (p.name || p.email), 'info');
+        } catch (e) { toast(e.message, 'error'); }
+        try { var h = location.hash.split('?'), sp = new URLSearchParams(h[1] || ''); sp.delete('to'); history.replaceState(null, '', h[0] + (sp.toString() ? '?' + sp : '')); } catch (e) { /* ignore */ }
+      })();
+    }
+  }
+
+  // ── Sent messages ──
+  function msgNotSent(c) { return ((c || {}).failed || 0) + ((c || {}).other || 0); }
+  function msgCountCell(m, ch) {
+    if ((m.channels || []).indexOf(ch) < 0) return '<span class="sa-muted">—</span>';
+    var c = (m.counts || {})[ch] || {}, sub = [];
+    if (c.queued) sub.push(fmtN(c.queued) + ' in outbox');
+    if (msgNotSent(c)) sub.push('<span style="color:var(--danger-text)">' + fmtN(msgNotSent(c)) + ' not sent</span>');
+    if (c.skipped) sub.push(fmtN(c.skipped) + ' no ' + (ch === 'sms' ? 'phone' : 'email'));
+    return '<span class="cell-main">' + fmtN(c.sent || 0) + ' sent</span>' + (sub.length ? '<span class="cell-sub">' + sub.join(' · ') + '</span>' : '');
+  }
+  function msgStatusPill(m) {
+    if (m.status === 'sending') return pill('sending', 'Sending…');
+    var bad = Object.keys(m.counts || {}).reduce(function (a, k) { return a + msgNotSent(m.counts[k]); }, 0);
+    return bad ? pill('warn', 'Done · ' + fmtN(bad) + ' not sent') : pill('done', 'Done');
+  }
+  function msgSentTab(el, ctx) {
+    el.innerHTML = '<div id="msgSent" data-tour="msg-sent"></div>';
+    var host = $('#msgSent', el), timer, lv;
+    lv = listView(host, {
+      data: function () { return api('/api/super-admin/messages?limit=200').then(function (r) { ctx.sent = r.messages || []; ctx.kpis(); return ctx.sent; }); },
+      key: 'sa-messages', sort: '-created_at',
+      filters: [{ key: 'q', label: 'Search subject, message or sender…' }, { key: 'status', type: 'select', label: 'Status', options: [['', 'All statuses'], ['sending', 'Sending'], ['done', 'Done']] }],
+      toolbar: '<button type="button" class="btn btn-secondary btn-sm" data-msgref>' + ICON_SVG('repeat') + 'Refresh</button>',
+      columns: [
+        { label: 'Date', sort: 'created_at', render: function (m) { return '<span style="white-space:nowrap">' + esc(fmtDT(m.created_at)) + '</span>'; } },
+        { label: 'Subject', render: function (m) { return '<span class="cell-main">' + esc(m.subject || 'Text message') + '</span><span class="cell-sub">' + esc(short(m.body, 70)) + '</span>'; } },
+        { label: 'Sender', render: function (m) { return esc((m.sender || {}).email || '—'); } },
+        { label: 'Channels', render: function (m) { return msgChannels(m.channels); } },
+        { label: 'Recipients', cls: 'num', sort: 'recipient_count', render: function (m) { return fmtN(m.recipient_count); } },
+        { label: 'Email', render: function (m) { return msgCountCell(m, 'email'); }, csv: function (m) { return htmlText(msgCountCell(m, 'email')); } },
+        { label: 'SMS', render: function (m) { return msgCountCell(m, 'sms'); }, csv: function (m) { return htmlText(msgCountCell(m, 'sms')); } },
+        { label: 'Status', sort: 'status', render: msgStatusPill }
+      ],
+      rowId: function (m) { return m.id; },
+      rowClick: function (m) { msgDrawer(m.id, function () { lv.reload(); }); },
+      onData: function (data) {
+        clearTimeout(timer);
+        // a message is still going out: follow it until it is done
+        if ((data.items || []).some(function (m) { return m.status === 'sending'; })) timer = setTimeout(function () { if (host.isConnected) lv.reload(); }, 3000);
+      },
+      empty: { title: 'No messages sent yet', desc: 'Messages you send from “Send message” appear here with their delivery counts.' }
+    });
+    $('[data-msgref]', host).onclick = function () { lv.reload(); };
+  }
+  function msgDrawer(id, after) {
+    openDrawer('Message delivery', async function (body) {
+      var filt = 'all', m = null, wasSending = false;
+      function render() {
+        var dl = m.deliveries || [], counts = m.counts || {};
+        var bad = function (x) { return !/^(sent|queued)$/.test(x.status || ''); };
+        var shown = dl.filter(function (x) { return filt === 'all' || (filt === 'problems' ? bad(x) : x.channel === filt); });
+        var filters = [['all', 'All', dl.length], ['problems', 'Not sent', dl.filter(bad).length]].concat((m.channels || []).length > 1 ? m.channels.map(function (c) { return [c, MSG_CH[c] || c, dl.filter(function (x) { return x.channel === c; }).length]; }) : []);
+        var focused = document.activeElement && body.contains(document.activeElement) ? document.activeElement.getAttribute('data-df') : null;
+        body.innerHTML = '<div class="sa-row" style="justify-content:space-between;margin-bottom:10px"><b style="font-size:15px;overflow-wrap:anywhere;min-width:0">' + esc(m.subject || 'Text message') + '</b>' + msgStatusPill(m) + '</div>' +
+          '<dl class="sa-kv"><dt>Sent by</dt><dd>' + esc((m.sender || {}).email || '—') + '</dd><dt>Started</dt><dd>' + esc(fmtDT(m.created_at)) + '</dd>' +
+          (m.finished_at ? '<dt>Finished</dt><dd>' + esc(fmtDT(m.finished_at)) + '</dd>' : '') +
+          '<dt>Channels</dt><dd>' + msgChannels(m.channels) + '</dd><dt>Recipients</dt><dd>' + esc(msgPeopleN(m.recipient_count || 0)) + '</dd></dl>' +
+          '<div class="sa-msg-stats">' + (m.channels || []).map(function (c) {
+            var k = counts[c] || {};
+            return '<div class="sa-msg-stat"><b>' + esc(MSG_CH[c] || c) + '</b>' + fmtN(k.sent || 0) + ' sent · ' + fmtN(k.queued || 0) + ' in outbox<br>' +
+              '<span' + (msgNotSent(k) ? ' style="color:var(--danger-text)"' : '') + '>' + fmtN(msgNotSent(k)) + ' not sent</span> · ' + fmtN(k.skipped || 0) + ' no ' + (c === 'sms' ? 'phone' : 'email') + '</div>';
+          }).join('') + '</div>' +
+          (m.status === 'sending' ? msgAlert('info', 'Still sending — this refreshes by itself.') : '') +
+          '<h4 class="sa-msg-h">Message</h4><pre class="sa-pre">' + esc(m.body) + '</pre>' +
+          (m.sms_body ? '<h4 class="sa-msg-h">SMS text</h4><pre class="sa-pre">' + esc(m.sms_body) + '</pre>' : '') +
+          '<h4 class="sa-msg-h">Deliveries</h4><div class="sa-chips" role="group" aria-label="Show deliveries">' + filters.map(function (f) {
+            return '<button type="button" class="sa-chip' + (filt === f[0] ? ' active' : '') + '" aria-pressed="' + (filt === f[0]) + '" data-df="' + f[0] + '">' + esc(f[1]) + '<b>' + fmtN(f[2]) + '</b></button>';
+          }).join('') + '</div>' +
+          (shown.length ? '<div class="sa-table-wrap"><table class="sa-table"><thead><tr><th scope="col">Channel</th><th scope="col">To</th><th scope="col">Status</th></tr></thead><tbody>' + shown.slice(0, 500).map(function (x) {
+            return '<tr><td>' + esc(MSG_CH[x.channel] || x.channel) + '</td><td class="sa-mono" style="overflow-wrap:anywhere">' + esc(x.to || '—') + '</td><td>' + pill(x.status) +
+              (x.error ? '<span class="cell-sub" style="color:var(--danger-text)">' + esc(x.error) + '</span>' : '') + '</td></tr>';
+          }).join('') + '</tbody></table></div>' + (shown.length > 500 ? '<p class="sa-small sa-muted">Showing the first 500 of ' + fmtN(shown.length) + '.</p>' : '')
+            : emptyState(filt === 'problems' ? 'Nothing failed' : m.status === 'sending' ? 'Nothing delivered yet' : 'No deliveries', filt === 'problems' ? 'Every delivery was sent or is waiting in an outbox.' : '')) +
+          '<p class="sa-small sa-muted" style="margin-top:10px">People without an email address or phone number are counted as “no email” / “no phone” and have no row here. Phone numbers are masked. “In outbox” means no gateway was set up, so it was saved but not delivered.</p>';
+        $$('[data-df]', body).forEach(function (b) { b.onclick = function () { filt = b.getAttribute('data-df'); render(); var nb = $('[data-df="' + filt + '"]', body); if (nb) nb.focus(); }; });
+        if (focused) { var fb = $('[data-df="' + focused + '"]', body); if (fb) fb.focus(); }
+      }
+      async function load() {
+        m = (await api('/api/super-admin/messages/' + encodeURIComponent(id))).message;
+        if (!body.isConnected) return;
+        render();
+        if (m.status === 'sending') { wasSending = true; setTimeout(function () { if (body.isConnected) load().catch(function () { /* try again on the next open */ }); }, 2500); }
+        else if (wasSending && after) after();
+      }
+      await load();
+    });
+  }
+
+  // ── Automatic messages ──
+  function msgAutoTab(el, ctx) {
+    var a = ctx.ov.automatic || {}, smsOk = (ctx.ov.sms || {}).configured, emOk = (ctx.ov.email || {}).configured;
+    var rows = [
+      ['welcome_sms', 'Text a welcome message on sign-up', 'When someone signs up (or starts a free trial) and gave a phone number, they also get a short welcome text. The welcome email always goes out, whatever this switch says.'],
+      ['login_alert_email', 'Login alert by email', 'After someone signs in, they get an email saying when, from which IP address and on which device, with a link to reset their password if it wasn’t them.'],
+      ['login_alert_sms', 'Login alert by SMS', 'The same alert as a short text, for people with a phone number on their account.']
+    ];
+    el.innerHTML = '<form id="maForm" novalidate data-tour="msg-auto">' + msgAlert('info', 'These go out by themselves. Everyone who signs up gets the welcome email; the switches below add a welcome text and sign-in alerts, which help people spot someone else using their account. Messages never slow down a sign-up or a sign-in.') +
+      '<div class="sa-card sa-section"><h3>Automatic messages</h3>' + rows.map(function (r) {
+        var id = 'ma_' + r[0];
+        return '<div class="sa-flag"><label class="sa-toggle"><input type="checkbox" id="' + id + '" name="' + r[0] + '" data-orig="' + (a[r[0]] ? '1' : '0') + '"' + (a[r[0]] ? ' checked' : '') + '><span></span></label>' +
+          '<div><label for="' + id + '" style="font-weight:600;font-size:13px">' + esc(r[1]) + '</label><div class="sa-small sa-muted">' + esc(r[2]) + '</div></div></div>';
+      }).join('') +
+      '<div class="sa-flag"><div class="sa-field" style="flex:1"><label for="ma_every">Send a sign-in alert at most once every</label><div class="sa-row">' +
+      '<input class="form-input" type="number" id="ma_every" name="login_alert_every_minutes" min="0" max="1440" step="1" inputmode="numeric" style="width:110px" value="' + esc(a.login_alert_every_minutes) + '" data-orig="' + esc(a.login_alert_every_minutes) + '"><span>minutes per person</span></div>' +
+      '<span class="hint">Several sign-ins close together send one alert. 0 = an alert for every sign-in; 1440 = at most one a day.</span></div></div>' +
+      '<div data-manote></div></div>' +
+      '<div class="sa-row sa-section"><button class="btn btn-primary btn-sm" type="submit">Save changes</button><span class="sa-small sa-muted" id="maDirty" aria-live="polite"></span></div></form>';
+    var form = $('#maForm', el);
+    function changes() {
+      var ch = {};
+      $$('[data-orig]', form).forEach(function (i) {
+        if (i.type === 'checkbox') { if ((i.checked ? '1' : '0') !== i.getAttribute('data-orig')) ch[i.name] = i.checked; }
+        else if (i.value.trim() !== i.getAttribute('data-orig')) ch[i.name] = i.value.trim();
+      });
+      return ch;
+    }
+    function refresh() {
+      var n = Object.keys(changes()).length;
+      $('#maDirty', form).textContent = n ? n + ' unsaved change' + (n === 1 ? '' : 's') : '';
+      var notes = [];
+      if ((form.welcome_sms.checked || form.login_alert_sms.checked) && !smsOk) notes.push(msgAlert('warning', 'Texts are switched on, but the SMS gateway isn’t set up, so they only wait in the SMS outbox. <button type="button" class="sa-link" data-gogw>Set up the gateway</button>'));
+      if (form.login_alert_email.checked && !emOk) notes.push(msgAlert('warning', 'No email server is set up: sign-in alert emails wait in the email outbox and are not delivered.'));
+      $('[data-manote]', form).innerHTML = notes.join('');
+      var gw = $('[data-gogw]', form); if (gw) gw.onclick = function () { ctx.show('gateway', 'sms-settings'); };
+    }
+    form.addEventListener('change', refresh);
+    form.addEventListener('input', refresh);
+    refresh();
+    form.onsubmit = async function (e) {
+      e.preventDefault();
+      var ch = changes();
+      if (!Object.keys(ch).length) return toast('No changes to save', 'info');
+      if ('login_alert_every_minutes' in ch) {
+        var v = ch.login_alert_every_minutes;
+        if (!/^\d+$/.test(v) || +v > 1440) { toast('Minutes must be a whole number from 0 to 1440', 'error'); $('#ma_every', form).focus(); return; }
+        ch.login_alert_every_minutes = parseInt(v, 10);
+      }
+      try {
+        var res = await busy($('[type=submit]', form), function () { return api(MSG_API + '/automatic', { method: 'PUT', body: ch }); });
+        ctx.ov.automatic = res.automatic; ctx.kpis();
+        toast('Automatic messages saved');
+        msgAutoTab(el, ctx);
+      } catch (err) { toast(err.message, 'error'); }
+    };
+  }
+
+  // ── Gateway ──
+  function msgSecretField(id, name, label, env, sm) {
+    var set = !!(sm.secrets_set || {})[env];
+    return '<div class="sa-field"><label for="' + id + '">' + esc(label) + (set ? '<span class="sa-msg-secret">saved ✓</span>' : '') + '</label><div class="sa-keyin">' +
+      '<input class="form-input sa-mono" type="password" id="' + id + '" name="' + name + '" data-secret autocomplete="new-password" spellcheck="false" autocapitalize="off" autocorrect="off" maxlength="500" placeholder="' + (set ? 'saved ✓ — type to replace' : 'not set') + '">' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-reveal="' + id + '" aria-pressed="false" aria-label="Show what you type">Show</button></div>' +
+      '<span class="hint">' + (set ? 'A value is saved. It is never shown; leave this empty to keep it.' : 'Stored encrypted and never shown again.') + '</span></div>';
+  }
+  function msgTestForm(ch, id, label, type, val, ph) {
+    return '<form class="sa-msg-test" data-test="' + ch + '"' + (ch === 'sms' ? ' data-tour="msg-test"' : '') + ' novalidate><label for="' + id + '">' + esc(label) + '</label><div class="sa-keyin">' +
+      '<input class="form-input" id="' + id + '" type="' + type + '" value="' + esc(val) + '" placeholder="' + esc(ph) + '" autocomplete="off"' + (type === 'tel' ? ' inputmode="tel"' : '') + '>' +
+      '<button type="submit" class="btn btn-secondary btn-sm">Send test</button></div><div data-tres aria-live="polite"></div></form>';
+  }
+  function msgGatewayTab(el, ctx) {
+    var em = ctx.ov.email || {}, sm = ctx.ov.sms || {}, outboxLv = null;
+    var lim = sm.daily_limit || 0, pct = lim ? Math.min(100, (sm.sent_today || 0) * 100 / lim) : 0;
+    var need = (sm.missing || []).map(function (n) { return SMS_NEED[n] || n; }).join(', ');
+    var txt = function (id, name, label, val, o) {
+      o = o || {}; val = val == null ? '' : String(val);
+      return '<div class="sa-field"><label for="' + id + '">' + esc(label) + '</label><input class="form-input' + (o.mono ? ' sa-mono' : '') + '" id="' + id + '" name="' + name + '" type="' + (o.type || 'text') + '"' + (o.attrs || '') +
+        ' value="' + esc(val) + '" data-orig="' + esc(val) + '" autocomplete="off" spellcheck="false">' + (o.hint ? '<span class="hint">' + esc(o.hint) + '</span>' : '') + '</div>';
+    };
+    var MAIL_GW_PRESETS = {
+      hostinger: { host: 'smtp.hostinger.com', port: 465, security: 'ssl' },
+      gmail: { host: 'smtp.gmail.com', port: 587, security: 'starttls' },
+      zoho: { host: 'smtp.zoho.in', port: 465, security: 'ssl' },
+      brevo: { host: 'smtp-relay.brevo.com', port: 587, security: 'starttls' }
+    };
+    el.innerHTML = '<div class="sa-grid sa-2">' +
+      '<div class="sa-card" data-section="email" tabindex="-1"><h3><span>Email</span>' + (em.configured ? pill('active', 'Delivering') : pill('warn', 'Outbox only')) + '</h3>' +
+      '<dl class="sa-kv"><dt>Status</dt><dd>' + (em.configured ? 'An email server is set up: emails are delivered.' : 'No email server: emails are saved in the email outbox, not delivered.') + '</dd>' +
+      '<dt>From</dt><dd>' + esc(em.from || '—') + '</dd><dt>Server</dt><dd>' + (em.host ? '<span class="sa-mono">' + esc(em.host + ':' + (em.port || 587)) + '</span>' : '<span class="sa-muted">Not set</span>') + '</dd>' +
+      '<dt>Encryption</dt><dd>' + esc(em.security || 'auto') + '</dd>' +
+      '<dt>Outbox</dt><dd><a class="sa-link" href="#/notifications?tab=outbox">Email outbox →</a></dd></dl>' +
+      msgAlert('info', 'Configure SMTP credentials below to deliver emails, or <a class="sa-link" href="#/settings?tab=notifications">manage in Global Settings</a>.') +
+      msgTestForm('email', 'gwTestEmail', 'Send a test email to', 'email', (S.me && S.me.email) || '', 'you@example.com') + '</div>' +
+      '<div class="sa-card" data-section="sms" tabindex="-1"><h3><span>SMS</span>' + (sm.configured ? pill('active', msgProvName(sm.provider)) : pill('warn', sm.provider ? 'Incomplete' : 'Not set up')) + '</h3>' +
+      '<dl class="sa-kv"><dt>Provider</dt><dd>' + esc(msgProvName(sm.provider)) + '</dd>' +
+      '<dt>Status</dt><dd>' + (sm.configured ? 'Texts are delivered.' : sm.provider ? 'Missing ' + esc(need) + ': texts wait in the outbox.' : 'Texts wait in the SMS outbox; nothing is delivered.') + '</dd>' +
+      (sm.provider === 'twilio' ? '<dt>Sender</dt><dd class="sa-mono">' + esc(sm.from || '—') + '</dd>' : '') +
+      (sm.provider === 'webhook' ? '<dt>Webhook</dt><dd class="sa-mono">' + esc(sm.webhook_url || '—') + '</dd>' : '') +
+      '<dt>Country code</dt><dd>' + esc(sm.default_country_code || '—') + ' <span class="sa-small sa-muted">for numbers typed without one</span></dd>' +
+      '<dt>Sent today</dt><dd>' + fmtN(sm.sent_today) + ' of ' + fmtN(lim) + ' a day' + usageBar(pct) + '</dd>' +
+      '<dt>Per number</dt><dd>' + fmtN(sm.per_number_daily_limit) + ' a day</dd></dl>' +
+      msgTestForm('sms', 'gwTestSms', 'Send a test SMS to', 'tel', '', '+91 98765 43210') + '</div></div>' +
+      '<form class="sa-card sa-section" id="emailForm" data-section="email-settings" tabindex="-1" novalidate autocomplete="off"><h3>Email server (SMTP Gateway)</h3>' +
+      '<p class="sa-small sa-muted" style="margin:0 0 10px">Sign-ups, invitations, verification codes and alerts are delivered through this SMTP server. Passwords are saved encrypted at rest.</p>' +
+      '<div class="sa-form-grid sa-section"><div class="sa-field"><label for="emPreset">Quick provider preset</label><select class="form-select" id="emPreset">' +
+      '<option value="">Select preset (optional)…</option>' +
+      '<option value="hostinger">Hostinger Email (smtp.hostinger.com:465 SSL)</option>' +
+      '<option value="gmail">Gmail / Google Workspace (smtp.gmail.com:587 STARTTLS)</option>' +
+      '<option value="zoho">Zoho Mail India (smtp.zoho.in:465 SSL)</option>' +
+      '<option value="brevo">Brevo / Relay (smtp-relay.brevo.com:587 STARTTLS)</option>' +
+      '</select><span class="hint" id="emPresetHint">Choosing a preset auto-fills the host, port and encryption mode.</span></div></div>' +
+      '<div class="sa-form-grid">' +
+      txt('emHost', 'smtp_host', 'SMTP Host', em.host, { mono: true, hint: 'e.g. smtp.gmail.com or smtp.hostinger.com' }) +
+      txt('emPort', 'smtp_port', 'SMTP Port', em.port || 587, { mono: true, type: 'number', attrs: ' min="1" max="65535"', hint: 'Usually 587 (STARTTLS) or 465 (SSL)' }) +
+      '<div class="sa-field"><label for="emSec">Encryption</label><select class="form-select" id="emSec" name="smtp_security" data-orig="' + esc(em.security || 'auto') + '">' +
+      ['auto', 'ssl', 'starttls', 'none'].map(function (s) {
+        var lbl = { auto: 'Auto (port 465=SSL, else STARTTLS)', ssl: 'SSL / TLS (port 465)', starttls: 'STARTTLS (port 587)', none: 'None (local relay)' }[s];
+        return '<option value="' + s + '"' + ((em.security || 'auto') === s ? ' selected' : '') + '>' + esc(lbl) + '</option>';
+      }).join('') + '</select><span class="hint">Connection security required by your mail host</span></div>' +
+      txt('emUser', 'smtp_user', 'Username / Email', em.user, { hint: 'Your email address or mailbox login' }) +
+      msgSecretField('emPass', 'smtp_password', 'Password', 'SMTP_PASSWORD', { secrets_set: { SMTP_PASSWORD: em.password_set } }) +
+      txt('emFrom', 'smtp_from', 'Sender "From"', em.from, { hint: 'Display name & address, e.g. LeadAI <no-reply@domain.com>' }) +
+      '<div class="sa-field" style="grid-column:1/-1">' +
+      txt('emUrl', 'public_base_url', 'Public Base URL', em.public_base_url || location.origin, { mono: true, type: 'url', hint: 'Base URL for links in emails (e.g. https://app.yourdomain.com)' }) +
+      '</div></div>' +
+      '<div class="sa-err" id="emErr" role="alert" style="margin-top:10px"></div>' +
+      '<div class="sa-row sa-section"><button type="submit" class="btn btn-primary btn-sm">Save Email settings</button><span class="sa-small sa-muted" id="emDirty" aria-live="polite"></span></div></form>' +
+      '<form class="sa-card sa-section" id="smsForm" data-section="sms-settings" data-tour="msg-sms" tabindex="-1" novalidate autocomplete="off"><h3>SMS provider</h3>' +
+      '<ul class="sa-msg-prov">' + ['twilio', 'fast2sms', 'webhook'].map(function (p) { return '<li><b>' + esc(SMS_PROV[p][0]) + '</b> — ' + esc(SMS_PROV[p][1]) + '</li>'; }).join('') + '</ul>' +
+      '<div class="alert alert-warning"><div class="alert-body"><div class="alert-title">Texting Indian numbers?</div><div>Carriers in India only deliver business texts from a DLT-registered sender ID (header) using DLT-registered message templates. Register both with your SMS provider (Fast2SMS, MSG91, Twilio…) first, or the texts are blocked.</div></div></div>' +
+      '<div class="sa-form-grid sa-section"><div class="sa-field"><label for="gwProv">Provider</label><select class="form-select" id="gwProv" name="provider" data-orig="' + esc(sm.provider || '') + '">' +
+      ['', 'twilio', 'fast2sms', 'webhook'].map(function (p) {
+        return '<option value="' + p + '"' + ((sm.provider || '') === p ? ' selected' : '') + '>' + esc({ '': 'Not set up — keep texts in the outbox', twilio: 'Twilio (worldwide)', fast2sms: 'Fast2SMS (India)', webhook: 'Webhook (any other provider)' }[p]) + '</option>';
+      }).join('') + '</select><span class="hint" data-provhint></span></div></div>' +
+      '<div class="sa-form-grid" data-pf="twilio">' + txt('gwSid', 'twilio_account_sid', 'Account SID', sm.twilio_account_sid, { mono: true, hint: 'Starts with AC, from the Twilio console.' }) +
+      msgSecretField('gwTok', 'twilio_auth_token', 'Auth token', 'TWILIO_AUTH_TOKEN', sm) +
+      txt('gwFrom', 'twilio_from', 'Sender', sm.from, { mono: true, hint: 'A Twilio number such as +14155550123, or a Messaging Service SID (MG…).' }) + '</div>' +
+      '<div class="sa-form-grid" data-pf="fast2sms">' + msgSecretField('gwF2s', 'fast2sms_api_key', 'API key', 'FAST2SMS_API_KEY', sm) + '</div>' +
+      '<div class="sa-form-grid" data-pf="webhook">' + txt('gwUrl', 'webhook_url', 'Webhook URL', sm.webhook_url, { type: 'url', mono: true, hint: 'Must start with https://.' }) +
+      msgSecretField('gwWt', 'webhook_token', 'Token (optional)', 'SMS_WEBHOOK_TOKEN', sm) + '</div>' +
+      '<p class="sa-small sa-muted" data-pfnote style="margin:8px 0 0">Settings of a provider that isn’t selected are kept, but not shown.</p>' +
+      '<h4 class="sa-msg-h">Numbers and limits</h4><div class="sa-form-grid sa-msg-3">' +
+      txt('gwCc', 'default_country_code', 'Default country code', sm.default_country_code, { attrs: ' maxlength="5" inputmode="tel"', hint: 'Added to numbers typed without one, e.g. +91 for India.' }) +
+      txt('gwDay', 'daily_limit', 'Texts a day (all numbers)', sm.daily_limit, { type: 'number', attrs: ' min="0" max="1000000" step="1"', hint: 'Stops runaway costs. Tests don’t count.' }) +
+      txt('gwNum', 'per_number_daily_limit', 'Texts a day to one number', sm.per_number_daily_limit, { type: 'number', attrs: ' min="0" max="1000000" step="1"', hint: 'Stops abuse of public forms (SMS pumping).' }) + '</div>' +
+      '<div class="sa-err" id="gwErr" role="alert" style="margin-top:10px"></div>' +
+      '<div class="sa-row sa-section"><button type="submit" class="btn btn-primary btn-sm">Save SMS settings</button><span class="sa-small sa-muted" id="gwDirty" aria-live="polite"></span></div></form>' +
+      '<div class="sa-card sa-section" data-section="sms-outbox" tabindex="-1"><h3><span>Recent texts <span class="sa-small sa-muted">SMS outbox · numbers and codes masked</span></span></h3><div id="gwOutbox"></div></div>';
+
+    // Email provider settings
+    var eform = $('#emailForm', el);
+    bindReveal(eform);
+    var emPreset = $('#emPreset', eform);
+    if (emPreset) {
+      emPreset.onchange = function () {
+        var p = MAIL_GW_PRESETS[this.value];
+        if (!p) return;
+        var h = $('#emHost', eform), pt = $('#emPort', eform), sc = $('#emSec', eform), ph = $('#emPresetHint', eform);
+        if (h) h.value = p.host;
+        if (pt) pt.value = p.port;
+        if (sc) sc.value = p.security;
+        if (ph) ph.textContent = this.value === 'gmail' ? 'For Gmail/Google Workspace, generate a 16-letter App Password in your Google Account Security settings.' : 'Preset values filled in.';
+        eRefresh();
+      };
+    }
+    function eChanges() {
+      var b = {};
+      $$('[data-orig]', eform).forEach(function (i) { if (i.value.trim() !== i.getAttribute('data-orig')) b[i.name] = i.value.trim(); });
+      $$('[data-secret]', eform).forEach(function (i) { if (i.value.trim()) b[i.name] = i.value.trim(); });
+      return b;
+    }
+    function eRefresh() {
+      var n = Object.keys(eChanges()).length;
+      $('#emDirty', eform).textContent = n ? n + ' unsaved change' + (n === 1 ? '' : 's') : '';
+    }
+    eform.addEventListener('change', eRefresh);
+    eform.addEventListener('input', eRefresh);
+    eform.onsubmit = async function (e) {
+      e.preventDefault();
+      var err = $('#emErr', eform), b = eChanges();
+      err.textContent = '';
+      if (!Object.keys(b).length) return toast('No changes to save', 'info');
+      if (b.smtp_port) {
+        var p = parseInt(b.smtp_port, 10);
+        if (!(p >= 1 && p <= 65535)) { err.textContent = 'Port must be between 1 and 65535'; $('#emPort', eform).focus(); return; }
+        b.smtp_port = p;
+      }
+      try {
+        var res = await busy($('[type=submit]', eform), function () { return api(MSG_API + '/email', { method: 'PUT', body: b }); });
+        ctx.ov.email = res.email; ctx.kpis();
+        toast('Email gateway settings saved');
+        msgGatewayTab(el, ctx);
+        var c = $('#emailForm', el); if (c) c.focus({ preventScroll: true });
+      } catch (x) { err.textContent = x.message; }
+    };
+
+    // SMS provider settings: send only what changed; an empty secret keeps the saved one
+    var form = $('#smsForm', el), prov = $('#gwProv', form);
+    bindReveal(form);
+    function live(i) { var g = i.closest('[data-pf]'); return !g || g.getAttribute('data-pf') === prov.value; }
+    function changes() {
+      var b = {};
+      $$('[data-orig]', form).forEach(function (i) { if (live(i) && i.value.trim() !== i.getAttribute('data-orig')) b[i.name] = i.value.trim(); });
+      $$('[data-secret]', form).forEach(function (i) { if (live(i) && i.value.trim()) b[i.name] = i.value.trim(); });
+      return b;
+    }
+    function refresh() {
+      $$('[data-pf]', form).forEach(function (g) { g.hidden = g.getAttribute('data-pf') !== prov.value; });
+      $('[data-provhint]', form).textContent = SMS_PROV[prov.value][1];
+      $('[data-pfnote]', form).hidden = !prov.value;
+      var n = Object.keys(changes()).length;
+      $('#gwDirty', form).textContent = n ? n + ' unsaved change' + (n === 1 ? '' : 's') : '';
+    }
+    form.addEventListener('change', refresh);
+    form.addEventListener('input', refresh);
+    refresh();
+    form.onsubmit = async function (e) {
+      e.preventDefault();
+      var err = $('#gwErr', form), b = changes();
+      err.textContent = '';
+      var bad = function (msg, sel) { err.textContent = msg; var f = $(sel, form); if (f) f.focus(); };
+      if (!Object.keys(b).length) return toast('No changes to save', 'info');
+      if (b.webhook_url && !/^https:\/\//i.test(b.webhook_url)) return bad('The webhook URL must start with https://', '#gwUrl');
+      if ('default_country_code' in b && !/^\+?\d{1,4}$/.test(b.default_country_code)) return bad('The country code looks like +91.', '#gwCc');
+      var nums = [['daily_limit', '#gwDay'], ['per_number_daily_limit', '#gwNum']];
+      for (var i = 0; i < nums.length; i++) {
+        var k = nums[i][0];
+        if (!(k in b)) continue;
+        if (!/^\d+$/.test(b[k]) || +b[k] > 1000000) return bad('Limits must be whole numbers from 0 to 1,000,000.', nums[i][1]);
+        b[k] = parseInt(b[k], 10);
+      }
+      try {
+        var res = await busy($('[type=submit]', form), function () { return api(MSG_API + '/sms', { method: 'PUT', body: b }); });
+        ctx.ov.sms = res.sms; ctx.kpis();
+        var s = res.sms || {};
+        if (s.provider && !s.configured) toast('Saved — ' + msgProvName(s.provider) + ' still needs: ' + (s.missing || []).map(function (n) { return SMS_NEED[n] || n; }).join(', '), 'warning');
+        else toast('SMS settings saved');
+        msgGatewayTab(el, ctx);
+        var c = $('#smsForm', el); if (c) c.focus({ preventScroll: true });
+      } catch (x) { err.textContent = x.message; }
+    };
+
+    // test email / SMS: the result shows under the form
+    $$('[data-test]', el).forEach(function (f) {
+      f.onsubmit = async function (e) {
+        e.preventDefault();
+        var ch = f.getAttribute('data-test'), inp = $('input', f), out = $('[data-tres]', f), to = inp.value.trim();
+        if (ch === 'sms' ? (to.match(/\d/g) || []).length < 8 : !/^[^@\s]+@[^@\s]+$/.test(to)) {
+          out.innerHTML = msgAlert('danger', ch === 'sms' ? 'Enter a phone number, like +91 98765 43210.' : 'Enter an email address.'); inp.focus(); return;
+        }
+        out.innerHTML = '';
+        try {
+          var r = await busy($('[type=submit]', f), function () { return api(MSG_API + '/test', { method: 'POST', body: { channel: ch, to: to } }); });
+          var tone = r.status === 'sent' ? 'success' : r.status === 'queued' ? 'warning' : 'danger';
+          out.innerHTML = msgAlert(tone, esc(r.status === 'sent' ? (ch === 'sms' ? 'Sent — the text should arrive within a minute.' : 'Sent — check the inbox (and the spam folder).')
+            : r.status === 'queued' ? (r.message || 'Saved in the outbox — nothing was delivered.')
+              : 'Not sent (' + (PILL_LABEL[r.status] || r.status) + '): ' + (r.error || r.message || 'unknown error')));
+          if (ch === 'sms' && outboxLv) outboxLv.reload();
+        } catch (x) { out.innerHTML = msgAlert('danger', esc(x.message)); }
+      };
+    });
+
+    outboxLv = listView($('#gwOutbox', el), {
+      data: function () { return api(MSG_API + '/sms-outbox?limit=200').then(function (x) { return x.items || []; }); },
+      key: 'sa-sms-outbox', sort: '-created_at', limit: 10,
+      filters: [{ key: 'q', label: 'Number or text…' },
+        { key: 'status', type: 'select', label: 'Status', options: [['', 'All statuses'], ['sent', 'Sent'], ['queued', 'Queued (not delivered)'], ['failed', 'Failed'], ['invalid', 'Invalid number'], ['limited', 'Limit reached']] },
+        { key: 'kind', type: 'select', label: 'Kind', options: [['', 'All kinds']].concat(Object.keys(SMS_KIND).map(function (k) { return [k, SMS_KIND[k]]; })) }],
+      columns: [
+        { label: 'To', render: function (x) { return '<span class="sa-mono" style="white-space:nowrap">' + esc(x.to || '—') + '</span>'; } },
+        { label: 'Text', render: function (x) { return '<span class="cell-main" style="font-weight:500">' + esc(short(x.body, 70)) + '</span><span class="cell-sub">' + esc(SMS_KIND[x.kind] || titleCase(x.kind || 'other')) + '</span>'; } },
+        { label: 'Status', sort: 'status', render: function (x) { return pill(x.status) + (x.error ? '<span class="cell-sub" style="color:var(--danger-text)">' + esc(short(x.error, 60)) + '</span>' : ''); } },
+        { label: 'Provider', render: function (x) { return esc(x.provider ? msgProvName(x.provider) : '—'); } },
+        { label: 'When', sort: 'created_at', render: function (x) { return '<span style="white-space:nowrap">' + esc(fmtDT(x.created_at)) + '</span>'; } }
+      ],
+      rowClick: function (x) {
+        openDrawer('Text message', function (body, close) {
+          body.innerHTML = '<dl class="sa-kv"><dt>To</dt><dd class="sa-mono">' + esc(x.to || '—') + '</dd><dt>Kind</dt><dd>' + esc(SMS_KIND[x.kind] || titleCase(x.kind || 'other')) + '</dd>' +
+            '<dt>Status</dt><dd>' + pill(x.status) + '</dd>' + (x.error ? '<dt>Error</dt><dd style="color:var(--danger-text)">' + esc(x.error) + '</dd>' : '') +
+            '<dt>Provider</dt><dd>' + esc(x.provider ? msgProvName(x.provider) : 'None (not set up)') + '</dd><dt>Queued</dt><dd>' + esc(fmtDT(x.created_at)) + '</dd>' +
+            (x.campaign_id ? '<dt>Message</dt><dd><button type="button" class="sa-link" data-camp>Open its delivery details</button></dd>' : '') + '</dl>' +
+            '<h4 class="sa-msg-h">Text</h4><pre class="sa-pre">' + esc(x.body) + '</pre><p class="sa-small sa-muted">One-time codes are masked in this copy; the text itself carried them.</p>';
+          var c = $('[data-camp]', body); if (c) c.onclick = function () { close(); msgDrawer(x.campaign_id); };
+        });
+      },
+      empty: { title: 'No texts yet', desc: 'Welcome texts, sign-in alerts, password-reset codes, tests and your messages appear here.' }
+    });
+  }
+
+  // ════════════════════════════════════════════════════════
   //  NAVIGATION / ROUTER / SHELL
   // ════════════════════════════════════════════════════════
   var IC = {
@@ -3685,6 +5007,9 @@
     cpu: '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>',
     file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
     msg: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    send: '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
+    mail: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/>',
+    phone: '<rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>',
     star: '<polygon points="12 2 15 9 22 9.3 16.5 14 18.2 21 12 17.3 5.8 21 7.5 14 2 9.3 9 9"/>',
     brain: '<path d="M9 3a3 3 0 0 0-3 3v1a3 3 0 0 0-2 5 3 3 0 0 0 2 5v1a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M15 3a3 3 0 0 1 3 3v1a3 3 0 0 1 2 5 3 3 0 0 1-2 5v1a3 3 0 0 1-6 0"/>',
     chart: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
@@ -3700,42 +5025,110 @@
     download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
     gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
     handshake: '<path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4"/><path d="m21 3 1 11h-2"/><path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3"/><path d="M3 4h8"/>',
-    tool: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"/>'
+    tool: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"/>',
+    // used by the merged platform-console pages (modules may also add their own with SAKit.addIcon)
+    activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+    alert: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
+    terminal: '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
+    sliders: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
+    zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+    filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
+    upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
+    'x-circle': '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>',
+    refresh: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+    server: '<rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>',
+    trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
+    play: '<polygon points="5 3 19 12 5 21 5 3"/>',
+    eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+    clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    check: '<polyline points="20 6 9 17 4 12"/>',
+    'check-circle': '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+    'file-text': '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+    hash: '<line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/>',
+    target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+    dollar: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+    box: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>'
   };
+  IC.db = IC.database; // short alias asked for by the engine module
   var EXT = '<svg class="sa-ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
+  // [route, label, icon, countKey, minRole (default super_admin), label for platform staff]
   var MENU = [
     ['Overview', [['dashboard', 'Dashboard', 'dash']]],
-    ['Customers', [['organizations', 'Organizations', 'org'], ['admins', 'Admins', 'shield'], ['users', 'Users', 'users'], ['demo', 'Free trials', 'gift', 'demo'], ['support', 'Support', 'msg', 'support']]],
-    ['Revenue', [['plans', 'Plans', 'layers'], ['pricing', 'Pricing', 'tag'], ['provider-keys', 'API keys', 'key', 'apikeys'], ['subscriptions', 'Subscriptions', 'repeat', 'queue'], ['payments', 'Payments', 'card'], ['tokens', 'Tokens & Usage', 'coin']]],
-    ['LeadAI Operations', [['ops/agent', 'URL Search Agent', 'bolt'], ['ops/searches', 'Searches', 'search'], ['ops/jobs', 'Apify Jobs', 'cpu'], ['/admin#/pages', 'Pages', 'file'], ['/admin#/posts', 'Posts', 'msg'], ['/admin#/ci', 'Comments', 'msg'], ['ops/leads', 'Leads', 'star']]],
-    ['Intelligence', [['ai', 'AI Management', 'brain'], ['industries', 'Industries', 'layers'], ['analytics', 'Analytics', 'chart']]],
-    ['Governance', [['notifications', 'Notifications', 'bell', 'notif'], ['audit', 'Audit Logs', 'list'], ['security', 'Security Center', 'lock'], ['roles', 'Roles & Permissions', 'key']]],
-    ['Platform', [['website', 'Website / CMS', 'globe'], ['integrations', 'Integrations', 'plug'], ['health', 'System Health', 'heart'], ['flags', 'Feature Flags', 'flag'], ['reports', 'Reports / Exports', 'download'], ['/admin#/settings', 'Global Settings', 'gear'], ['maintenance', 'Maintenance', 'tool']]]
+    ['Customers', [['organizations', 'Organizations', 'org', null, 'viewer'], ['admins', 'Admins', 'shield'], ['users', 'Users', 'users'], ['demo', 'Free trials', 'gift', 'demo'], ['support', 'Support', 'msg', 'support'], ['messaging', 'Messaging', 'send']]],
+    ['Revenue', [['plans', 'Plans', 'layers', null, 'viewer'], ['pricing', 'Pricing', 'tag'], ['provider-keys', 'API keys', 'key', 'apikeys'], ['subscriptions', 'Subscriptions', 'repeat', 'queue', 'viewer'], ['payments', 'Payments', 'card', null, 'viewer', 'Invoices'], ['tokens', 'Tokens & Usage', 'coin']]],
+    // the Operations module (super-admin-ops.js) merges its pages into this group
+    ['Operations', [['ops/agent', 'URL Search Agent', 'bolt']]],
+    ['Intelligence', [['ai', 'AI Management', 'brain', null, 'viewer'], ['industries', 'Industries', 'layers'], ['analytics', 'Analytics', 'chart', null, 'viewer']]],
+    ['Governance', [['notifications', 'Notifications', 'bell', 'notif'], ['audit', 'Audit Logs', 'list', null, 'viewer'], ['security', 'Security Center', 'lock', null, 'viewer'], ['roles', 'Roles & Permissions', 'key']]],
+    ['Platform', [['website', 'Website / CMS', 'globe'], ['integrations', 'Integrations', 'plug'], ['health', 'System Health', 'heart', null, 'viewer'], ['flags', 'Feature Flags', 'flag', null, 'viewer'], ['reports', 'Reports / Exports', 'download'], ['maintenance', 'Maintenance', 'tool', null, 'viewer']]]
   ];
+  var CORE_GROUPS = MENU.map(function (g) { return g[0]; });
   var ROUTES = {
     dashboard: [viewDashboard, 'Dashboard'], organizations: [viewOrganizations, 'Organizations', viewOrgDetail], admins: [viewAdmins, 'Admins'],
     users: [viewUsers, 'Users', viewUserDetail], demo: [viewDemo, 'Free trials'], plans: [viewPlans, 'Plans'], pricing: [viewPricing, 'Pricing'], 'provider-keys': [viewProviderKeys, 'API keys'],
     subscriptions: [viewSubscriptions, 'Subscriptions'], payments: [viewPayments, 'Payments'], tokens: [viewTokens, 'Tokens & Usage'],
-    'ops/agent': [viewOpsAgent, 'URL Search Agent'], 'ops/searches': [viewOpsSearches, 'Searches'], 'ops/jobs': [viewOpsJobs, 'Apify Jobs'],
-    'ops/leads': [viewOpsLeads, 'Leads'], 'ops/chain': [null, 'Investigation', viewChain],
+    'ops/agent': [viewOpsAgent, 'URL Search Agent'], 'ops/chain': [null, 'Investigation', viewChain],
+    // old names: aliases to Jobs / Leads (see ROUTE_ALIAS); these views are the fallback while those pages are not loaded
+    'ops/searches': [viewOpsSearches, 'URL Search Agent'], 'ops/jobs': [viewOpsJobs, 'URL Search Agent'], 'ops/leads': [viewOpsLeads, 'URL Search Agent'],
     ai: [viewAI, 'AI Management'], industries: [viewIndustries, 'Industries'], analytics: [viewAnalytics, 'Analytics'], notifications: [viewNotifications, 'Notifications'],
     audit: [viewAudit, 'Audit Logs'], security: [viewSecurity, 'Security Center'], roles: [viewRoles, 'Roles & Permissions'],
-    website: [viewWebsite, 'Website / CMS'], cms: [viewWebsite, 'Website / CMS'], support: [viewSupport, 'Support', viewSupportTicket], integrations: [viewIntegrations, 'Integrations'], health: [viewHealth, 'System Health'],
+    website: [viewWebsite, 'Website / CMS'], cms: [viewWebsite, 'Website / CMS'], support: [viewSupport, 'Support', viewSupportTicket], messaging: [viewMessaging, 'Messaging'], integrations: [viewIntegrations, 'Integrations'], health: [viewHealth, 'System Health'],
     flags: [viewFlags, 'Feature Flags'], reports: [viewReports, 'Reports / Exports'], maintenance: [viewMaintenance, 'Maintenance']
   };
-  var GROUP_OF = {};
+  var GROUP_OF = { 'ops/chain': 'Operations', 'ops/searches': 'Operations', 'ops/jobs': 'Operations', 'ops/leads': 'Operations', cms: 'Platform' };
   MENU.forEach(function (g) { g[1].forEach(function (i) { GROUP_OF[i[0]] = g[0]; }); });
+  /** Minimum console role of a route: ROUTES[key][3], else its menu item, else super_admin. */
+  function routeRole(key) {
+    var d = ROUTES[key];
+    if (d && d[3]) return d[3];
+    if (ROUTE_ROLE[key]) return ROUTE_ROLE[key];
+    var role = null;
+    MENU.forEach(function (g) { g[1].forEach(function (i) { if (i[0] === key) role = i[4] || 'super_admin'; }); });
+    return role || 'super_admin';
+  }
+  // Old route names (the retired platform console's #/x routes and the old Super Admin pages) → the merged pages.
+  // [target route, query added when missing]; "x/details:<id>" (and "x/details/<id>") → "x/<id>".
+  var ROUTE_ALIAS = { failed: ['jobs', { tab: 'failed' }], invoices: ['payments', { tab: 'invoices' }], features: ['flags'],
+    'ops/leads': ['leads'], 'ops/jobs': ['jobs', { tab: 'orgs', apify: 'true' }], 'ops/searches': ['jobs', { tab: 'orgs' }] };
+  function aliasFor() {
+    var h = location.hash.replace(/^#\/?/, ''), parts = h.split('?');
+    var path = '';
+    try { path = decodeURIComponent(parts[0] || '').replace(/\/+$/, ''); } catch (e) { return null; }
+    var target = null, extra = {}, m = /^(leads|jobs|platforms|organizations)\/details[:\/](.+)$/.exec(path);
+    if (m) target = m[1] + '/' + encodeURIComponent(m[2]);
+    // a simple alias yields to a module that registered that route itself (the core ops/* fallbacks don't count)
+    else if (ROUTE_ALIAS[path] && (!ROUTES[path] || /^ops\//.test(path))) { target = ROUTE_ALIAS[path][0]; extra = ROUTE_ALIAS[path][1] || {}; }
+    if (!target || !ROUTES[target.split('/')[0]]) return null; // that page is not loaded (yet): keep the old route
+    var p = new URLSearchParams(parts.slice(1).join('?'));
+    Object.keys(extra).forEach(function (k) { if (!p.has(k)) p.set(k, extra[k]); });
+    var q2 = p.toString();
+    return '#/' + target + (q2 ? '?' + q2 : '');
+  }
+  /** The page a person lands on: the dashboard for the Super Admin, Operations (or the first allowed page) for staff. */
+  function homeRoute() {
+    if (can('super_admin')) return 'dashboard';
+    if (ROUTES.operations && can(routeRole('operations'))) return 'operations';
+    var first = null;
+    MENU.forEach(function (g) { g[1].forEach(function (i) { if (!first && i[0].charAt(0) !== '/' && can(i[4])) first = i[0]; }); });
+    return first || 'dashboard';
+  }
+  function navLabel(i) { return (isStaff() && i[5]) || i[1]; }
 
   function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
   function renderNav() {
     var closed = {};
     try { closed = JSON.parse(store('sa_nav_closed') || '{}') || {}; } catch (e) { closed = {}; }
+    MENU.forEach(function (g) { g[1].forEach(function (i) { if (i[0].charAt(0) !== '/') ROUTE_ROLE[i[0]] = i[4] || 'super_admin'; }); });
     $('#saNav').innerHTML = MENU.map(function (g) {
+      var items = g[1].filter(function (i) { return S.me && can(i[4]); });
+      if (!items.length) return '';
       return '<div class="sa-group' + (closed[g[0]] ? ' closed' : '') + '" data-g="' + esc(g[0]) + '"><button type="button" class="sa-group-btn" aria-expanded="' + !closed[g[0]] + '"><span>' + esc(g[0]) + '</span><svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></button><div class="sa-group-items">' +
-        g[1].map(function (i) {
-          var ext = i[0].charAt(0) === '/';
-          return '<a class="sa-item" href="' + (ext ? esc(i[0]) : '#/' + esc(i[0])) + '"' + (ext ? ' target="_blank" rel="noopener"' : ' data-route="' + esc(i[0]) + '"') + ' title="' + esc(i[1]) + (ext ? ' (opens the platform console)' : '') + '" aria-label="' + esc(i[1]) + (ext ? ' (opens the platform console in a new tab)' : '') + '">' +
-            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + IC[i[2]] + '</svg><span class="sa-label">' + esc(i[1]) + '</span>' +
+        items.map(function (i) {
+          var ext = i[0].charAt(0) === '/', label = navLabel(i);
+          return '<a class="sa-item" href="' + (ext ? esc(i[0]) : '#/' + esc(i[0])) + '"' + (ext ? ' target="_blank" rel="noopener"' : ' data-route="' + esc(i[0]) + '" data-tour="nav-' + esc(i[0]) + '"') + ' title="' + esc(label) + (ext ? ' (opens in a new tab)' : '') + '" aria-label="' + esc(label) + (ext ? ' (opens in a new tab)' : '') + '">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (IC[i[2]] || IC.file) + '</svg><span class="sa-label">' + esc(label) + '</span>' +
             (ext ? EXT : '') + (i[3] ? '<span class="sa-count" data-count="' + i[3] + '" hidden></span>' : '') + '</a>';
         }).join('') + '</div></div>';
     }).join('');
@@ -3748,30 +5141,40 @@
       };
     });
     $$('.sa-item[data-route]').forEach(function (a) { a.addEventListener('click', function () { document.body.classList.remove('sa-nav-open'); }); });
+    var cur = parseHash().key;
+    $$('.sa-item[data-route]').forEach(function (a) { var on = a.getAttribute('data-route') === cur; a.classList.toggle('active', on); if (on) a.setAttribute('aria-current', 'page'); });
   }
   function setCount(key, n) {
     $$('[data-count="' + key + '"]').forEach(function (el) {
-      el.textContent = n > 99 ? '99+' : String(n); el.hidden = !n;
+      el.textContent = n > 99 ? '99+' : String(n || 0); el.hidden = !n;
       var a = el.closest('.sa-item'); if (a) a.setAttribute('aria-label', a.getAttribute('title').replace(/ \(.*$/, '') + (n ? ' — ' + n + ' waiting' : ''));
     });
   }
-  var CRUMB_LINK = { 'Searches': '#/ops/searches', 'Organizations': '#/organizations', 'Users': '#/users', 'Support': '#/support', 'LeadAI Operations': '#/ops/searches' };
+  function crumbLink(p) {
+    var fixed = { 'Organizations': '#/organizations', 'Users': '#/users', 'Support': '#/support', 'URL Search Agent': '#/ops/agent' };
+    if (fixed[p]) return fixed[p];
+    var g = MENU.filter(function (x) { return x[0] === p; })[0];
+    var first = g && g[1].filter(function (i) { return i[0].charAt(0) !== '/' && (!S.me || can(i[4])); })[0];
+    return first ? '#/' + first[0] : null;
+  }
   /** setTitle(title, 'Parent › Child') — top-bar title + breadcrumb trail (Super Admin › … › current). */
   function setTitle(title, crumb) {
     $('#saTitle').textContent = title;
     var parts = String(crumb || '').split(' › ').filter(Boolean);
     if (!parts.length || parts[parts.length - 1] !== title) parts.push(title);
-    var trail = [['Super Admin', '#/dashboard']].concat(parts.map(function (p, i) { return [p, i < parts.length - 1 ? CRUMB_LINK[p] : null]; }));
+    var staff = isStaff();
+    var trail = [[staff ? 'LeadAI' : 'Super Admin', '#/' + (S.me ? homeRoute() : 'dashboard')]].concat(parts.map(function (p, i) { return [p, i < parts.length - 1 ? crumbLink(p) : null]; }));
     $('#saCrumb').innerHTML = '<ol>' + trail.map(function (t, i) {
       var last = i === trail.length - 1;
       return '<li>' + (last ? '<span aria-current="page">' + esc(t[0]) + '</span>' : t[1] ? '<a href="' + esc(t[1]) + '">' + esc(t[0]) + '</a>' : '<span>' + esc(t[0]) + '</span>') + '</li>';
     }).join('') + '</ol>';
-    document.title = title + ' · Super Admin · LeadAI';
+    document.title = title + (staff ? ' · LeadAI platform' : ' · Super Admin · LeadAI');
   }
   function parseHash() {
     var h = location.hash.replace(/^#\/?/, '');
     var parts = h.split('?');
-    var path = decodeURIComponent(parts[0] || 'dashboard').replace(/\/+$/, '') || 'dashboard';
+    var path = 'dashboard';
+    try { path = decodeURIComponent(parts[0] || 'dashboard').replace(/\/+$/, '') || 'dashboard'; } catch (e) { path = parts[0] || 'dashboard'; }
     var query = {};
     new URLSearchParams(parts[1] || '').forEach(function (v, k) { query[k] = v; });
     var seg = path.split('/');
@@ -3780,6 +5183,8 @@
     return { key: key, param: param, query: query };
   }
   async function route(silent) {
+    var al = aliasFor();
+    if (al) { location.replace(al); return; }
     S.timers.forEach(clearInterval); S.timers = [];
     $$('.sa-pop').forEach(function (p) { p.hidden = true; });
     var r = parseHash();
@@ -3790,7 +5195,19 @@
     if (!def || (r.param && !def[2]) || (!r.param && !def[0])) {
       setTitle('Not found', '');
       view.innerHTML = '';
-      box.innerHTML = '<div class="sa-state">' + stateIcon('missing') + '<h4>404 — page not found</h4><p>The route <span class="sa-mono">#/' + esc(location.hash.replace(/^#\/?/, '')) + '</span> does not exist in the Super Admin portal.</p><a class="btn btn-primary btn-sm" href="#/dashboard">Back to dashboard</a></div>';
+      box.innerHTML = '<div class="sa-state">' + stateIcon('missing') + '<h4>404 — page not found</h4><p>The route <span class="sa-mono">#/' + esc(location.hash.replace(/^#\/?/, '')) + '</span> does not exist in this portal.</p><a class="btn btn-primary btn-sm" href="#/' + esc(S.me ? homeRoute() : 'dashboard') + '">Back to the start page</a></div>';
+      view.appendChild(box); return;
+    }
+    if (!S.me && S.meReady) await S.meReady;
+    var need = routeRole(r.key);
+    if (!can(need)) {
+      var home = homeRoute();
+      if (r.key === 'dashboard' && home !== 'dashboard') { location.replace('#/' + home); return; }
+      setTitle('No access', '');
+      view.innerHTML = '';
+      box.innerHTML = '<div class="sa-state">' + stateIcon('lock') + '<h4>Not available for your role</h4><p>This page needs the ' +
+        esc(ROLE_LABEL[need] || String(need || '').replace('_', ' ')) + ' role; you are signed in as ' + esc(roleName()) + '. Ask the Super Admin if you need it.</p>' +
+        (can(routeRole(home)) ? '<a class="btn btn-primary btn-sm" href="#/' + esc(home) + '">Go to ' + esc((ROUTES[home] || [0, home])[1]) + '</a>' : '') + '</div>';
       view.appendChild(box); return;
     }
     setTitle(def[1], (GROUP_OF[r.key] || '') + ' › ' + def[1]);
@@ -3831,33 +5248,51 @@
     $('#saHealthLbl').textContent = overall === 'ok' ? 'Healthy' : overall === 'warn' ? 'Attention' : overall === 'down' ? 'Down' : 'Degraded';
     $('#saHealth').setAttribute('aria-label', 'System health: ' + $('#saHealthLbl').textContent + ' — open details');
   }
-  async function refreshHealth() { try { setHealthPill((await api('/api/super-admin/health')).health.overall); } catch (e) { setHealthPill('down'); } }
-  async function refreshBell() {
+  // the Super Admin gets the platform health; staff the platform-console checks (GET /api/admin/health)
+  async function refreshHealth() {
     try {
-      var d = await api('/api/super-admin/notifications?limit=8');
-      var n = d.unread || 0;
+      if (isStaff()) { var ph = await api('/api/admin/health'); setHealthPill(ph.overall === 'ok' ? 'ok' : 'warn'); }
+      else setHealthPill((await api('/api/super-admin/health')).health.overall);
+    } catch (e) { setHealthPill('down'); }
+  }
+  // bell: the Super Admin's notifications + the live operations alerts (last 24 h) every staff role sees
+  async function refreshBell() {
+    var sup = can('super_admin');
+    try {
+      var r = await Promise.all([api('/api/admin/alerts').catch(function () { return null; }),
+        sup ? api('/api/super-admin/notifications?limit=8').catch(function () { return null; }) : null]);
+      S.alerts = (r[0] && r[0].alerts) || [];
+      var n;
+      if (sup && r[1]) { n = r[1].unread || 0; S.bell = r[1].items || []; setCount('notif', n); }
+      else n = sup ? 0 : S.alerts.length;
       $('#saBellCount').textContent = n > 99 ? '99+' : n; $('#saBellCount').hidden = !n;
-      setCount('notif', n);
-      S.bell = d.items || [];
-    } catch (e) { /* the view shows errors */ }
+      $('#saBell').setAttribute('aria-label', (sup ? 'Notifications' : 'Live alerts') + (n ? ' — ' + n + (sup ? ' unread' : ' active') : ''));
+    } catch (e) { /* the views show errors */ }
   }
   async function refreshCounts() {
-    try { setCount('demo', (await api('/api/super-admin/demo-requests?status=pending&limit=1')).total || 0); } catch (e) {}
-    try { setCount('queue', (await api('/api/super-admin/subscriptions/queue?limit=1')).total || 0); } catch (e) {}
-    try { setCount('support', (await api('/api/super-admin/support/tickets?status=active&limit=1')).total || 0); } catch (e) {}
-    try {
-      var pk = await api('/api/super-admin/provider-keys?show=problems');
-      setCount('apikeys', (pk.total || 0) + API_KEYS.filter(function (a) { var p = (pk.platform || {})[a]; return !p || !p.set || (p.last_test && !p.last_test.valid); }).length);
-    } catch (e) {}
-    EXT_COUNTS.forEach(function (fn) { try { fn(); } catch (e) {} });
+    if (can('super_admin')) {
+      try { setCount('demo', (await api('/api/super-admin/demo-requests?status=pending&limit=1')).total || 0); } catch (e) {}
+      try { setCount('queue', (await api('/api/super-admin/subscriptions/queue?limit=1')).total || 0); } catch (e) {}
+      try { setCount('support', (await api('/api/super-admin/support/tickets?status=active&limit=1')).total || 0); } catch (e) {}
+      try {
+        var pk = await api('/api/super-admin/provider-keys?show=problems');
+        setCount('apikeys', (pk.total || 0) + API_KEYS.filter(function (a) { var p = (pk.platform || {})[a]; return !p || !p.set || (p.last_test && !p.last_test.valid); }).length);
+      } catch (e) {}
+    }
+    EXT_COUNTS.forEach(function (c) { if (can(c.role)) { try { c.fn(); } catch (e) {} } });
   }
+  var ALERT_DOT = { ok: 'ok', warn: 'warn', info: 'info' };
   function renderBell() {
-    var pop = $('#saBellPop'), items = S.bell || [];
-    pop.innerHTML = '<div class="sa-pop-head"><span>Notifications</span><button type="button" class="sa-link" id="bellAll">Mark all read</button></div>' +
+    var pop = $('#saBellPop'), sup = can('super_admin'), items = sup ? S.bell || [] : [], alerts = S.alerts || [];
+    var alertHtml = '<div class="sa-pop-head"><span>Live alerts <small style="text-transform:none;letter-spacing:0">· last 24 h</small></span><span>' + (alerts.length ? fmtN(alerts.length) + ' active' : '') + '</span></div>' +
+      (alerts.length ? alerts.map(function (a, i) {
+        return '<button type="button" class="sa-pop-item" data-al="' + i + '"><span class="sa-dot ' + (ALERT_DOT[a.severity] || 'err') + '" style="margin-top:6px" aria-hidden="true"></span><span style="min-width:0"><b>' + esc(a.title) + '</b><small>' + esc(short(a.message, 90)) + '</small></span></button>';
+      }).join('') : '<div class="sa-pop-note">All systems normal — no active alerts.</div>');
+    pop.innerHTML = (sup ? '<div class="sa-pop-head"><span>Notifications</span><button type="button" class="sa-link" id="bellAll">Mark all read</button></div>' +
       (items.length ? items.map(function (n, i) {
         return '<button type="button" class="sa-pop-item" data-n="' + i + '"><span class="sa-dot ' + (n.read ? '' : n.severity === 'danger' ? 'err' : 'warn') + '" style="margin-top:6px" aria-hidden="true"></span><span style="min-width:0"><b>' + esc(n.title) + '</b><small>' + esc(short(n.message, 90)) + ' · ' + esc(ago(n.created_at)) + '</small></span></button>';
-      }).join('') : '<div class="sa-state" style="padding:18px"><p>You are all caught up.</p></div>') +
-      '<a class="sa-pop-item" href="#/notifications" style="justify-content:center;font-weight:600">Open notification center</a>';
+      }).join('') : '<div class="sa-pop-note">You are all caught up.</div>') : '') + alertHtml +
+      (sup ? '<a class="sa-pop-item" href="#/notifications" style="justify-content:center;font-weight:600">Open notification center</a>' : (ROUTES.operations ? '<a class="sa-pop-item" href="#/operations" style="justify-content:center;font-weight:600">Open operations overview</a>' : ''));
     $$('[data-n]', pop).forEach(function (b) { b.onclick = async function () {
       var n = items[+b.getAttribute('data-n')];
       togglePop($('#saBell'), pop, false);
@@ -3867,36 +5302,66 @@
       else if (n.link) { var l = internalLink(n.link); if (l.charAt(0) === '#') go(l); else location.href = l; }
       else go('#/notifications');
     }; });
-    $('#bellAll', pop).onclick = async function () { await api('/api/super-admin/notifications/read', { method: 'POST', body: {} }); await refreshBell(); renderBell(); };
+    $$('[data-al]', pop).forEach(function (b) { b.onclick = function () {
+      var a = alerts[+b.getAttribute('data-al')];
+      togglePop($('#saBell'), pop, false);
+      if (a && a.route) go(a.route);
+    }; });
+    var all = $('#bellAll', pop);
+    if (all) all.onclick = async function () { await api('/api/super-admin/notifications/read', { method: 'POST', body: {} }); await refreshBell(); renderBell(); };
+  }
+  // global search: the Super Admin searches customers (organizations, users, runs, trial sign-ups) and the
+  // scraped data; staff search the scraped data (jobs, leads, pages, posts, comments, platforms)
+  var SEARCH_LABEL = { organizations: 'Organizations', users: 'Users', searches: 'Search runs', demo_requests: 'Trial sign-ups',
+    jobs: 'Jobs', leads: 'Leads', pages: 'Pages', posts: 'Posts', comments: 'Comments', platforms: 'Platforms' };
+  function opsSearchItems(res) {
+    res = res || {};
+    var oid = function (x) { return x.id || x._id; };
+    var out = [];
+    (res.jobs || []).forEach(function (j) { out.push(['jobs', { label: j.query || j.run_id, sub: j.run_id, status: j.status, hash: '#/jobs/' + encodeURIComponent(j.run_id) }]); });
+    (res.leads || []).forEach(function (l) { out.push(['leads', { label: l.commenter_name || 'Lead', sub: [l.intent, l.lead_score != null ? 'score ' + l.lead_score : ''].filter(Boolean).join(' · '), hash: '#/leads/' + encodeURIComponent(oid(l)) }]); });
+    (res.pages || []).forEach(function (pg) { out.push(['pages', { label: pg.page_name || 'Page', sub: [pg.category, pg.city].filter(Boolean).join(' · '), hash: '#/pages?q=' + encodeURIComponent(pg.page_name || '') }]); });
+    (res.posts || []).forEach(function (po) { out.push(['posts', { label: short(po.caption || 'Post', 60), sub: po.page_name || '', hash: '#/posts?q=' + encodeURIComponent(short(po.caption || '', 40).replace(/…$/, '')) }]); });
+    (res.comments || []).forEach(function (c) { out.push(['comments', { label: short(c.comment_text || '', 60), sub: c.author_name || '', hash: '#/ci?q=' + encodeURIComponent(short(c.comment_text || '', 40).replace(/…$/, '')) }]); });
+    (res.platforms || []).forEach(function (pl) { out.push(['platforms', { label: titleCase(pl), sub: 'Platform', hash: '#/platforms/' + encodeURIComponent(pl) }]); });
+    return out;
   }
   function wireSearch() {
-    var inp = $('#saSearch'), pop = $('#saSearchPop'), t;
+    var inp = $('#saSearch'), pop = $('#saSearchPop'), t, seq = 0;
     try { new MutationObserver(function () { inp.setAttribute('aria-expanded', String(!pop.hidden)); }).observe(pop, { attributes: true, attributeFilter: ['hidden'] }); } catch (e) { /* old browser */ }
-    var labels = { organizations: 'Organizations', users: 'Users', searches: 'Search runs', demo_requests: 'Trial sign-ups' };
     inp.addEventListener('input', function () {
       clearTimeout(t);
       var q = inp.value.trim();
       if (q.length < 2) { pop.hidden = true; return; }
       t = setTimeout(async function () {
+        var my = ++seq, sup = can('super_admin');
         try {
-          var d = await api('/api/super-admin/search?q=' + encodeURIComponent(q));
-          var groups = d.groups || {};
-          var keys = Object.keys(groups);
-          pop.innerHTML = keys.length ? keys.map(function (k) {
-            return '<div class="sa-pop-head">' + esc(labels[k] || k) + '</div>' + groups[k].map(function (it) {
-              return '<button type="button" class="sa-pop-item" role="option" data-k="' + esc(k) + '" data-id="' + esc(it.id) + '"><span style="min-width:0"><b>' + esc(it.label || it.id) + '</b><small>' + esc(it.sub || '') + '</small></span><span style="margin-left:auto">' + pill(it.status) + '</span></button>';
+          var r = await Promise.all([sup ? api('/api/super-admin/search?q=' + encodeURIComponent(q)) : null,
+            api('/api/admin/search?q=' + encodeURIComponent(q.slice(0, 80))).catch(function (e) { if (!sup) throw e; return null; })]);
+          if (my !== seq) return;
+          var rows = [];
+          var groups = (r[0] && r[0].groups) || {};
+          Object.keys(groups).forEach(function (k) { groups[k].forEach(function (it) { rows.push([k, { label: it.label || it.id, sub: it.sub || '', status: it.status, id: it.id }]); }); });
+          rows = rows.concat(opsSearchItems(r[1] && r[1].results));
+          var order = [], byKey = {};
+          rows.forEach(function (x) { if (!byKey[x[0]]) { byKey[x[0]] = []; order.push(x[0]); } byKey[x[0]].push(x[1]); });
+          rows.forEach(function (x, i) { x[1]._i = i; });
+          pop.innerHTML = order.length ? order.map(function (k) {
+            return '<div class="sa-pop-head">' + esc(SEARCH_LABEL[k] || k) + '</div>' + byKey[k].map(function (it) {
+              return '<button type="button" class="sa-pop-item" role="option" data-sr="' + it._i + '"><span style="min-width:0"><b>' + esc(it.label) + '</b><small>' + esc(it.sub || '') + '</small></span>' + (it.status ? '<span style="margin-left:auto">' + pill(it.status) + '</span>' : '') + '</button>';
             }).join('');
           }).join('') : '<div class="sa-state" style="padding:18px"><p>No results for “' + esc(q) + '”</p></div>';
           pop.hidden = false;
-          $$('[data-k]', pop).forEach(function (b) { b.onclick = function () {
-            var k = b.getAttribute('data-k'), id = b.getAttribute('data-id');
+          $$('[data-sr]', pop).forEach(function (b) { b.onclick = function () {
+            var x = rows[+b.getAttribute('data-sr')], k = x[0], it = x[1];
             pop.hidden = true; inp.value = '';
-            if (k === 'organizations') go('#/organizations/' + id);
-            else if (k === 'users') go('#/users/' + id);
-            else if (k === 'searches') chainDrawer(id);
-            else demoDrawer(id);
+            if (it.hash) go(it.hash);
+            else if (k === 'organizations') go('#/organizations/' + it.id);
+            else if (k === 'users') go('#/users/' + it.id);
+            else if (k === 'searches') chainDrawer(it.id);
+            else demoDrawer(it.id);
           }; });
-        } catch (e) { pop.innerHTML = '<div class="sa-state" style="padding:14px"><p>' + esc(e.message) + '</p></div>'; pop.hidden = false; }
+        } catch (e) { if (my === seq) { pop.innerHTML = '<div class="sa-state" style="padding:14px"><p>' + esc(e.message) + '</p></div>'; pop.hidden = false; } }
       }, 250);
     });
     inp.addEventListener('keydown', function (e) {
@@ -3917,21 +5382,359 @@
     try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
     location.href = '/login?superadmin=1';
   }
+  /** Profile menu → Change my password (the platform-console Security form: POST /api/admin/security/change-password). */
+  async function changeMyPassword() {
+    if (can('super_admin')) {
+      return openModal({ title: 'Change my password', submitLabel: null, cancelLabel: 'Close', body:
+        '<div class="alert alert-info"><div class="alert-body"><div class="alert-title">The Super Admin password lives in the hosting environment</div><div>It is set by <span class="sa-mono">SUPERADMIN_PASSWORD</span> and cannot be changed in the app: change it in the hosting environment and restart. A recovery sign-in password can be set on <a href="#/environment">Environment</a>.</div></div></div>' +
+        '<p class="sa-small sa-muted" style="margin:0">Staff accounts change their own password here; you can set any staff password in Security Center → Staff accounts.</p>' });
+    }
+    var r = await openModal({ title: 'Change my password', submitLabel: 'Change password', body:
+      '<p style="margin:0;color:var(--text-secondary)">Signed in as <b>' + esc((S.me || {}).email || '') + '</b> (' + esc(roleName()) + ').</p>' +
+      '<div class="sa-field"><label for="cpOld">Current password</label><input class="form-input" id="cpOld" name="old_password" type="password" autocomplete="current-password" required></div>' +
+      '<div class="sa-field"><label for="cpNew">New password</label><input class="form-input" id="cpNew" name="new_password" type="password" autocomplete="new-password" minlength="8" required><span class="hint">At least 8 characters with an uppercase letter and a number.</span></div>' +
+      '<div class="sa-field"><label for="cpRep">Repeat the new password</label><input class="form-input" id="cpRep" name="repeat" type="password" autocomplete="new-password" required></div>',
+      onSubmit: function (f, fd) {
+        var old = String(fd.get('old_password') || ''), pw = String(fd.get('new_password') || '');
+        if (!old) throw new Error('Enter your current password.');
+        if (pw.length < 8) throw new Error('The new password needs at least 8 characters.');
+        if (pw !== String(fd.get('repeat') || '')) throw new Error('The two new passwords do not match.');
+        if (pw === old) throw new Error('Choose a password you have not used just now.');
+        return api('/api/admin/security/change-password', { method: 'POST', body: { old_password: old, new_password: pw } });
+      } });
+    if (r) toast(r.message || 'Password updated — use it the next time you sign in');
+  }
   async function loadMe() {
     try {
       var d = await api('/api/auth/me');
       var u = d.user || d;
       S.me = u;
-      var name = u.name || u.email || 'Super Admin';
+      renderNav();
+      var name = u.name || u.email || roleName();
       $('#saMe').textContent = name; $('#saAvatar').textContent = name.charAt(0).toUpperCase();
       $('#saProfileEmail').textContent = u.email || 'Signed in';
+      var rl = $('#saRoleLbl'); if (rl) rl.textContent = roleName();
+      var rb = $('#saRoleBadge'); if (rb) { rb.textContent = 'GLOBAL · ' + roleName().toUpperCase(); rb.title = can('super_admin') ? 'You are acting across ALL organizations' : 'Platform staff (' + roleName() + '): you see the pages your role allows, across all organizations'; }
+      if (isStaff()) {
+        $('#saSearch').placeholder = 'Search jobs, leads, pages, posts…  ( / )';
+        $('#saSidebar').setAttribute('aria-label', 'Platform navigation');
+      }
       if (u.impersonated_by) {
         var b = $('#saImp');
         b.hidden = false;
         b.innerHTML = '<b>Impersonation active</b><span>Acting as ' + esc(u.organization_name || u.organization_id) + ' · reason: ' + esc(u.impersonation_reason || '—') + '</span><button type="button" class="btn btn-secondary btn-sm" id="impExit">Exit impersonation</button>';
         $('#impExit').onclick = async function () { try { await api('/api/super-admin/impersonate/exit', { method: 'POST' }); location.href = '/superadmin'; } catch (e) { toast(e.message, 'error'); } };
       }
+      startGuides(u.email);
     } catch (e) { /* 401 handled in api() */ }
+  }
+
+  // ════════════════════════════════════════════════════════
+  //  INTERACTIVE GUIDES (design/tour.js): the welcome guide starts once on the
+  //  first visit; every guide reopens from the "Guide" button in the top bar.
+  //  Targets are [data-tour] hooks; steps that depend on data are optional.
+  // ════════════════════════════════════════════════════════
+  // [id, menu label, description, route the guide needs (optional), minimum role (default super_admin)]
+  var GUIDES = [
+    ['sa-basics', 'Welcome', 'A short tour of how you run LeadAI', null, 'viewer'],
+    ['sa-orgs', 'Organizations & support sessions', 'Find a customer, open it, impersonate for support'],
+    ['sa-trials', 'Free trials & tokens', 'Self-serve switch, trial days and tokens, token costs'],
+    ['sa-plans', 'Plans & pricing', 'Prices, per-API add-ons and the public pricing page'],
+    ['sa-billing', 'Subscriptions & payments', 'Confirmation queue, lifecycle automation, refunds'],
+    ['sa-keys', 'API keys', 'LeadAI\'s Apify and Gemini keys, and customers\' own keys'],
+    ['sa-messaging', 'Messaging', 'Email and SMS to anyone, automatic messages, the SMS gateway', 'messaging'],
+    ['sa-partners', 'Partners program', 'Applications, referrals, commissions and payouts', 'partners'],
+    ['sa-staff', 'Staff, security & audit', 'Your password, staff accounts and roles, sign-in security, the audit trail', 'security', 'viewer']
+  ];
+  // page guides added by the modules (SAKit.addGuide): {id, label, description, route}
+  var EXT_GUIDES = [];
+  function gWait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  async function gFind(sel, ms) { var t0 = Date.now(), el; while (!(el = $(sel)) && Date.now() - t0 < (ms || 4000)) await gWait(120); return el; }
+  /** A target that only counts once it has loaded (no skeleton inside). */
+  function gReady(sel) { return function () { var el = $(sel); return el && !$('.sa-skel', el) ? el : null; }; }
+  /** A target that only counts once something was rendered into it (filled after its data loads). */
+  function gFilled(sel) { return function () { var el = $(sel); return el && el.children.length ? el : null; }; }
+  function gPage() { return location.hash.split('?')[0]; }
+  /** Close what a guide opened: dialogs, drawers and menus. */
+  function gCloseLayers() {
+    $$('#saLayer .sa-overlay').forEach(function (w) { var x = $('[data-x]', w); if (x) x.click(); else w.remove(); });
+    $$('#saLayer .sa-drawer-wrap .modal-close').forEach(function (x) { x.click(); });
+    $$('.sa-pop').forEach(function (p) { p.hidden = true; if (p._btn) p._btn.setAttribute('aria-expanded', 'false'); });
+  }
+  /** Show a sidebar item: open its group, and the sidebar itself on small screens. */
+  function gNav(key) {
+    var item = $('[data-tour="nav-' + key + '"]'), g = item && item.closest('.sa-group');
+    if (g && g.classList.contains('closed')) { g.classList.remove('closed'); $('.sa-group-btn', g).setAttribute('aria-expanded', 'true'); }
+    if (window.matchMedia('(max-width: 900px)').matches && !document.body.classList.contains('sa-nav-open')) {
+      document.body.classList.add('sa-nav-open'); $('#saBurger').setAttribute('aria-expanded', 'true');
+    }
+  }
+  function gNavClose() {
+    if (!document.body.classList.contains('sa-nav-open')) return;
+    document.body.classList.remove('sa-nav-open'); $('#saBurger').setAttribute('aria-expanded', 'false');
+  }
+  /** Each step first tidies up (closes the guide's dialogs unless keepLayer, shows or hides the sidebar).
+   *  s.when() === false skips an optional step at once instead of waiting for its target. */
+  function gSteps(steps) {
+    return steps.map(function (s) {
+      var own = s.before;
+      var out = Object.assign({}, s, { before: async function () {
+        if (!s.keepLayer) gCloseLayers();
+        // after the click that moved the guide: the page's outside-click handler closes the sidebar first
+        if (s.nav) { await gWait(60); gNav(s.nav); } else gNavClose();
+        if (own) await own();
+      } });
+      if (s.when) Object.defineProperty(out, 'wait', { get: function () { return s.when() ? (s.wait || 4000) : 0; } });
+      return out;
+    });
+  }
+  /** A sidebar item step; skipped when the item is not in the menu (the person's role can't open it, or its module is not loaded). */
+  function gNavStep(key, title, body, o) {
+    return Object.assign({ nav: key, target: '[data-tour="nav-' + key + '"]', placement: 'right', title: title, body: body, optional: true,
+      when: function () { return !!$('[data-tour="nav-' + key + '"]'); } }, o || {});
+  }
+  function gDefine(id, title, steps) {
+    LeadTour.define(id, { title: title, steps: gSteps(steps), onEnd: function () { gCloseLayers(); gNavClose(); } });
+  }
+  /** The row to show: the first one `prefer(tr)` likes, else the first row. */
+  function gPickRow(rowsSel, prefer) {
+    var rows = $$(rowsSel);
+    return rows.filter(prefer)[0] || rows[0] || null;
+  }
+  /** Route for detail steps: open an item of a list (an active one when there is one), unless a detail page is already open. */
+  function gOpenFirst(listHash, rowsSel, linkSel, detailRe, prefer) {
+    return async function () {
+      if (detailRe.test(location.hash)) return;
+      if (gPage() !== listHash) location.hash = listHash;
+      var t0 = Date.now(), a = null;
+      while (Date.now() - t0 < 5000) {
+        var tr = gPickRow(rowsSel, prefer);
+        a = tr && $(linkSel, tr);
+        if (a || (gPage() === listHash && $('#view [data-body]') && !$('#view [data-body] .sa-skel'))) break; // loaded, maybe empty
+        await gWait(120);
+      }
+      if (a) location.hash = a.getAttribute('href');
+    };
+  }
+  var ORG_DETAIL = /^#\/organizations\/[^?\/]+/;
+  var gOrg = gOpenFirst('#/organizations', '[data-tour="org-list"] tbody tr', 'a.sa-link[href^="#/organizations/"]', ORG_DETAIL,
+    function (tr) { var p = $('.status-pill', tr); return !!p && p.getAttribute('data-status') === 'active'; });
+  function gOnOrg() { return ORG_DETAIL.test(location.hash); }
+  /** Open the plan editor (the add-ons live there): a plan that allows own keys when there is one. */
+  async function gPlanEditor() {
+    if ($('#saLayer [data-pe-addons]')) return;
+    if (gPage() !== '#/plans') location.hash = '#/plans';
+    if (!(await gFind('[data-tour="plan-list"] tbody [data-edit]', 5000))) return;
+    var tr = gPickRow('[data-tour="plan-list"] tbody tr', function (r) { return /Own keys: yes/.test(r.textContent); }), b = tr && $('[data-edit]', tr);
+    if (!b) return;
+    b.click();
+    await gFind('#saLayer [data-pe-addons]', 4000);
+  }
+  function gPlanOpen() { return !!$('#saLayer [data-pe-addons]'); }
+  function gTab(box, tab) { return '[data-tour="' + box + '"] [data-tab="' + tab + '"]'; }
+
+  function defineGuides() {
+    var sup = can('super_admin'), mgr = can('manager');
+    gDefine('sa-basics', 'Welcome', [
+      { title: sup ? 'Welcome to Super Admin' : 'Welcome to the LeadAI platform portal',
+        body: sup ? 'This is where you run the whole LeadAI platform: every customer, plan, payment and API key, and the lead engine behind it — scraping jobs, leads, AI and system health — in one place.\n\nThe GLOBAL badge is a reminder that what you change here applies across all organizations. Use Next and Back (or the arrow keys) to move, and Esc to close this guide.'
+          : 'This is where LeadAI staff run the platform: scraping jobs, leads, the lead engine, AI, system health and settings, across all organizations.\n\nYou are signed in as ' + roleName() + ': ' + (mgr ? 'you can view everything in your menu and change most operational settings.' : 'you can view everything in your menu; changes need a Manager or the Super Admin.') + ' Pages your role can\'t use are not in the menu.' },
+      sup && { route: '#/dashboard', target: '[data-tour="dash-kpis"]', optional: true, title: 'Your dashboard at a glance',
+        body: 'These boxes sum up the platform: organizations, users, free trials, subscriptions, revenue, tokens, searches and errors.\n\nEvery box is clickable. It opens the page behind the number, already filtered. An amber or red edge means something needs a look.' },
+      sup && { route: '#/dashboard', target: '[data-tour="dash-attention"]', optional: true, title: 'Needs attention',
+        body: 'Queues waiting on you land here: trial sign-ups to approve, paid subscriptions to confirm, refunds due and failed jobs. Click a line to jump straight to it. "All clear" means nothing is waiting.' },
+      gNavStep('organizations', 'Organizations', sup ? 'Every customer workspace lives here. Search, filter, suspend or reactivate, or create one by hand.\n\nOpen an organization to see its members, subscription, tokens and API keys, set its plan or grant a temporary feature or extra credits. To see what the customer sees, use Impersonate: a time-limited support session where everything you do is audited.'
+        : 'Every customer organization with its members, searches and leads. It is read-only for your role.'),
+      gNavStep('admins', 'Admins and Users', 'Admins lists every organization\'s owners and admins. Users, just below, lists every account on the platform.\n\nFrom either one you can reset someone\'s access, set a password or suspend an account.'),
+      gNavStep('demo', 'Free trials', 'New customers usually start with a free trial. Under Trial settings you choose how many days a trial lasts and how many tokens it gets.\n\nThe self-serve switch decides whether a website sign-up starts its trial at once, or waits for you to approve it under Sign-ups.'),
+      gNavStep('plans', 'Plans & pricing', sup ? 'Plans set what customers pay and what they get: prices, limits and features, plus the default and trial flags. A plan\'s price includes LeadAI\'s Apify and Gemini; per-API add-ons set how much comes off when a customer brings their own key.\n\nPricing, just below, previews exactly what the public website shows.'
+        : 'The plan catalog with prices, trial days, limits and features. Subscriptions and invoices are just below. All read-only for your role.'),
+      sup && gNavStep('subscriptions', 'Subscriptions', 'A payment never switches a plan on by itself: verified payments wait in the confirmation queue until you confirm them. Manage a subscription to change its plan, extend it or its trial, grant extra credits or record a renewal.\n\nThe Lifecycle automation tab handles changes over time, like subscriptions ending, overdue renewals and trials running out.'),
+      sup && gNavStep('payments', 'Payments, invoices & refunds', 'Every payment, what failed and what needs a refund. The Invoices & refunds tab lists every invoice, exports them as CSV, and records a full or partial refund.'),
+      gNavStep('provider-keys', 'API keys', 'LeadAI runs on two outside services: Apify (collects posts and comments) and Gemini (AI analysis). Here you replace or test the keys LeadAI provides to customers.\n\nYou also see every customer who brings their own key and whether it works. A number on this item means something needs your attention.'),
+      gNavStep('partners', 'Partners', 'Affiliates and resellers who bring you customers. Review their applications, see who they referred, approve commissions and pay them out.', { wait: 1500 }),
+      gNavStep('support', 'Support', 'Tickets raised by your customers\' admins. Reply, change the status and see who is still waiting. The number shows open tickets.'),
+      gNavStep('messaging', 'Messaging', 'Email or text anyone: one person, whole organizations, every organization admin, every user or every partner, and follow each delivery.\n\nHere you also switch the automatic welcome text and sign-in alerts on or off, and set up the SMS provider.'),
+      gNavStep('operations', 'Operations', 'The scraping side of LeadAI: the operations overview with charts and alerts, every job (with failed jobs and retry), leads with notes and follow-ups, platforms, the scraped pages, posts and comments, and exports.' + (sup ? ' The URL Search Agent lists every search with its organization and user, Apify runs with cost, and leads across organizations.' : ''), { wait: 1500 }),
+      gNavStep('apify', 'Lead engine', 'How leads are found: the Apify connection, actors, scraping limits, usage and cost, lead scoring and keyword rules.', { wait: 1500 }),
+      gNavStep('ai', 'AI management', (sup ? 'Usage and cost, versioned prompts and models, and ' : '') + 'the runtime switches (AI on or off, rule fallback, calls per job, temperature) with a live test of the real analysis on any comment.'),
+      gNavStep('security', 'Security and audit', sup ? 'Security Center shows failed logins, lockouts and live sessions, manages platform staff accounts (create, change role, disable, delete), and holds the security settings: session timeout, lockout, impersonation time and audit logging. Audit Logs, just above, records every important change anyone makes (including you).'
+        : 'The platform\'s sign-in security settings, and just above, the audit log: every important change anyone makes, with who, what and when.'),
+      { nav: 'health', target: '.sa-group[data-g="Platform"]', placement: 'right', optional: true, when: function () { return !!$('.sa-group[data-g="Platform"]'); }, title: 'Platform',
+        body: (sup ? 'Website / CMS edits the public website: pages, FAQ, testimonials and the contact inbox. Integrations, ' : '') + 'System health (with the live checks of the database, Apify, Gemini and failed jobs), feature flags and maintenance mode live here' + (sup ? ', with reports and exports.' : '.') },
+      gNavStep('logs', 'System', 'The database (collections, sizes, indexes) and the application logs, with filters, auto-refresh and export.', { wait: 1500 }),
+      gNavStep('settings', 'Settings', 'Global settings (branding, appearance, limits, notifications, SEO, security and more, with version history) and the guard-password protected Environment page.', { wait: 1500 }),
+      { target: '#saProfile', placement: 'bottom', title: 'Your account',
+        body: 'Your name and role. The menu here has Change my password, the light / dark switch and Sign out.' },
+      { target: '[data-tour="sa-guide"]', placement: 'bottom', title: 'Need a hand later?',
+        body: 'Open Guide any time to replay this tour, or take a page guide for the pages you use.\n\nTip: press / to jump to the search box and find any ' + (sup ? 'organization, user, search run, job or lead.' : 'job, lead, page or post.') }
+    ].filter(Boolean));
+
+    gDefine('sa-orgs', 'Organizations', [
+      { route: '#/organizations', target: '[data-tour="org-list"] .sa-filters', title: 'Find any customer',
+        body: 'Search by name or slug, or filter by status, for example everyone on a free trial or everyone suspended. Export downloads what you see as a CSV file.' },
+      { route: '#/organizations', target: gReady('[data-tour="org-list"] [data-body]'), title: 'The organization list',
+        body: 'Click a name to open it. Suspend signs all of its members out at once; Activate lets them back in. Tick several rows to suspend or activate them together.' },
+      { route: '#/organizations', target: '[data-tour="org-new"]', placement: 'bottom', title: 'Add a customer by hand',
+        body: 'Create an organization yourself, for example after a sales call. You pick the plan and the owner\'s email, and the owner gets a link to set a password.' },
+      { route: gOrg, when: gOnOrg, target: '[data-tour="org-kpis"]', optional: true, title: 'Inside an organization',
+        body: 'Here is one of your customers. The boxes show its members, subscription, tokens left, searches, leads and who provides its API keys. Each box opens the matching tab below.' },
+      { route: gOrg, when: gOnOrg, target: '[data-tour="org-impersonate"]', optional: true, placement: 'bottom', title: 'Support sessions (Impersonate)',
+        body: 'When a customer needs help, Impersonate shows you LeadAI exactly as their admin sees it. You give a reason, the session is time-limited, and everything you do is recorded under your own name.\n\nA banner in the app lets you end the session and come back here.' },
+      { route: gOrg, when: gOnOrg, target: function () { var b = $('#odEdit'); return b && b.parentNode; }, optional: true, placement: 'bottom', title: 'Change the organization',
+        body: 'Edit its details, add or remove tokens, or suspend, deactivate or archive it. Archive is a soft delete: the data is kept but nobody can sign in.' },
+      { route: gOrg, when: gOnOrg, target: '[data-tour="org-tabs"] .sa-tabs', optional: true, title: 'Everything about this customer',
+        body: 'The tabs show its users and admins, subscription, API keys & plan, usage & tokens, searches, leads, activity and live sessions.' },
+      { title: 'That\'s organizations', body: 'Tip: the search box in the top bar (press /) finds any organization or user from anywhere in the portal.' }
+    ]);
+
+    gDefine('sa-trials', 'Free trials', [
+      { route: '#/demo', target: '[data-tour="trial-tabs"] .sa-tabs', title: 'Free trials in three tabs',
+        body: 'Sign-ups lists everyone who asked for a trial on the website. Trial settings sets what every trial gets. Token costs sets what each action costs in tokens.' },
+      { route: '#/demo', target: gFilled('[data-tour="trial-chips"]'), optional: true, title: 'Filter by status',
+        body: 'Pending sign-ups wait for your approval (only when self-serve is off). Approved trials are running, Extended ones got extra time, and Converted ones became paying customers.' },
+      { route: '#/demo', target: gReady('[data-tour="trial-list"] [data-body]'), optional: true, title: 'Review a sign-up',
+        body: 'Review opens the details. From there you approve, reject or extend a trial, or jump to the customer\'s organization.' },
+      { route: '#/demo?tab=config', target: '[data-tour="trial-selfserve"]', title: 'The self-serve switch',
+        body: 'On: a website sign-up starts its free trial at once and goes straight to the dashboard.\n\nOff: every sign-up waits under Sign-ups until you approve it.' },
+      { route: '#/demo?tab=config', target: '[data-tour="trial-limits"]', title: 'Days and tokens per trial',
+        body: 'Set how many days a trial lasts and how many tokens it gets. Tokens pay for searches, collecting, AI analysis and exports. The other fields cap searches, leads and team size.\n\nClick "Save trial settings" when you\'re done. Changes apply to trials started from then on.' },
+      { route: '#/demo?tab=config', target: '[data-tour="trial-lifecycle"] .alert', optional: true, title: 'When a trial ends',
+        body: 'Trial access stops on its end date by itself. Lifecycle automation sends the "trial ends soon" and "trial has ended" emails; the link takes you to it.' },
+      { route: '#/demo?tab=costs', target: '[data-tour="token-costs"]', title: 'Token costs',
+        body: 'How many tokens each action costs, for every organization: starting a search, collecting more, one AI analysis and one export. Changes apply at once.' },
+      { route: '#/tokens', target: '[data-tour="tok-kpis"]', title: 'Tokens & Usage',
+        body: 'Watch token use across the platform: what is allocated, used and left, who is close to running out, and unusual spikes.\n\nTo give one customer more tokens, open their organization and choose "Adjust tokens".' }
+    ]);
+
+    gDefine('sa-plans', 'Plans & pricing', [
+      { route: '#/plans', target: '[data-tour="plan-kpis"]', title: 'Your plan catalog',
+        body: 'How many plans you have, which are public on the website, and how many live subscriptions they carry. Click a box to filter.' },
+      { route: '#/plans', target: gReady('[data-tour="plan-list"] [data-body]'), optional: true, title: 'Every plan',
+        body: 'Monthly and yearly prices, limits and features. "Own keys" shows whether customers may bring their own Apify or Gemini key, and the price when they bring both. Click a row to edit it.' },
+      { route: '#/plans', target: '[data-tour="plan-new"]', placement: 'bottom', title: 'Create a plan',
+        body: 'Add a new plan. Keep it inactive or hidden while you set it up; make it active and public to sell it on the website.' },
+      { before: gPlanEditor, keepLayer: true, when: gPlanOpen, target: '[data-tour="plan-addons"]', optional: true, title: 'Per-API add-ons',
+        body: 'A plan\'s price is all-included: LeadAI provides Apify and Gemini. These amounts come off the price when a customer brings their own key for that API, per month and per year.\n\nUntick "Allow customers to use their own API keys" to sell the plan all-included only.' },
+      { before: gPlanEditor, keepLayer: true, when: gPlanOpen, target: '[data-tour="plan-price-grid"]', optional: true, title: 'What the customer pays',
+        body: 'This preview shows the price for each choice (all included, own Apify, own Gemini or both) as you type. Nothing is saved until you click "Save plan". The guide closes this window for you.' },
+      { route: '#/pricing', target: '[data-tour="pricing-cards"]', title: 'The public pricing page',
+        body: 'Exactly what visitors see on the website. Only plans that are active and public appear here.' },
+      { route: '#/pricing', target: '[data-tour="pricing-cycle"]', placement: 'bottom', title: 'Monthly or yearly',
+        body: 'Switch to check both price lists. To change a price, go back to Plans and edit the plan.' }
+    ]);
+
+    gDefine('sa-billing', 'Subscriptions & payments', [
+      { route: '#/subscriptions', target: '[data-tour="sub-tabs"] .sa-tabs', title: 'Subscriptions in three views',
+        body: 'Confirmation queue: paid requests waiting for you. All subscriptions: every subscription, with filters. Lifecycle automation: changes that happen over time.' },
+      { route: '#/subscriptions', target: gReady('[data-tour="sub-tabs"] [data-tabbody] [data-body]'), title: 'The confirmation queue',
+        body: 'A payment never switches a plan on by itself. Once a payment is verified it waits here: Confirm activates the plan, Reject cancels it and flags the payment for a refund. Details shows the full history.' },
+      { route: '#/subscriptions?tab=all', target: '[data-tour="sub-tabs"] .sa-filters', title: 'Find any subscription',
+        body: 'Filter by status (for example Past due), by who provides the APIs, or by plan. Manage opens a subscription to change its plan, extend it, record a renewal, suspend or cancel it.' },
+      { route: '#/subscriptions?tab=automation', target: '[data-tour="lc-switch"]', title: 'Lifecycle automation',
+        body: 'Subscriptions that reached their end, overdue renewals and free trials running out. With automation on, a check applies these every 15 minutes. With it off, you review them here and apply them yourself.' },
+      { route: '#/subscriptions?tab=automation', target: '[data-tour="lc-pending"]', optional: true, title: 'What is waiting',
+        body: 'The changes the next check would make, with a link to each organization and subscription.' },
+      { route: '#/payments', target: gFilled('[data-tour="pay-kpis"]'), title: 'Payments at a glance',
+        body: 'Successful, pending and failed payments, and the ones that need a refund (paid, then rejected or cancelled). Click a box to filter the list.' },
+      { route: '#/payments', target: '[data-tour="pay-list"] .sa-filters', title: 'Every payment',
+        body: 'Search by organization or filter by status. Click a payment to see its timeline: when it was created, verified, failed or refunded.' },
+      { route: '#/payments?tab=invoices', target: gTab('pay-tabs', 'invoices'), placement: 'bottom', title: 'Invoices & refunds',
+        body: 'Every invoice LeadAI issued. Refund records money you paid back, in full or in part: the invoice is marked, the customer\'s admins are told and any partner commission is reversed. No money is sent from here.' }
+    ]);
+
+    gDefine('sa-keys', 'API keys', [
+      { route: '#/provider-keys', target: '[data-tour="keys-kpis"]', title: 'Key health at a glance',
+        body: 'Whether LeadAI\'s own keys work, how many customers bring their own, and how many need attention. Red means customers are stopped right now.' },
+      { route: '#/provider-keys', target: '[data-tour="keys-platform"]', title: 'Keys LeadAI provides',
+        body: 'Customers on LeadAI-provided Apify or Gemini all run on these two keys. A key is never shown, only a masked hint, where it comes from and when it was last tested.' },
+      { route: '#/provider-keys', target: '[data-tour="keys-platform"] [data-pk-replace]', title: 'Replace or test a key',
+        body: 'Set key (or Replace key) tests the new key before saving it, so a typo can\'t stop your customers. Test checks the current key on demand. Every change needs a reason and is audited.' },
+      { route: '#/provider-keys', target: '[data-tour="keys-show"]', title: 'Customers\' own keys',
+        body: 'Some customers bring their own Apify or Gemini key and pay less. Switch between those using their own keys, those that need attention, and every organization.' },
+      { route: '#/provider-keys', target: '[data-tour="keys-orgs"] .sa-pk-acts', optional: true, title: 'Fix a customer\'s key',
+        body: 'Set, test or remove a customer\'s key, or switch an API between their own key and LeadAI\'s. Each change asks for a reason and is audited.' },
+      { route: '#/access', target: '[data-tour="access-issue"]', optional: true, placement: 'bottom', title: 'Developer API keys & webhooks',
+        body: 'A different kind of key: these let customers and partners use LeadAI\'s own API. Issue or revoke keys here, and disable a webhook that keeps failing.' }
+    ]);
+
+    gDefine('sa-messaging', 'Messaging', [
+      { route: '#/messaging', target: '[data-tour="msg-kpis"]', title: 'Messaging at a glance',
+        body: 'Whether email and texts are really delivered, how many texts went out today against your daily limit, which automatic messages are on and what you sent. Click a box to open its tab.' },
+      { route: '#/messaging', target: '[data-tour="msg-recipients"]', title: 'Who gets it',
+        body: 'Pick a whole group (every organization owner and admin, every user or every partner), search for people by name, email or phone, and add whole organizations. Everyone gets one copy, even when they are in more than one.\n\n"No phone" means that person can only get the email.' },
+      { route: '#/messaging', target: '[data-tour="msg-compose"]', title: 'Email, SMS or both',
+        body: 'Tick Email, SMS or both. An email needs a subject. A text is the subject plus the message, unless you write a shorter SMS: the counter shows the characters and how many SMS it takes (160 characters each, 70 with emoji or non-Latin letters).' },
+      { route: '#/messaging', target: '[data-tour="msg-send"]', placement: 'top', title: 'Check, then send',
+        body: 'The summary says how many people get it and how. Send asks you to confirm, then the messages go out in the background.' },
+      { route: '#/messaging?tab=sent', target: gReady('[data-tour="msg-sent"] [data-body]'), title: 'Sent messages',
+        body: 'Every message with how many were sent, waiting or not sent on each channel. Click one to see each person\'s delivery and any error. A message that is still going out refreshes by itself.' },
+      { route: '#/messaging?tab=auto', target: '[data-tour="msg-auto"]', title: 'Automatic messages',
+        body: 'Everyone who signs up gets the welcome email. Here you add a welcome text, and sign-in alerts by email and SMS that help people spot someone else using their account, at most once every few minutes.' },
+      { route: '#/messaging?tab=gateway', target: '[data-tour="msg-sms"]', title: 'The SMS provider',
+        body: 'Choose Twilio (worldwide), Fast2SMS (India) or a webhook for any other provider such as MSG91. Keys are write-only: once saved they are never shown again. The daily limits stop runaway costs and abuse.\n\nTexting India? Register your sender ID and message templates on DLT with the provider first.' },
+      { route: '#/messaging?tab=gateway', target: '[data-tour="msg-test"]', title: 'Send a test',
+        body: 'Send a test text (or, in the Email card, a test email) to yourself to check the gateway. The result shows right below. Email server settings live in the server environment, so nobody can redirect password-reset emails from the app.' }
+    ]);
+
+    gDefine('sa-partners', 'Partners', [
+      { route: '#/partners', target: '[data-tour="pt-kpis"]', title: 'Your partner program',
+        body: 'Applications waiting for review, active partners, the customers they referred and the commission owed. Click a box to jump to it.' },
+      { route: '#/partners', target: '[data-tour="pt-tabs"] .sa-tabs', title: 'Everything in tabs',
+        body: 'Scroll the tabs sideways to see them all, from applications and analytics to payouts, fraud review and program settings.' },
+      { route: '#/partners', target: gTab('pt-tabs', 'applications'), placement: 'bottom', title: 'Applications',
+        body: 'People who applied to become an affiliate or a reseller. Approve, reject or ask for changes. An approved partner can sign in to the Partner portal.' },
+      { route: '#/partners?tab=partners', target: gTab('pt-tabs', 'partners'), placement: 'bottom', title: 'Partners',
+        body: 'Every approved partner. Open one to see their referrals, commissions, deals, tasks and activity.' },
+      { route: '#/partners?tab=referrals', target: gTab('pt-tabs', 'referrals'), placement: 'bottom', title: 'Customers & referrals',
+        body: 'Who each partner brought in. A referred customer is an ordinary organization; the partner earns when its subscription payments are confirmed.' },
+      { route: '#/partners?tab=commissions', target: gTab('pt-tabs', 'commissions'), placement: 'bottom', title: 'Commissions',
+        body: 'The commission earned on each confirmed payment. It is held for a waiting period, then becomes payable. Refunds reverse it (see Refunds & reversals).' },
+      { route: '#/partners?tab=payouts', target: gTab('pt-tabs', 'payouts'), placement: 'bottom', title: 'Payouts',
+        body: 'Pay partners what they are owed and record each payout.' },
+      { route: '#/partners?tab=fraud', target: gTab('pt-tabs', 'fraud'), placement: 'bottom', title: 'Fraud review',
+        body: 'Suspicious referrals (same network, duplicates, click floods) are held here for you. Nothing changes until you decide.' },
+      { route: '#/partners?tab=settings', target: gTab('pt-tabs', 'settings'), placement: 'bottom', title: 'Program settings',
+        body: 'The waiting period, minimum payout and other program rules. Commission rules, tiers, partner pricing and coupons have their own tabs.' }
+    ]);
+  }
+  function defineStaffGuide() {
+    var sup = can('super_admin');
+    gDefine('sa-staff', 'Staff & security', [
+      { before: function () { var b = $('#saProfile'); if (b && $('#saProfilePop').hidden) b.click(); return gWait(120); }, keepLayer: true, optional: true, target: '#saProfilePop', placement: 'left', title: 'Your account and role',
+        body: 'Your profile menu shows your role (' + roleName() + '). Change my password is here for everyone' + (sup ? '; the Super Admin password itself is set in the hosting environment.' : '.') },
+      sup && { route: '#/security?tab=staff', target: '[data-tour="staff-list"]', optional: true, title: 'Platform staff accounts',
+        body: 'Everyone who works on the platform besides you. Create an account (Viewer or Manager), change a role, disable, set a password, change the email or delete it. Viewers can look; Managers can also change operational settings.' },
+      { route: sup ? '#/security?tab=config' : '#/security', target: '[data-tour="sec-session"]', title: 'Sign-in security',
+        body: 'How long a session lasts, login protection and lockout after failed sign-ins, how long an impersonation session may run, and audit logging.' + (sup ? ' Revoke all admin sessions signs every staff member out at once.' : ' Only the Super Admin changes these.') },
+      { route: '#/audit', target: '[data-tour="audit-filters"]', title: 'The audit trail',
+        body: 'Every important change: who did it, what, when and the result. Filter by category, action or user. Nothing here can be edited or deleted.' },
+      { nav: 'roles', target: '[data-tour="nav-roles"]', placement: 'right', optional: true, when: function () { return !!$('[data-tour="nav-roles"]'); }, title: 'Roles & permissions',
+        body: 'What each organization role and each platform staff role may do. Owner and Super Admin can\'t be changed.' }
+    ].filter(Boolean));
+  }
+  function mountGuides() {
+    if (!window.LeadTour) return;
+    defineGuides(); defineStaffGuide();
+    var w = LeadTour.mountLauncher({ container: $('.sa-topbar'), label: 'Guide', heading: 'Interactive guides',
+      tours: function () {
+        var core = GUIDES.filter(function (g) { return (!g[3] || ROUTES[g[3]]) && can(g[4] || 'super_admin') && (!g[3] || can(routeRole(g[3]))); })
+          .map(function (g) { return { id: g[0], label: g[1], description: g[2] }; });
+        var ext = EXT_GUIDES.filter(function (g) { return (!g.route || ROUTES[g.route]) && can(g.route ? routeRole(g.route) : g.minRole || 'viewer'); })
+          .map(function (g) { return { id: g.id, label: g.label, description: g.description }; });
+        return core.concat(ext);
+      } });
+    w.setAttribute('data-tour', 'sa-guide');
+    var h = $('#saHealth');
+    if (h) h.parentNode.insertBefore(w, h.nextSibling);
+  }
+  /** Once the person is known: guides follow their role, are remembered per person, and the welcome guide starts on the first visit. */
+  function startGuides(email) {
+    if (!window.LeadTour || startGuides.done) return;
+    startGuides.done = true;
+    defineGuides(); defineStaffGuide();
+    LeadTour.setUser(email || 'superadmin');
+    LeadTour.autoStart('sa-basics');
   }
 
   // ── extension point: other scripts (e.g. super-admin-partners.js) add a
@@ -3945,16 +5748,53 @@
     setPasswordDialog: setPasswordDialog, changeEmailDialog: changeEmailDialog,
     go: go, bindGo: bindGo, route: route, setCount: setCount, $: $, $$: $$, STATUS_TONE: STATUS_TONE, PILL_LABEL: PILL_LABEL,
     me: function () { return S.me; },
-    /** register(groupName, afterGroup, items:[[route,label,icon,countKey]], routes:{key:[view,title,detailView]}, countFn) */
+    /** Console role of the signed-in person: super_admin | manager | viewer */
+    panelRole: panelRole,
+    /** true when the person has at least that console role */
+    can: can,
+    /** 'Super Admin' | 'Manager' | 'Viewer' */
+    roleName: roleName,
+    /** minimum role of a route key (menu item [4] or route [3]) */
+    routeRole: routeRole,
+    /** shared pieces of the core pages, so modules link to / embed them instead of re-implementing them */
+    icon: ICON_SVG, setTitle: setTitle, timeline: timeline, reportUrl: reportUrl, revealSection: revealSection, pageLink: pageLink,
+    searchesList: searchesList, leadsList: leadsList, chainDrawer: chainDrawer, auditList: auditList, auditDrawer: auditDrawer,
+    sessionsList: sessionsList, flagsEditor: flagsEditor, PLATFORM_OPTS: PLATFORM_OPTS, LEAD_STATUSES: LEAD_STATUSES,
+    /** addIcon(name, svgInnerMarkup): an icon for menu items / kpi({icon}) (24×24 stroke paths) */
+    /** api(path, {noAuthRedirect:true}) returns a 401 as an error instead of signing out; upload() posts multipart */
+    upload: upload,
+    /** true when a menu group of that name exists (core or registered) */
+    hasGroup: function (name) { return MENU.some(function (g) { return g[0] === name; }); },
+    addIcon: function (name, svg) { if (name && svg && !IC[name]) IC[name] = svg; },
+    /** addGuide({id, label, description, route}): list a page guide (LeadTour.define(id, …) first) in the Guide menu.
+     *  It shows only when the route exists and the person's role may open it. */
+    addGuide: function (g) {
+      if (!g || !g.id) return;
+      EXT_GUIDES = EXT_GUIDES.filter(function (x) { return x.id !== g.id; });
+      EXT_GUIDES.push({ id: g.id, label: g.label || g.id, description: g.description || '', route: g.route || null, minRole: g.minRole });
+    },
+    /** register(groupName, afterGroup, items:[[route,label,icon,countKey,minRole]], routes:{key:[view,title,detailView,minRole]}, countFn)
+     *  A group that already exists (e.g. "Operations") gets the items merged into it instead of a second group. */
     register: function (group, after, items, routes, countFn) {
-      var at = MENU.findIndex(function (g) { return g[0] === after; });
-      MENU.splice(at < 0 ? MENU.length : at + 1, 0, [group, items]);
+      var existing = MENU.filter(function (g) { return g[0] === group; })[0];
+      if (existing) {
+        var have = existing[1].map(function (i) { return i[0]; });
+        var add = items.filter(function (i) { return have.indexOf(i[0]) < 0; });
+        // a module's pages come first in a core group (the core item, e.g. URL Search Agent, stays last)
+        existing[1] = CORE_GROUPS.indexOf(group) >= 0 ? add.concat(existing[1]) : existing[1].concat(add);
+      } else {
+        var at = MENU.findIndex(function (g) { return g[0] === after; });
+        MENU.splice(at < 0 ? MENU.length : at + 1, 0, [group, items]);
+      }
       items.forEach(function (i) { GROUP_OF[i[0]] = group; });
-      Object.keys(routes).forEach(function (k) { ROUTES[k] = routes[k]; });
-      if (countFn) EXT_COUNTS.push(countFn);
+      Object.keys(routes).forEach(function (k) { ROUTES[k] = routes[k]; if (!GROUP_OF[k]) GROUP_OF[k] = group; });
+      // the count runs for the lowest role that can open one of the group's items
+      var low = items.reduce(function (m, i) { var r = i[4] || 'super_admin'; return PANEL_RANK[r] < PANEL_RANK[m] ? r : m; }, 'super_admin');
+      if (countFn) EXT_COUNTS.push({ fn: countFn, role: low });
       renderNav();
-      if (routes[parseHash().key]) route();
-      if (countFn) countFn();
+      var k = parseHash().key;
+      if (routes[k] || aliasFor()) route();
+      if (countFn && S.me && can(low)) { try { countFn(); } catch (e) { /* ignore */ } }
     }
   };
 
@@ -3980,21 +5820,25 @@
       if (document.body.classList.contains('sa-nav-open')) { document.body.classList.remove('sa-nav-open'); $('#saBurger').setAttribute('aria-expanded', 'false'); $('#saBurger').focus(); }
     });
     $('#saLogout').onclick = logout; $('#saLogout2').onclick = logout;
+    var cpw = $('#saChangePw');
+    if (cpw) cpw.onclick = function () { togglePop($('#saProfile'), $('#saProfilePop'), false); changeMyPassword().catch(function (e) { toast(e.message, 'error'); }); };
     $('#saProfile').onclick = function (e) { e.stopPropagation(); var pp = $('#saProfilePop'); togglePop(this, pp); if (!pp.hidden) $('.sa-pop-item', pp).focus(); };
     $('#saBell').onclick = function (e) { e.stopPropagation(); renderBell(); var bp = $('#saBellPop'); togglePop(this, bp); if (!bp.hidden) { var f = $('.sa-pop-item', bp); if (f) f.focus(); } };
     $('#saHealth').onclick = function () { go('#/health'); };
     wireSearch();
+    mountGuides();
     // "Skip to content" must move focus, not navigate (its #hash is not a route)
     var skip = document.querySelector('.skip-link');
     if (skip) skip.addEventListener('click', function (e) { e.preventDefault(); var m = document.getElementById('view'); if (m) { m.setAttribute('tabindex', '-1'); m.focus(); } });
     window.addEventListener('hashchange', function () {
       document.body.classList.remove('sa-nav-open'); $('#saBurger').setAttribute('aria-expanded', 'false');
-      route().then(function () { var h = $('#view h1'); if (h && !$('.sa-overlay,.sa-drawer-wrap') && !(document.activeElement || document.body).closest('#view')) h.focus({ preventScroll: true }); });
+      route().then(function () { var h = $('#view h1'); if (h && !$('.sa-overlay,.sa-drawer-wrap') && !(window.LeadTour && window.LeadTour.isActive()) && !(document.activeElement || document.body).closest('#view')) h.focus({ preventScroll: true }); });
     });
-    loadMe();
+    S.meReady = loadMe();
     route();
-    refreshHealth(); refreshBell(); refreshCounts();
-    setInterval(function () { if (!document.hidden) { refreshBell(); refreshCounts(); refreshHealth(); } }, 60000);
+    // the top bar calls role-specific APIs, so it waits for the person
+    S.meReady.then(function () { if (!S.me) return; refreshHealth(); refreshBell(); refreshCounts(); });
+    setInterval(function () { if (!document.hidden && S.me) { refreshBell(); refreshCounts(); refreshHealth(); } }, 60000);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

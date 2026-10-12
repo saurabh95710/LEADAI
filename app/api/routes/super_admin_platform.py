@@ -1214,9 +1214,9 @@ async def search_chain(run_id: str, ctx: TenantContext = Depends(SUPER)):
         "organization": _clean(org), "admins": admins, "user": user,
         "search": _search_row(doc, orgs), "apify_jobs": jobs, "counts": counts,
         "error": (str(error)[:1000] if error else None), "failures": failures, "audit": audit,
-        "links": {"pages": f"/admin#/pages?run={run_id}", "posts": f"/admin#/posts?run={run_id}",
-                  "comments": "/admin#/ci", "leads": "/admin#/leads",
-                  "job": f"/admin#/jobs/details:{run_id}"},
+        "links": {"pages": f"/superadmin#/pages?run={run_id}", "posts": f"/superadmin#/posts?run={run_id}",
+                  "comments": f"/superadmin#/ci?run={run_id}", "leads": f"/superadmin#/leads?run={run_id}",
+                  "job": f"/superadmin#/jobs/{run_id}"},
     }}
 
 
@@ -1608,7 +1608,7 @@ async def revoke_session_route(session_ref: str, body: ReasonBody, request: Requ
 FLAG_REGISTRY: List[Dict[str, Any]] = [
     {"key": "features.url_search.enabled", "group": "features", "label": "URL Search Agent",
      "help": "Users can start new URL searches. Existing results stay readable when off."},
-    {"key": "features.ai_analysis.enabled", "group": "features", "label": "AI Analysis",
+    {"key": "ai.enabled", "group": "features", "label": "AI Analysis",
      "help": "New comments are analysed by AI. Off = rule-based fallback only."},
     {"key": "features.exports.enabled", "group": "features", "label": "CSV Export",
      "help": "Users can create new CSV exports. Past exports are untouched."},
@@ -1682,12 +1682,13 @@ async def put_flags(body: FlagsBody, request: Request, ctx: TenantContext = Depe
                      resource_type="setting", resource_id=key,
                      details={"key": key, "before": before, "after": value,
                               "reason": body.reason[:300]}, **_meta(request))
-    try:
-        from app.admin import settings as s
-        for key in changed:
-            s._CACHE.pop(key, None)
-    except Exception:
-        pass
+    if changed:
+        # every reader sees the change at once: the settings read caches and
+        # the cached /api/public/config (feature switches, maintenance)
+        from app.admin.settings import clear_settings_cache
+        from app.settings.registry import invalidate_public_config_cache
+        clear_settings_cache()
+        invalidate_public_config_cache()
     return {"success": True, "changed": changed, "flags": _flag_values()}
 
 
@@ -1720,10 +1721,12 @@ async def _integrations(db) -> Dict[str, Any]:
         {"$match": {"created_at": {"$gte": utcnow() - timedelta(days=30)}, "scrape_info": {"$exists": True}}},
         {"$group": {"_id": None, "usd": {"$sum": "$scrape_info.usageTotalUsd"}, "n": {"$sum": 1}}}])
     try:
-        from app.billing.provider import get_billing_provider
-        provider = get_billing_provider().name
+        from app.billing.provider import payments_status
+        pay = payments_status()
     except Exception:
-        provider = "unknown"
+        pay = {"active": "unknown", "choice": None, "fallback_reason": None, "providers": {}}
+    provider = pay["active"]
+    rzp = (pay.get("providers") or {}).get("razorpay") or {}
     ping_ok, latency = await _db_ping(db)
     outbox = {s: await _count(db.email_outbox, {"status": s}) for s in ("queued", "sent", "failed")}
     ai_failed = await _count(db.ai_requests, {"status": {"$nin": ["success"]}, "created_at": {"$gte": since}})
@@ -1738,7 +1741,7 @@ async def _integrations(db) -> Dict[str, Any]:
             "failures_24h": await _count(db.search_history, {**apify_q, "status": {"$in": list(_FAILED)},
                                                              "created_at": {"$gte": since}}),
             "usage_usd_30d": round(float((usage[0].get("usd") if usage else 0) or 0), 4),
-            "manage_link": "/admin#/apify",
+            "manage_link": "/superadmin#/apify",
         },
         "ai": {
             "provider": "gemini",
@@ -1747,13 +1750,18 @@ async def _integrations(db) -> Dict[str, Any]:
             "model": get_setting("ai.model"),
             "requests_24h": await _count(db.ai_requests, {"created_at": {"$gte": since}}),
             "failures_24h": ai_failed,
-            "manage_link": "/admin#/ai",
+            "manage_link": "/superadmin#/ai",
         },
         "payments": {
-            "provider": provider,
+            "provider": provider,                       # the provider taking new payments
+            "choice": pay.get("choice"),                # Global Settings → Payments
+            "fallback_reason": pay.get("fallback_reason"),
+            "razorpay_key_configured": bool(rzp.get("configured")),
+            "razorpay_webhook_secret_configured": bool(rzp.get("webhook_secret_configured")),
             "stripe_key_configured": _env_set("STRIPE_SECRET_KEY", cfg.stripe_secret_key or ""),
             "stripe_webhook_secret_configured": _env_set("STRIPE_WEBHOOK_SECRET", cfg.stripe_webhook_secret or ""),
             "billing_webhook_secret_configured": _env_set("BILLING_WEBHOOK_SECRET"),
+            "setup_link": "/superadmin#/settings?tab=payments",
             "failed_payments_7d": await _count(db.payments, {"status": "failed",
                                                              "created_at": {"$gte": utcnow() - timedelta(days=7)}}),
         },
@@ -1811,7 +1819,9 @@ async def platform_health(ctx: TenantContext = Depends(SUPER)):
          "status": "ok" if (integ["payments"]["provider"] == "mock"
                             and integ["payments"]["billing_webhook_secret_configured"]) or
                            (integ["payments"]["provider"] == "stripe"
-                            and integ["payments"]["stripe_webhook_secret_configured"]) else "warn",
+                            and integ["payments"]["stripe_webhook_secret_configured"]) or
+                           (integ["payments"]["provider"] == "razorpay"
+                            and integ["payments"]["razorpay_webhook_secret_configured"]) else "warn",
          "detail": f"{integ['payments']['provider']} provider"},
         {"key": "email", "label": "Email", "status": "ok" if integ["email"]["smtp_configured"] else "warn",
          "detail": "SMTP configured" if integ["email"]["smtp_configured"] else "SMTP not configured — emails queue only"},

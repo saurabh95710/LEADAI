@@ -84,7 +84,7 @@
       (denied ? '' : '<div class="oa-actions"><button type="button" class="btn btn-primary btn-sm" data-retry>Try again</button></div>') + '</div>';
   }
   function head(t, d, actions) {
-    return '<div class="oa-head"><div class="oa-head-text"><h1 tabindex="-1">' + esc(t) + '</h1>' + (d ? '<p>' + esc(d) + '</p>' : '') + '</div>' + (actions ? '<div class="oa-actions">' + actions + '</div>' : '') + '</div>';
+    return '<div class="oa-head" data-tour="pt-head"><div class="oa-head-text"><h1 tabindex="-1">' + esc(t) + '</h1>' + (d ? '<p>' + esc(d) + '</p>' : '') + '</div>' + (actions ? '<div class="oa-actions">' + actions + '</div>' : '') + '</div>';
   }
   /** stat box; with `href` (from go()) the whole box is a link to that page — `meta` must not contain links then */
   function stat(label, value, meta, tone, href) {
@@ -103,6 +103,8 @@
     return o;
   }
   function only(o, keys) { var r = {}; keys.forEach(function (k) { if (o && o[k]) r[k] = o[k]; }); return r; }
+  /** add a stable guide target (data-tour) to the first tag of an HTML string */
+  function tour(html, id) { return String(html).replace(/^<([a-z0-9]+)/i, '<$1 data-tour="' + id + '"'); }
   function card(t, body, sub, actions) {
     return '<section class="oa-card"><div class="oa-card-head"><div><div class="oa-card-title">' + esc(t) + '</div>' + (sub ? '<div class="oa-card-sub">' + esc(sub) + '</div>' : '') + '</div>' + (actions || '') + '</div>' + body + '</section>';
   }
@@ -238,11 +240,11 @@
       changes_requested: 'Our team asked for changes. Update your application below and resubmit it.',
       rejected: 'Your application was not approved.', approved: 'Your application is approved.' }[a.status] || '';
     root.innerHTML = head('Your partner application', status) +
-      (a.review_note && (a.status === 'changes_requested' || a.status === 'rejected') ? '<div class="pp-banner"><b>Note from the LeadAI team:</b> ' + esc(a.review_note) + '</div>' : '') +
-      '<div class="oa-grid oa-grid-2">' +
+      (a.review_note && (a.status === 'changes_requested' || a.status === 'rejected') ? '<div class="pp-banner" data-tour="pt-app-note"><b>Note from the LeadAI team:</b> ' + esc(a.review_note) + '</div>' : '') +
+      '<div class="oa-grid oa-grid-2" data-tour="pt-app-status">' +
       card('Status', kv([['Status', pill(a.status), true], ['Submitted', date(a.created_at)], ['Partner type', title(a.partner_type)], ['Last update', dt(a.updated_at)]])) +
       card('History', '<ul class="oa-feed">' + (a.history || []).slice().reverse().map(function (h) { return '<li><span class="oa-feed-main">' + pill(h.status) + (h.note ? ' <span class="oa-small">' + esc(h.note) + '</span>' : '') + '</span><time>' + esc(dt(h.at)) + '</time></li>'; }).join('') + '</ul>') +
-      '</div>' + (editable ? '<form class="oa-card" id="appForm" novalidate><div class="oa-card-head"><div class="oa-card-title">Update and resubmit</div></div><div class="oa-form-grid">' +
+      '</div>' + (editable ? '<form class="oa-card" id="appForm" data-tour="pt-app-form" novalidate><div class="oa-card-head"><div class="oa-card-title">Update and resubmit</div></div><div class="oa-form-grid">' +
         field('name', 'Full name', a.name, { max: 120 }) + field('company', 'Company', a.company, { max: 160 }) +
         field('phone', 'Phone', a.phone, { max: 30 }) + field('website', 'Website', a.website, { max: 300, placeholder: 'https://' }) +
         field('country', 'Country', a.country, { max: 80 }) + field('city', 'City', a.city, { max: 80 }) +
@@ -270,13 +272,13 @@
     if (has('referral_links.create')) {
       try {
         var L = (await api('/api/partner/v1/referral-links')).links;
-        links = card('Your referral link', linkRow(L.referral_url, 'Share this link') + '<p class="oa-small oa-muted" style="margin-top:8px">Referral code <b class="oa-mono">' + esc(L.referral_code) + '</b> · Partner ID <span class="oa-mono">' + esc(L.partner_code) + '</span></p>', '', '<a class="btn btn-secondary btn-sm" href="#/campaigns">Campaign links</a>');
+        links = tour(card('Your referral link', linkRow(L.referral_url, 'Share this link') + '<p class="oa-small oa-muted" style="margin-top:8px">Referral code <b class="oa-mono">' + esc(L.referral_code) + '</b> · Partner ID <span class="oa-mono">' + esc(L.partner_code) + '</span></p>', '', '<a class="btn btn-secondary btn-sm" href="#/campaigns">Campaign links</a>'), 'pt-ref-link');
       } catch (e) { links = ''; }
     }
     var list = function (items, fn, emptyText) { return items.length ? '<ul class="oa-feed">' + items.map(fn).join('') + '</ul>' : '<div class="oa-mini-empty">' + esc(emptyText) + '</div>'; };
     var nt = S.me.open_tasks || 0;
     $('[data-dash]', root).innerHTML = (nt ? '<div class="pp-banner" role="status">You have <b>' + nt + ' open task' + (nt === 1 ? '' : 's') + '</b> from the LeadAI team. <a class="oa-link" href="#/tasks">Open tasks →</a></div>' : '') + links +
-      '<div class="oa-grid oa-grid-4">' +
+      '<div class="oa-grid oa-grid-4" data-tour="pt-dash-kpis">' +
       stat('Referral clicks', num(k.clicks), num(k.unique_clicks) + ' unique', '', go('analytics')) +
       stat('Referrals', num(k.referrals), num(k.demos) + ' ' + trialsLabel(), '', go('referrals', { from: r.from, to: r.to })) +
       stat('Customers', num(k.customers), num(k.total_customers) + ' total · ' + num(k.active_subscriptions) + ' active subs', '', go('customers', { stage: 'customer' })) +
@@ -297,7 +299,7 @@
   }
 
   async function viewReferrals(root, q) {
-    root.innerHTML = head('Referrals', 'Businesses that signed up through your links, campaigns, codes or coupons.') + '<div id="refT"></div>';
+    root.innerHTML = head('Referrals', 'Businesses that signed up through your links, campaigns, codes or coupons.') + '<div id="refT" data-tour="pt-ref-list"></div>';
     var camps = [];
     try { if (has('campaigns.manage')) camps = (await api('/api/partner/v1/campaigns')).items || []; } catch (e) { camps = []; }
     table($('#refT', root), {
@@ -334,7 +336,7 @@
     if (param) return viewCustomer(root, param);
     var canCreate = has('customers.create');
     root.innerHTML = head('Customers', canCreate ? 'Organizations you referred or onboarded. ' + (trialOn() ? 'New customers start a ' + trialName() + ' at once.' : 'New customers go through LeadAI\'s demo approval.') : 'Organizations attributed to you.',
-      canCreate ? '<a class="btn btn-secondary btn-sm" href="#/campaigns">Onboarding links</a><button type="button" class="btn btn-primary btn-sm" id="newCust">+ New customer</button>' : '') + '<div id="custT"></div>';
+      canCreate ? '<a class="btn btn-secondary btn-sm" href="#/campaigns" data-tour="pt-cust-onboard">Onboarding links</a><button type="button" class="btn btn-primary btn-sm" id="newCust" data-tour="pt-cust-new">+ New customer</button>' : '') + '<div id="custT" data-tour="pt-cust-list"></div>';
     var t = table($('#custT', root), {
       initial: only(q, ['stage', 'q', 'managed']),
       url: function (st) { return '/api/partner/v1/customers' + qs({ page: st.page, limit: st.limit, q: st.q, stage: st.stage, managed: st.managed }); },
@@ -393,7 +395,7 @@
   }
 
   async function viewCommissions(root, q) {
-    root.innerHTML = head('Commissions', 'Created when a referred customer\'s payment is confirmed. Pending commissions become available after the hold period.') + '<div id="bal"></div><div id="comT"></div>';
+    root.innerHTML = head('Commissions', 'Created when a referred customer\'s payment is confirmed. Pending commissions become available after the hold period.') + '<div id="bal" data-tour="pt-com-bal"></div><div id="comT" data-tour="pt-com-list"></div>';
     table($('#comT', root), {
       initial: only(q, ['status', 'from', 'to']),
       url: function (st) { return '/api/partner/v1/commissions' + qs({ page: st.page, limit: st.limit, status: st.status, from: st.from, to: st.to }); },
@@ -418,9 +420,9 @@
     var me = S.me.partner || {};
     var sched = (S.me.program || {}).payout_schedule || 'on_request';
     root.innerHTML = head('Wallet', 'Balances are calculated from your commissions — you can\'t edit them. Minimum payout: ' + money(w.min_payout, curs[0]) + '. ' + (sched === 'on_request' ? 'Approved commissions are payable right away.' : 'Approved commissions become payable on the ' + sched + ' payout day.'),
-      has('payouts.request') ? '<button type="button" class="btn btn-primary btn-sm" id="reqPay">Request payout</button>' : '') +
+      has('payouts.request') ? '<button type="button" class="btn btn-primary btn-sm" id="reqPay" data-tour="pt-pay-req">Request payout</button>' : '') +
       (!me.has_payout_info && has('payouts.request') ? '<div class="pp-banner">Add your payout details in <a class="oa-link" href="#/settings">Settings</a> before requesting a payout.</div>' : '') +
-      curs.map(function (c) { var b = w.balances[c] || {}; return '<div class="oa-grid oa-grid-4">' + stat('Available · ' + c, money(b.available, c), 'payable — ready for payout', '', go('commissions', { status: 'payable' })) + stat('Pending · ' + c, money(b.pending, c), 'qualifying or awaiting approval', '', go('commissions', { status: 'pending' })) + stat('In payout · ' + c, money(b.processing, c), 'requested, not yet paid', '', go('payouts') || go('commissions', { status: 'processing' })) + stat('Paid · ' + c, money(b.paid, c), money(b.reversed, c) + ' reversed · ' + money(b.lifetime, c) + ' lifetime', '', go('payouts', { status: 'paid' }) || go('commissions', { status: 'paid' })) + '</div>'; }).join('<div style="height:14px"></div>') +
+      curs.map(function (c) { var b = w.balances[c] || {}; return '<div class="oa-grid oa-grid-4" data-tour="pt-wallet-bal">' + stat('Available · ' + c, money(b.available, c), 'payable — ready for payout', '', go('commissions', { status: 'payable' })) + stat('Pending · ' + c, money(b.pending, c), 'qualifying or awaiting approval', '', go('commissions', { status: 'pending' })) + stat('In payout · ' + c, money(b.processing, c), 'requested, not yet paid', '', go('payouts') || go('commissions', { status: 'processing' })) + stat('Paid · ' + c, money(b.paid, c), money(b.reversed, c) + ' reversed · ' + money(b.lifetime, c) + ' lifetime', '', go('payouts', { status: 'paid' }) || go('commissions', { status: 'paid' })) + '</div>'; }).join('<div style="height:14px"></div>') +
       card('Transactions', (w.transactions || []).length ? '<div class="oa-table-wrap"><table class="oa-table"><thead><tr><th>Date</th><th>Type</th><th>Customer</th><th class="oa-num">Amount</th><th class="oa-num">Available after</th><th>Note</th></tr></thead><tbody>' +
         w.transactions.map(function (t) { return '<tr><td>' + esc(dt(t.created_at)) + '</td><td>' + esc(title(t.type)) + '</td><td class="oa-small">' + esc(t.company || '—') + '</td><td class="oa-num pp-money">' + esc(money(t.amount, t.currency)) + '</td><td class="oa-num pp-money">' + esc(money(t.available_after, t.currency)) + '</td><td class="oa-small">' + esc(t.note || '') + '</td></tr>'; }).join('') + '</tbody></table></div>' : empty('No transactions yet', 'Every commission, approval, refund and payout is recorded here.'));
     var rb = $('#reqPay', root);
@@ -435,7 +437,7 @@
   }
 
   async function viewPayouts(root, q) {
-    root.innerHTML = head('Payouts', 'Your payout requests and their status.', has('payouts.request') ? '<a class="btn btn-secondary btn-sm" href="#/wallet">Wallet</a>' : '') + '<div id="poT"></div>';
+    root.innerHTML = head('Payouts', 'Your payout requests and their status.', has('payouts.request') ? '<a class="btn btn-secondary btn-sm" href="#/wallet">Wallet</a>' : '') + '<div id="poT" data-tour="pt-po-list"></div>';
     table($('#poT', root), {
       initial: only(q, ['status']),
       url: function (st) { return '/api/partner/v1/payouts' + qs({ page: st.page, limit: st.limit, status: st.status }); },
@@ -517,7 +519,7 @@
         if (!c) return '';
         return '<span>' + (c.customer_price < c.list_price ? '<s class="oa-muted">' + esc(money(c.list_price, p.currency)) + '</s> ' : '') + '<b class="pp-money">' + esc(money(c.customer_price, p.currency)) + '</b><span class="oa-muted">/' + per + '</span></span>';
       };
-      var covBlock = opts.length > 1 ? '<div class="pp-cov-wrap"><div class="oa-small" style="font-weight:600">Price by who provides the APIs</div>' +
+      var covBlock = opts.length > 1 ? '<div class="pp-cov-wrap" data-tour="pt-sell-cov"><div class="oa-small" style="font-weight:600">Price by who provides the APIs</div>' +
         '<p class="oa-small oa-muted" style="margin:2px 0 6px">Prices include Apify scraping and Gemini AI. A customer who brings their own key for either pays less — sell whichever fits.</p>' +
         '<ul class="pp-cov">' + opts.map(function (o) {
           var m = o.monthly, y = o.yearly;
@@ -529,22 +531,22 @@
       var r = p.commission_rule;
       return '<section class="oa-card pp-asset"><div class="oa-card-head"><div><div class="oa-card-title">' + esc(p.name) + (p.is_default ? ' <span class="oa-pill" data-tone="brand">Most popular</span>' : '') + '</div>' +
         (p.description ? '<div class="oa-card-sub">' + esc(p.description) + '</div>' : '') + '</div></div>' +
-        (p.free ? '<p class="oa-small"><b>Free plan</b> — a good first step; you earn when they upgrade.</p>' : priceRow(covBlock ? 'Monthly · all included' : 'Monthly', m) + priceRow(covBlock ? 'Yearly · all included' : 'Yearly', y) + covBlock) +
-        (r ? '<p class="oa-small oa-muted">' + esc(r.type === 'percentage' ? r.value + '%' : r.type === 'hybrid' ? r.value + '% + ' + money(r.fixed_amount, p.currency) : money(r.value, p.currency)) + ' commission' +
+        (p.free ? '<p class="oa-small"><b>Free plan</b> — a good first step; you earn when they upgrade.</p>' : '<div class="pp-price-rows" data-tour="pt-sell-price">' + priceRow(covBlock ? 'Monthly · all included' : 'Monthly', m) + priceRow(covBlock ? 'Yearly · all included' : 'Yearly', y) + '</div>' + covBlock) +
+        (r ? '<p class="oa-small oa-muted" data-tour="pt-sell-earn">' + esc(r.type === 'percentage' ? r.value + '%' : r.type === 'hybrid' ? r.value + '% + ' + money(r.fixed_amount, p.currency) : money(r.value, p.currency)) + ' commission' +
           (r.recurring ? (r.duration_months ? ', recurring for ' + r.duration_months + ' months' : ', recurring for life') : ', first payment only') + (r.cap_amount ? ', capped at ' + money(r.cap_amount, p.currency) + ' per customer' : '') + '</p>' : '') +
         '<ul class="oa-feed">' + (p.highlights || []).slice(0, 7).map(function (h) { return '<li><span class="oa-feed-main oa-small">' + esc(h) + '</span></li>'; }).join('') + '</ul>' +
-        (p.share_url ? linkRow(p.share_url, 'Share link for ' + p.name) : '') + '</section>';
+        (p.share_url ? tour(linkRow(p.share_url, 'Share link for ' + p.name), 'pt-sell-share') : '') + '</section>';
     };
     var share = k.referral_url ? 'Try LeadAI — it finds real buyers in your social media comments: ' + abs(k.referral_url) : '';
     root.innerHTML = head('Sell LeadAI', 'Everything you need to sell: the live plans and prices your customers pay, what you earn on each, and links that attribute the sale to you.',
       (has('deals.manage') ? '<a class="btn btn-primary btn-sm" href="#/deals">+ Register a deal</a>' : '') + (has('marketing.access') ? '<a class="btn btn-secondary btn-sm" href="#/marketing">Marketing center</a>' : '')) +
-      '<div class="oa-grid oa-grid-2">' + card('The pitch', '<ul class="oa-feed">' + k.pitch.map(function (x) { return '<li><span class="oa-feed-main">' + esc(x) + '</span></li>'; }).join('') + '</ul>' +
+      '<div class="oa-grid oa-grid-2" data-tour="pt-sell-kit">' + card('The pitch','<ul class="oa-feed">' + k.pitch.map(function (x) { return '<li><span class="oa-feed-main">' + esc(x) + '</span></li>'; }).join('') + '</ul>' +
         (share ? '<button type="button" class="btn btn-secondary btn-sm" data-copy="' + esc(share) + '" style="margin-top:8px">Copy a short pitch with your link</button>' : '')) +
       card('How you get credit', (k.referral_url ? linkRow(k.referral_url, 'Your referral link') : '') + '<p class="oa-small" style="margin-top:8px">Code <b class="oa-mono">' + esc(k.referral_code) + '</b> · clicks are remembered for <b>' + esc(k.attribution_window_days) + ' days</b>. ' +
         'Talking to a prospect who hasn\'t signed up yet? <b>Register the deal</b> — once LeadAI approves it your claim is protected for ' + esc(k.deal_protection_days) + ' days.</p>' +
         (trialOn() ? '<p class="oa-small">Businesses who sign up through your link start a <b>' + esc(trialName()) + '</b> at once — no approval, no card. You earn when they choose a paid plan.</p>' : '') +
         (k.coupons.length ? '<p class="oa-small"><b>Your coupons:</b> ' + k.coupons.map(function (c) { return '<span class="oa-mono">' + esc(c.code) + '</span> (' + esc(c.discount_type === 'percentage' ? c.discount_value + '%' : money(c.discount_value, c.currency)) + ' off)'; }).join(', ') + '</p>' : '')) + '</div>' +
-      (k.plans.length ? '<div class="oa-grid oa-grid-3" style="margin-top:14px">' + k.plans.map(planCard).join('') + '</div>' : empty('No plans published', 'LeadAI has no public plans right now.'));
+      (k.plans.length ? '<div class="oa-grid oa-grid-3" style="margin-top:14px" data-tour="pt-sell-plans">' + k.plans.map(planCard).join('') + '</div>' : empty('No plans published', 'LeadAI has no public plans right now.'));
     bindCopy(root);
   }
 
@@ -554,7 +556,7 @@
     var plans = [];
     try { if (has('sales.view')) plans = ((await api('/api/partner/v1/sales')).sales.plans || []).filter(function (p) { return !p.free; }); } catch (e) { plans = []; }
     root.innerHTML = head('Deals', 'Register prospects you are working on. LeadAI reviews each one; an approved deal protects your claim if the prospect signs up through someone else.',
-      '<button type="button" class="btn btn-primary btn-sm" id="newDeal">+ Register a deal</button>') + '<div id="dlChips" class="oa-actions" style="margin-bottom:10px"></div><div id="dlT"></div>';
+      '<button type="button" class="btn btn-primary btn-sm" id="newDeal" data-tour="pt-deal-new">+ Register a deal</button>') + '<div id="dlChips" class="oa-actions" style="margin-bottom:10px"></div><div id="dlT" data-tour="pt-deal-list"></div>';
     var t = table($('#dlT', root), {
       url: function (st) { return '/api/partner/v1/deals' + qs({ page: st.page, limit: st.limit, status: st.status, q: st.q }); },
       filters: [{ key: 'q', label: 'Search company or contact…' }, { key: 'status', type: 'select', label: 'Status', options: [['', 'All deals']].concat(Object.keys(DEAL_LABEL).map(function (s) { return [s, DEAL_LABEL[s]]; })) }],
@@ -640,7 +642,7 @@
   }
   async function viewTasks(root, q, ctx, param) {
     root.innerHTML = head('Tasks', 'Work the LeadAI team has asked you to do. Open a task, do the work, then tell LeadAI what you did. They review it and mark it done.') +
-      '<div id="tkChips" class="oa-actions" style="margin-bottom:10px"></div><div id="tkT"></div>';
+      '<div id="tkChips" class="oa-actions" style="margin-bottom:10px"></div><div id="tkT" data-tour="pt-tasks-list"></div>';
     var t = table($('#tkT', root), {
       url: function (st) { return '/api/partner/v1/tasks' + qs({ page: st.page, limit: st.limit, status: st.status, q: st.q }); },
       filters: [{ key: 'q', label: 'Search tasks…' }, { key: 'status', type: 'select', label: 'Status', options: [['', 'All tasks']].concat(Object.keys(TASK_LABEL).map(function (s) { return [s, TASK_LABEL[s]]; })) }],
@@ -670,8 +672,8 @@
 
   async function viewCampaigns(root) {
     var L = has('referral_links.create') ? (await api('/api/partner/v1/referral-links')).links : null;
-    root.innerHTML = head('Campaigns', 'Campaign links let you track each channel separately.', '<button type="button" class="btn btn-primary btn-sm" id="newCamp">+ New campaign</button>') +
-      (L ? card('Main links', '<div class="oa-form-grid">' + linkRow(L.referral_url, 'Referral link') + linkRow(L.signup_url, trialOn() ? 'Direct sign-up link (' + trialName() + ')' : 'Direct demo request link') + '</div>') : '') + '<div id="campT" style="margin-top:14px"></div>';
+    root.innerHTML = head('Campaigns', 'Campaign links let you track each channel separately.', '<button type="button" class="btn btn-primary btn-sm" id="newCamp" data-tour="pt-camp-new">+ New campaign</button>') +
+      (L ? tour(card('Main links', '<div class="oa-form-grid">' + linkRow(L.referral_url, 'Referral link') + linkRow(L.signup_url, trialOn() ? 'Direct sign-up link (' + trialName() + ')' : 'Direct demo request link') + '</div>'), 'pt-camp-links') : '') + '<div id="campT" style="margin-top:14px" data-tour="pt-camp-list"></div>';
     bindCopy(root);
     var t = table($('#campT', root), {
       url: function () { return '/api/partner/v1/campaigns'; },
@@ -705,8 +707,8 @@
   async function viewCoupons(root) {
     var d = await api('/api/partner/v1/coupons');
     root.innerHTML = head('Coupons', 'Customers who pay with your coupon get a discount and are attributed to you.',
-      d.can_create ? '<button type="button" class="btn btn-primary btn-sm" id="newCp">+ New coupon</button>' : '') +
-      (!d.can_create ? '<div class="pp-banner">Coupons are issued by the LeadAI partner team. Contact us if you need one.</div>' : '') + '<div id="cpT"></div>';
+      d.can_create ? '<button type="button" class="btn btn-primary btn-sm" id="newCp" data-tour="pt-coupon-new">+ New coupon</button>' : '') +
+      (!d.can_create ? '<div class="pp-banner">Coupons are issued by the LeadAI partner team. Contact us if you need one.</div>' : '') + '<div id="cpT" data-tour="pt-coupon-list"></div>';
     var t = table($('#cpT', root), {
       url: function () { return '/api/partner/v1/coupons'; },
       columns: [
@@ -763,7 +765,7 @@
         var tpl = a.category === 'email_templates' && a.content ? (a.subject ? 'Subject: ' + a.subject + '\n\n' : '') + a.content : a.content;
         // referral links are site paths when PUBLIC_BASE_URL is unset: make copied text usable anywhere
         if (tpl) tpl = tpl.replace(/(^|[\s("'])(\/r\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)?)/g, function (m, pre, path) { return pre + location.origin + path; });
-        return '<section class="oa-card pp-asset"><div class="oa-card-title">' + esc(a.title) + '</div><div class="oa-small oa-muted">' + esc(a.category_label) + (a.file_size ? ' · ' + esc(Math.max(1, Math.round(a.file_size / 1024))) + ' KB' : '') + '</div>' +
+        return '<section class="oa-card pp-asset" data-tour="pt-mk-asset"><div class="oa-card-title">' + esc(a.title) + '</div><div class="oa-small oa-muted">' + esc(a.category_label) + (a.file_size ? ' · ' + esc(Math.max(1, Math.round(a.file_size / 1024))) + ' KB' : '') + '</div>' +
           (a.description ? '<p class="oa-small">' + esc(a.description) + '</p>' : '') + preview +
           (tpl ? '<pre>' + esc(tpl) + '</pre><button type="button" class="btn btn-secondary btn-sm" data-copy="' + esc(tpl) + '">Copy text</button>' : '') +
           (fp ? '<a class="btn btn-primary btn-sm" href="' + esc(fp) + '?download=true">⤓ Download</a>' : '') +
@@ -801,7 +803,7 @@
   }
 
   async function viewApi(root) {
-    root.innerHTML = head('API access', 'Read-only API keys for /api/partner/v1 (dashboard, referrals, customers, commissions, wallet, payouts, analytics).', '<button type="button" class="btn btn-primary btn-sm" id="newKey">+ New API key</button>') +
+    root.innerHTML = head('API access', 'Read-only API keys for /api/partner/v1 (dashboard, referrals, customers, commissions, wallet, payouts, analytics).', '<button type="button" class="btn btn-primary btn-sm" id="newKey" data-tour="pt-api-new">+ New API key</button>') +
       card('Usage', '<pre class="oa-pre oa-mono" style="white-space:pre-wrap">curl -H "X-API-Key: lap_live_…" ' + esc(location.origin) + '/api/partner/v1/dashboard</pre><p class="oa-small oa-muted">Keys are read-only and limited to 60 requests per minute. Revoke a key at once if it leaks.</p><div id="apiIdx" class="oa-small"></div>') + '<div id="kT" style="margin-top:14px"></div>';
     api('/api/partner/v1').then(function (d) { var el = $('#apiIdx', root); if (el) el.innerHTML = '<b>Endpoints your partner account can read</b><ul class="oa-feed">' + d.endpoints.map(function (e) { return '<li><span class="oa-feed-main oa-mono">' + esc(e) + '</span></li>'; }).join('') + '</ul>'; }, function () {});
     var t = table($('#kT', root), {
@@ -853,7 +855,7 @@
     var po = p.payout_info || {}, tax = p.tax_info || {};
     var html = head('Settings & security', 'Payout details, notifications, password and two-factor authentication.');
     if (S.me.is_active_partner && has('profile.manage')) {
-      html += '<form class="oa-card" id="payForm" novalidate><div class="oa-card-head"><div><div class="oa-card-title">Payout details</div><div class="oa-card-sub">' + (p.has_payout_info ? 'Saved: ' + esc(title(po.method)) + ' · ' + esc(po.account_number || po.iban || po.upi_id || po.paypal_email || '') + '. Enter new details to replace them.' : 'Required before your first payout.') + '</div></div></div><div class="oa-form-grid">' +
+      html += '<form class="oa-card" id="payForm" data-tour="pt-payout-details" novalidate><div class="oa-card-head"><div><div class="oa-card-title">Payout details</div><div class="oa-card-sub">' + (p.has_payout_info ? 'Saved: ' + esc(title(po.method)) + ' · ' + esc(po.account_number || po.iban || po.upi_id || po.paypal_email || '') + '. Enter new details to replace them.' : 'Required before your first payout.') + '</div></div></div><div class="oa-form-grid">' +
         field('method', 'Method', po.method || methods[0], { options: methods.map(function (m) { return [m, title(m)]; }) }) +
         field('account_name', 'Account holder name', po.account_name || '', { max: 120 }) +
         field('destination', 'Account number / IBAN / UPI ID / PayPal email', '', { max: 120, placeholder: 'Enter to update' }) +
@@ -986,8 +988,9 @@
       }).join('') + '</div>';
     }).join('');
   }
-  var ctxByRoute = {};
+  var ctxByRoute = {}, routeSeq = 0;
   async function route(silent) {
+    var my = ++routeSeq; // a newer navigation wins over a slower, older one
     var h = location.hash.replace(/^#\/?/, '').split('?')[0];
     var seg = h.split('/'), key = seg[0], param = seg.slice(1).join('/');
     var first = ROUTES.filter(allowed)[0];
@@ -995,8 +998,10 @@
     if (!key) { location.replace('#/' + (first ? first[0] : 'support')); return; }
     $$('#oa-nav a').forEach(function (a) { if (a.getAttribute('data-route') === key) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     var main = $('#oa-content');
-    if (!def) { main.innerHTML = empty('Page not found', 'This section does not exist.', '<div class="oa-actions"><a class="btn btn-primary btn-sm" href="#/' + esc(first ? first[0] : 'support') + '">Go back</a></div>'); return; }
+    main.removeAttribute('data-view'); // set again once this route has rendered (the guide waits for it)
+    if (!def) { main.setAttribute('data-view', h); main.innerHTML = empty('Page not found', 'This section does not exist.', '<div class="oa-actions"><a class="btn btn-primary btn-sm" href="#/' + esc(first ? first[0] : 'support') + '">Go back</a></div>'); return; }
     if (!allowed(def)) {
+      main.setAttribute('data-view', h);
       main.innerHTML = errorBox({ status: 403, message: S.me.is_active_partner ? 'Your partner account does not include “' + def[1] + '”. Contact the LeadAI partner team to request access.' : 'This section opens once your partner application is approved.' });
       return;
     }
@@ -1007,10 +1012,12 @@
     var ctx = ctxByRoute[key] || (ctxByRoute[key] = {});
     try {
       await def[4](box, hashQuery(), ctx, param);
-      main.innerHTML = ''; main.appendChild(box);
+      if (my !== routeSeq) return;
+      main.innerHTML = ''; main.appendChild(box); main.setAttribute('data-view', h);
       if (!silent) { var h1 = $('h1', main); if (h1) h1.focus({ preventScroll: true }); }
     } catch (err) {
-      main.innerHTML = errorBox(err);
+      if (my !== routeSeq) return;
+      main.innerHTML = errorBox(err); main.setAttribute('data-view', h);
       var rb = $('[data-retry]', main); if (rb) rb.onclick = function () { route(); };
     }
   }
@@ -1034,6 +1041,162 @@
     renderNav();
   }
 
+  // ════════════════════════════════════════════════════════
+  //  INTERACTIVE GUIDE (design/tour.js): welcome tour + page guides
+  // ════════════════════════════════════════════════════════
+  function closeNav() { $('#oa-sidebar').classList.remove('open'); $('#oa-scrim').classList.remove('open'); $('#oa-menu-btn').setAttribute('aria-expanded', 'false'); }
+  function pause(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function routeOk(key) { var r = ROUTES.filter(function (x) { return x[0] === key; })[0]; return !!(r && allowed(r)); }
+  /** step.route: open a page and wait until route() has rendered it */
+  function openPage(key) {
+    return async function () {
+      closeNav(); $('#oa-profile-pop').hidden = true;
+      if (location.hash !== '#/' + key) location.hash = '#/' + key;
+      var main = $('#oa-content'), t0 = Date.now();
+      while (main.getAttribute('data-view') !== key && Date.now() - t0 < 6000) await pause(80);
+    };
+  }
+  /** the first match of several selectors (a fallback chain for one step) */
+  function pick() { var a = arguments; return function () { for (var i = 0; i < a.length; i++) { var el = $(a[i]); if (el) return el; } return null; }; }
+  /** a paged table once its rows (or empty state) are in, so the highlight fits what's on screen;
+      with `orWhole`, the whole table when `inner` isn't there (no rows yet) */
+  function loaded(sel, inner, orWhole) {
+    return function () {
+      var el = $(sel);
+      if (!el || $('[aria-busy="true"]', el) || !$('.oa-table-wrap, .oa-state, .oa-mini-empty', el)) return null;
+      return inner ? $(inner, el) || (orWhole ? el : null) : el;
+    };
+  }
+  /** a sidebar entry, only while the sidebar is on screen (it slides away on phones) */
+  function navItem(key) { return function () { var a = $('#oa-nav a[data-route="' + key + '"]'); return a && a.getBoundingClientRect().left >= 0 ? a : null; }; }
+  /** a sidebar entry on wide screens, the menu button that opens the sidebar on phones */
+  function navOrMenu(key) { return function () { return navItem(key)() || $('#oa-menu-btn'); }; }
+  function T(sel) { return '[data-tour="' + sel + '"]'; }
+
+  function guideTours() {
+    var p = (S.me || {}).program || {};
+    var days = p.attribution_window_days || 30, hold = p.commission_hold_days || 0;
+    var reseller = has('customers.create');
+    var trial = trialOn() ? trialName() : '';
+    var who = trial ? 'They start a ' + trial + ' straight away, with no card needed, and you earn when they choose a paid plan.'
+      : 'LeadAI approves their demo first, and you earn when they choose a paid plan.';
+    var tours = {};
+    tours['pt-basics'] = { title: 'Partner Portal basics', steps: [
+      { title: 'Welcome to your Partner Portal', body: 'This is where you bring businesses to LeadAI, sell it, and get paid for it.\n\nThis short tour shows you where everything is. It takes about two minutes, and you can leave at any time with Esc.' },
+      { page: 'dashboard', target: T('pt-dash-kpis'), title: 'Your dashboard', body: 'Your numbers at a glance: clicks on your links, sign-ups, customers and the money you have earned.\n\nClick any box to open the page behind it. Use the dates at the top to look at another period.' },
+      { page: 'campaigns', perm: 'referral_links.create', target: pick(T('pt-camp-links'), T('pt-camp-new')), title: 'Referral links and campaigns',
+        body: 'Share your referral link anywhere. When someone clicks it, LeadAI remembers you for ' + days + ' days, so if they sign up in that time, they count as yours.\n\nMake a campaign link for each channel (a newsletter, a webinar, a social post) to see which one brings the most customers.' },
+      { page: 'dashboard', perm: 'referral_links.create', when: function () { return !routeOk('campaigns'); }, target: T('pt-ref-link'), title: 'Your referral link',
+        body: 'Share this link anywhere. When someone clicks it, LeadAI remembers you for ' + days + ' days, so if they sign up in that time, they count as yours.' },
+      { page: 'customers', target: pick(T('pt-cust-new'), T('pt-head')), title: 'Your customers',
+        body: 'Businesses that sign up through you show up here. ' + who + (reseller ? '\n\nAs a reseller you can also add a customer yourself with "New customer". LeadAI sets up their workspace and emails the owner.' : '') },
+      { page: 'deals', target: T('pt-deal-new'), title: 'Deals', body: 'Talking to a business that hasn\'t signed up yet? Register it as a deal. Once LeadAI approves it, that business stays yours for a while, even if they sign up another way.' },
+      { page: 'sell', target: pick(T('pt-sell-price'), T('pt-sell-kit')), title: 'Sell LeadAI',
+        body: 'The live price of every plan, monthly and yearly, and what you earn on each sale.\n\nPrices include the scraping and AI services. Customers who bring their own Apify or Gemini key pay less. Each plan lists those prices too, with your commission.' },
+      { page: 'coupons', target: pick(T('pt-coupon-new'), T('pt-head')), title: 'Coupons', body: 'A coupon gives your customer a discount, and the sale counts as yours when they pay with it. Use the coupons LeadAI gives you, or make your own if your account allows it.' },
+      { page: 'wallet', target: T('pt-wallet-bal'), title: 'Commissions, wallet and payouts',
+        body: 'You earn a commission when a customer you brought in pays. It stays pending for ' + hold + ' days (in case of a refund), then becomes available.\n\nYour wallet shows what is ready. Once it reaches ' + money(p.min_payout) + ', ask for a payout and follow it under Payouts.' },
+      { page: 'commissions', when: function () { return !routeOk('wallet'); }, target: function () { return $(T('pt-com-bal') + ' .oa-grid') || $(T('pt-head')); }, title: 'Your commissions',
+        body: 'You earn a commission when a customer you brought in pays. It stays pending for ' + hold + ' days (in case of a refund), then becomes available for a payout.' },
+      { page: 'tasks', target: loaded(T('pt-tasks-list')), title: 'Tasks from LeadAI',
+        body: 'Sometimes the LeadAI team asks you to do something, like share a campaign or onboard a customer. It shows up here, often with a due date.\n\nOpen the task, do the work, then tell LeadAI what you did. They review it and mark it done.' },
+      { page: 'marketing', target: pick(T('pt-mk-asset'), T('pt-head')), title: 'Marketing center', body: 'Logos, banners, emails and posts approved by LeadAI. Any text you copy already contains your referral link, so you can paste it straight away.' },
+      { page: 'api', target: T('pt-api-new'), title: 'API keys', body: 'Want your numbers in your own tools or spreadsheets? Create a read-only API key here. Keep it secret, and revoke it at once if it leaks.' },
+      { target: T('pt-bell'), title: 'Notifications and your profile',
+        body: 'The bell shows news about your referrals, commissions, payouts and tasks.\n\nNext to it, your profile menu has Settings & security (payout details, password), light or dark mode, Help & support and Sign out.' },
+      { route: function () { return openPage((ROUTES.filter(allowed)[0] || ['support'])[0])(); }, target: T('pt-guide'), title: 'Need help again?',
+        body: 'Click Guide at any time to replay this tour, or to open a short guide for one part of the portal: links, selling, customers, earnings or tasks.' }
+    ] };
+    tours['pt-links'] = { title: 'Referral links & campaigns', steps: [
+      { page: 'campaigns', perm: 'referral_links.create', target: T('pt-camp-links'), title: 'Your main links',
+        body: 'Your referral link sends people to LeadAI with your code attached. The direct sign-up link takes them straight to sign-up' + (trial ? ' and their ' + trial : '') + '.\n\nPress Copy and paste the link wherever you talk to people.' },
+      { page: 'campaigns', target: T('pt-camp-new'), title: 'One campaign per channel',
+        body: 'Give each place you promote LeadAI its own campaign, for example "June newsletter" or "YouTube review". Each one gets its own link, so you can see which channel brings the most customers.' +
+          (has('reseller.customers.manage') ? '\n\nAs a reseller you can also make an onboarding link: everyone who signs up through it becomes a customer you manage.' : '') },
+      { page: 'campaigns', target: loaded(T('pt-camp-list')), title: 'Your campaign links', body: 'Copy a campaign\'s link here, or press Edit to rename it, change the page it opens, or archive it.' },
+      { title: 'How you get credit',
+        body: 'When someone clicks one of your links, LeadAI remembers you for ' + days + ' days. If they sign up in that time, they become your referral. If they clicked links from more than one partner, the ' + (p.attribution_model === 'last_touch' ? 'last' : 'first') + ' link counts.\n\nPeople can also type your referral code when they sign up, or pay with your coupon.' },
+      { page: 'referrals', target: loaded(T('pt-ref-list'), '.oa-toolbar'), title: 'Who signed up',
+        body: 'Everyone who signed up through you is listed under Referrals. Filter by stage: ' + Object.keys(STAGE_LABEL).map(function (k) { return STAGE_LABEL[k]; }).join(', ') + '.\n\nClick a company to see its history and what you earned from it.' },
+      { page: 'analytics', target: T('pt-head'), title: 'See what works', body: 'Analytics turns your clicks, sign-ups and sales into charts, for all campaigns or one at a time. Export everything as a CSV file.' }
+    ] };
+    tours['pt-sell'] = { title: 'Selling LeadAI', steps: [
+      { page: 'sell', target: T('pt-sell-kit') + ' > :first-child', title: 'Your pitch', body: 'Short, ready-made reasons to choose LeadAI. "Copy a short pitch" copies them together with your link.' },
+      { page: 'sell', target: T('pt-sell-kit') + ' > :nth-child(2)', title: 'How you get credit', body: 'Your link and your code tie each sale to you. Talking to someone who hasn\'t signed up yet? Register a deal so the sale stays yours.' },
+      { page: 'sell', target: T('pt-sell-price'), optional: true, title: 'Plan prices', body: 'What your customer pays for this plan, monthly and yearly, and what you earn on the first payment and on each renewal. A crossed-out price means a discount applies.' },
+      { page: 'sell', target: T('pt-sell-cov'), optional: true, title: 'Prices by API coverage',
+        body: 'The standard price includes Apify (which finds the posts) and Gemini (which reads the comments). A customer who brings their own Apify key, Gemini key, or both, pays less.\n\nEach line shows that price and your commission, so you can offer whatever fits.' },
+      { page: 'sell', target: T('pt-sell-earn'), optional: true, title: 'Your commission', body: 'Your rate for this plan, whether you earn again on renewals, and any limit per customer.' },
+      { page: 'sell', target: T('pt-sell-share'), optional: true, title: 'Share one plan', body: 'This link opens this plan with your code attached. Send it to someone who already knows what they want.' },
+      { page: 'deals', target: T('pt-deal-new'), title: 'Register a deal',
+        body: 'Enter the business and a contact email. LeadAI reviews it, and once approved the business stays yours for a while, even if they sign up another way.' + (reseller ? '\n\nWhen they are ready, press "Onboard as customer" in the list.' : '') },
+      { page: 'coupons', target: pick(T('pt-coupon-new'), T('pt-head')), title: 'Coupons', body: 'Give customers a discount code. When they pay with it, the sale counts as yours.' }
+    ] };
+    tours['pt-customers'] = { title: 'Your customers', steps: [
+      { page: 'customers', target: T('pt-head'), title: 'Your customers', body: 'Every business tied to you: the ones you referred' + (reseller ? ' and the ones you manage' : '') + '. ' + who },
+      { page: 'customers', target: loaded(T('pt-cust-list'), '.oa-toolbar'), title: 'Find a customer', body: 'Search by company, filter by stage, or show only the customers you manage or the ones you referred.' },
+      { page: 'customers', target: loaded(T('pt-cust-list'), 'tbody a', true), title: 'Customer details', body: 'Open a customer to see their workspace, when their ' + (trial ? 'trial' : 'demo') + ' ends, their subscription and what you have earned from them.' },
+      { page: 'customers', perm: 'customers.create', target: T('pt-cust-new'), optional: true, title: 'Add a customer yourself', body: onboardNote('The owner') + ' The customer shows up here at once, marked "managed".' },
+      { page: 'customers', perm: 'customers.create', target: T('pt-cust-onboard'), optional: true, title: 'Onboarding links', body: 'Or send an onboarding link: everyone who signs up through it becomes a customer you manage.' }
+    ] };
+    tours['pt-earn'] = { title: 'Commissions & payouts', steps: [
+      { page: 'commissions', target: function () { return $(T('pt-com-bal') + ' .oa-grid') || (loaded(T('pt-com-list'))() && $(T('pt-head'))); }, title: 'Where your money is',
+        body: 'Pending: waiting out the ' + hold + '-day refund window. Available: yours to withdraw. In payout: requested and on its way. Paid: sent to you.' },
+      { page: 'commissions', target: loaded(T('pt-com-list'), '.oa-toolbar'), title: 'Every commission', body: 'Each row shows the customer, their payment, your rate and your commission. Filter by status or date. If a customer gets a refund, the matching commission is reversed.' },
+      { page: 'wallet', target: T('pt-wallet-bal'), title: 'Your wallet', body: 'Your balances, worked out from your commissions. Below them is every transaction: earnings, approvals, refunds and payouts.' },
+      { page: 'wallet', perm: 'payouts.request', target: T('pt-pay-req'), title: 'Request a payout', body: 'When your available balance reaches ' + money(p.min_payout) + ', press here. LeadAI pays it to your saved payout method.' },
+      { page: 'payouts', target: loaded(T('pt-po-list')), title: 'Track your payouts', body: 'Follow each payout from Requested to Paid. Once it is paid you see the transfer reference. You can cancel a payout while it is still Requested.' },
+      { page: 'settings', perm: 'profile.manage', target: T('pt-payout-details'), title: 'Your payout details', body: 'Add your bank account, UPI ID or PayPal email here before your first payout. Every change is logged and you get an email about it.' }
+    ] };
+    tours['pt-tasks'] = { title: 'Your tasks', steps: [
+      { page: 'tasks', target: T('pt-head'), title: 'Tasks from LeadAI', body: 'The LeadAI team uses tasks to ask you for something specific, like sharing a campaign link or onboarding a customer. You get a notification for every new task.' },
+      { page: 'tasks', target: loaded(T('pt-tasks-list'), '.oa-toolbar'), title: 'Find a task', body: 'Search, or filter by status: ' + Object.keys(TASK_LABEL).map(function (k) { return TASK_LABEL[k]; }).join(', ') + '.' },
+      { page: 'tasks', target: loaded(T('pt-tasks-list'), '[data-open]', true), title: 'Open a task', body: 'Read what is needed and when it is due. Press "Start task" so LeadAI knows you are on it. If the task is about one page, a button takes you there.' },
+      { title: 'Tell LeadAI what you did', body: 'When you are finished, write what you did in the task and press "Submit for review". Add links, names or numbers.\n\nLeadAI then marks it done, or sends it back with a note so you can fix something.' },
+      { target: navOrMenu('tasks'), title: 'Never miss one', body: 'In the menu, the number next to Tasks counts your open tasks. Overdue and high-priority tasks are marked in red.' }
+    ] };
+    var st = (S.me || {}).application_status;
+    tours['pt-applicant'] = { title: 'Your application', steps: [
+      { title: 'Welcome to LeadAI Partners', body: st === 'changes_requested'
+        ? 'Thanks for applying! The LeadAI team asked for a few changes before they can approve you. This short guide shows you where to make them.'
+        : 'Thanks for applying! Your application is being reviewed. Once it is approved, this portal opens up: your links, customers, sales and earnings.' },
+      { page: 'application', target: T('pt-app-status'), title: 'Your application', body: 'The status of your application, when you applied, and every update so far.' },
+      { page: 'application', when: function () { return st === 'changes_requested'; }, target: T('pt-app-note'), optional: true, title: 'What to change', body: 'This note from the LeadAI team tells you what is missing.' },
+      { page: 'application', when: function () { return st === 'changes_requested'; }, target: T('pt-app-form') + ' button[type=submit]', optional: true, title: 'Update and resubmit', body: 'Fix the details in the form above, then press "Resubmit application". You will hear back by email.' },
+      { target: T('pt-bell'), title: 'We will let you know', body: 'You get an email, and a notification here, as soon as there is a decision.' },
+      { target: T('pt-guide'), title: 'Guides are here', body: 'Once you are approved, open Guide for a full tour of the portal.' }
+    ] };
+    return tours;
+  }
+
+  var GUIDE_MENU = [
+    { id: 'pt-basics', label: 'Partner Portal basics', description: 'A quick tour of everything in the portal' },
+    { id: 'pt-links', label: 'Referral links & campaigns', description: 'Share links, track channels, see who signed up' },
+    { id: 'pt-sell', label: 'Selling LeadAI', description: 'Prices, API coverage, your commission, deals' },
+    { id: 'pt-customers', label: 'Your customers', description: 'Free trials, customer details, adding customers' },
+    { id: 'pt-earn', label: 'Commissions & payouts', description: 'From pending commission to money in your account' },
+    { id: 'pt-tasks', label: 'Your tasks', description: 'Work the LeadAI team assigns you' },
+    { id: 'pt-applicant', label: 'Your application', description: 'Where your application stands and what to do' }
+  ];
+  /** define the guides for this partner: steps for pages they can't open are left out */
+  function setupGuide() {
+    var LT = window.LeadTour;
+    if (!LT || !S.me) return;
+    LT.setUser(S.me.email);
+    var tours = guideTours(), active = !!S.me.is_active_partner;
+    Object.keys(tours).forEach(function (id) {
+      if ((id === 'pt-applicant') === active) return;
+      var steps = tours[id].steps.filter(function (s) { return (!s.page || routeOk(s.page)) && (!s.perm || has(s.perm)) && (!s.when || s.when()); })
+        .map(function (s) { return s.page && !s.route ? Object.assign({ route: openPage(s.page) }, s) : s; });
+      if (steps.some(function (s) { return s.page || s.target; })) LT.define(id, { title: tours[id].title, steps: steps });
+    });
+    LT.mountLauncher({ container: '#pp-guide', label: 'Guide', alwaysMenu: true, tours: GUIDE_MENU.filter(function (t) { return LT.has(t.id); }) });
+    // first visit only; not while a Super Admin is viewing as this partner
+    if (S.me.impersonated_by) return;
+    if (active) LT.autoStart('pt-basics');
+    else if (S.me.application_status === 'pending' || S.me.application_status === 'changes_requested') LT.autoStart('pt-applicant');
+  }
+
   async function init() {
     try { await Promise.all([loadMe(), loadTrial()]); }
     catch (e) {
@@ -1053,7 +1216,7 @@
         catch (e) { location.href = '/login?superadmin=1'; }
       };
     }
-    var close = function () { $('#oa-sidebar').classList.remove('open'); $('#oa-scrim').classList.remove('open'); $('#oa-menu-btn').setAttribute('aria-expanded', 'false'); };
+    var close = closeNav;
     $('#oa-menu-btn').onclick = function () { var o = $('#oa-sidebar').classList.toggle('open'); $('#oa-scrim').classList.toggle('open', o); this.setAttribute('aria-expanded', String(o)); };
     $('#oa-scrim').onclick = close;
     $('#oa-nav').addEventListener('click', function (e) { if (e.target.closest('a')) close(); });
@@ -1064,6 +1227,7 @@
     $('#oa-logout').onclick = async function () { try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {} location.href = '/login?partner=1'; };
     window.addEventListener('hashchange', function () { route(); });
     route();
+    setupGuide();
     refreshBell();
     setInterval(function () { if (!document.hidden) refreshBell(); }, 60000);
   }

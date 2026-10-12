@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-appconfig="brand-only">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -9,7 +9,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>"/>
   <link rel="stylesheet" href="/static/design/tokens.css?v=r1005"/>
   <link rel="stylesheet" href="/static/design/components.css?v=r1005"/>
-  <script src="/static/design/theme.js?v=r1005"></script>
+  <script src="/static/design/theme.js?v=r1006"></script>
   <style>
     .org-chip { display:inline-flex; align-items:center; justify-content:center; width:52px; height:52px; border-radius:16px; margin-bottom:18px;
       background:linear-gradient(135deg,var(--primary-fill) 0%,var(--primary) 100%); color:var(--on-primary); font-weight:800; font-size:1.25rem; letter-spacing:-0.02em;
@@ -195,7 +195,7 @@
 
   <footer class="auth-footer">
     <nav aria-label="Footer"><a href="/website">Home</a><a href="/contact">Contact</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
-    <p style="margin-top:6px">© 2026 LeadAI</p>
+    <p style="margin-top:6px">© 2026 <span data-brand-name>LeadAI</span></p>
   </footer>
 </div>
 
@@ -431,5 +431,7 @@
   load();
 })();
 </script>
+<script src="/static/config.js?v=brand2" defer></script>
+<script>window.addEventListener("DOMContentLoaded", function () { if (window.AppConfig) AppConfig.load(); });</script>
 </body>
 </html>

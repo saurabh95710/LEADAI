@@ -2317,6 +2317,9 @@ select.form-input {
   .main-content { padding: 20px 14px 60px; }
   .steps-track { padding: 8px 14px; gap: 6px; }
   .search-card { padding: 20px 16px; }
+  /* the five search steps wrap instead of running past the card's edge (where they were cut off) */
+  .search-card .lead-stepper { flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+  .search-card .lead-step-connector { display: none; }
   .search-actions-row { gap: 10px; }
   .btn-analyze { margin-left: 0; width: 100%; justify-content: center; }
   .leads-header { padding: 12px 16px; }
@@ -3807,3 +3810,21 @@ div.toast-action { color: var(--text-dim); font-weight: 500; }
 .twofa-key code { padding: 6px 10px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border); word-break: break-all; letter-spacing: .04em; }
 .twofa-uri { overflow-wrap: anywhere; }
 .twofa-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+
+/* ── Interactive guide (design/tour.js): Guide button in the top bar ──
+   Sized like the icon buttons next to it; the guide's filled buttons use the
+   portal's primary fill, so they match every other primary action here. */
+.topbar .lt-launch-btn {
+  height: 36px; border-color: var(--border); background: var(--surface); color: var(--text);
+  box-shadow: var(--shadow-sm); font-family: var(--font-ui); transition: border-color .15s, background .15s;
+}
+.topbar .lt-launch-btn:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.lt-launch .lt-launch-ico { background: var(--primary-fill); color: var(--on-primary); }
+.lt-root .lt-btn.lt-primary { background: var(--primary-fill); border-color: var(--primary-border); color: var(--on-primary); }
+.lt-root .lt-btn.lt-primary:hover { background: var(--primary-fill-hover); }
+.topbar .lt-menu { font-family: var(--font-ui); }
+@media (max-width: 720px) {
+  .topbar .lt-launch-btn { width: 36px; padding: 0; justify-content: center; }
+  .topbar .lt-launch-label { display: none; }
+  .topbar .lt-menu { position: fixed; left: 12px; right: 12px; top: calc(var(--topbar-h) + 6px); width: auto; }
+}

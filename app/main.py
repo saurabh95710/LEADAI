@@ -37,6 +37,8 @@ from app.api.routes.super_admin_lifecycle import router as super_admin_lifecycle
 from app.api.routes.notifications import router as notifications_router
 from app.api.routes.org_admin import router as org_admin_router
 from app.api.routes.super_admin_platform import router as super_admin_platform_router
+from app.api.routes.super_admin_messaging import router as super_admin_messaging_router
+from app.api.routes.super_admin_payments import router as super_admin_payments_router
 from app.api.routes.me import router as me_router
 from app.api.routes.compliance import router as compliance_router
 from app.api.routes.public_v1 import router as public_v1_router
@@ -155,6 +157,30 @@ async def _run_startup_tasks():
                 await asyncio.to_thread(migrate_tenant_api_keys, _sdb())
             except Exception as e:
                 logger.warning("API key migration skipped: %s", e)
+            # garbled settings text ("â€”" for "—") from an earlier wrong-encoding save
+            try:
+                from app.admin.settings import repair_mojibake_settings
+                await asyncio.to_thread(repair_mojibake_settings, _sdb())
+            except Exception as e:
+                logger.warning("Settings text repair skipped: %s", e)
+            # logos saved as a page address, stray id-keyed documents
+            try:
+                from app.admin.settings import clean_stored_settings
+                await asyncio.to_thread(clean_stored_settings, _sdb())
+            except Exception as e:
+                logger.warning("Settings cleanup skipped: %s", e)
+            # the old Feature Flags "AI Analysis" switch is now ai.enabled
+            try:
+                from app.pipeline.comment_ai import merge_legacy_ai_flag
+                await asyncio.to_thread(merge_legacy_ai_flag, _sdb())
+            except Exception as e:
+                logger.warning("AI flag merge skipped: %s", e)
+            # phone numbers in one shape (E.164) so an account can be found by phone
+            try:
+                from app.messaging.service import backfill_phone_e164
+                await asyncio.to_thread(backfill_phone_e164, _sdb())
+            except Exception as e:
+                logger.warning("Phone number backfill skipped: %s", e)
             # website sign-ups start a 3-day free trial at once (applied once)
             try:
                 from app.lifecycle.config import migrate_self_serve_trial
@@ -343,10 +369,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         # Referrer policy — send origin only on cross-origin requests
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        # Permissions policy — restrict browser features
-        response.headers["Permissions-Policy"] = (
-            "camera=(), microphone=(), geolocation=(), payment=()"
-        )
+        # Permissions policy — restrict browser features (a page that needs
+        # more, like the Razorpay pay page, sets its own)
+        if "permissions-policy" not in response.headers:
+            response.headers["Permissions-Policy"] = (
+                "camera=(), microphone=(), geolocation=(), payment=()"
+            )
         # HSTS — force HTTPS for 1 year (only effective when served over HTTPS)
         if request.url.scheme == "https":
             response.headers["Strict-Transport-Security"] = (
@@ -366,13 +394,16 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "base-uri 'self'",
             "form-action 'self'",
         ]
-        response.headers["Content-Security-Policy"] = "; ".join(csp_directives)
+        # a route may set its own, stricter-or-different policy (the Razorpay
+        # pay page: no inline script, Razorpay's checkout script and frames)
+        if "content-security-policy" not in response.headers:
+            response.headers["Content-Security-Policy"] = "; ".join(csp_directives)
 
         # Cache-Control policy:
         # Prevent caching on authenticated API routes; allow caching on public configs
         if request.url.path.startswith("/api/"):
             if request.url.path.startswith("/api/public/"):
-                response.headers["Cache-Control"] = "public, max-age=60"
+                response.headers["Cache-Control"] = "public, no-cache"   # revalidate: admin edits show on the next load
             elif not request.url.path.startswith("/api/billing/plans"):
                 response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
                 response.headers["Pragma"] = "no-cache"
@@ -456,6 +487,8 @@ app.include_router(super_admin_lifecycle_router)
 app.include_router(notifications_router)
 app.include_router(org_admin_router)
 app.include_router(super_admin_platform_router)
+app.include_router(super_admin_messaging_router)
+app.include_router(super_admin_payments_router)
 app.include_router(me_router)
 app.include_router(compliance_router)
 app.include_router(public_v1_router)
@@ -652,16 +685,19 @@ async def auth_gate(request: Request, call_next):
                      "message": "Sign in required"},
                     status_code=401)
             return RedirectResponse("/login?superadmin=1", status_code=303)
-        # Verify super_admin role
+        # Verify the role. The portal PAGE is the one platform portal for all
+        # staff (Super Admin, managers, viewers: the menu shows each what their
+        # role allows); the /api/super-admin/* APIs stay Super Admin only.
         from app.auth.roles import effective_role
         role = effective_role((user or {}).get("email", ""))
-        if role != "super_admin":
+        page_ok = portal_path == "/superadmin" and role in ("super_admin", "manager", "viewer")
+        if role != "super_admin" and not page_ok:
             if path.startswith("/api/"):
                 return JSONResponse(
                     {"success": False, "error": "forbidden",
                      "message": "Super Admin access required"},
                     status_code=403)
-            return RedirectResponse("/admin", status_code=303)
+            return RedirectResponse("/login?superadmin=1", status_code=303)
         return await _call_as(request, call_next, user)
     required_scope = "admin" if admin_area else "site"
     if admin_area and scope == "admin":
@@ -820,7 +856,10 @@ async def health():
 @app.get("/admin")
 @app.get("/admin/")
 async def admin_page(request: Request):
-    return _serve_html_file("admin.html", request)
+    """The old platform console is merged into /superadmin (one portal for the
+    Super Admin and platform staff). Browsers keep the #/route across the
+    redirect and the portal maps the old route names."""
+    return RedirectResponse("/superadmin", status_code=303)
 
 
 @app.get("/superadmin")
@@ -920,6 +959,59 @@ async def invite_page(token: str):
 @app.get("/billing/checkout/{session_id}")
 async def billing_status_page(session_id: str = ""):
     return _static("billing-status.html")
+
+
+# The Razorpay pay page loads Razorpay Checkout (script + iframes) and nothing
+# inline: its script is /static/razorpay-checkout.js.
+_RAZORPAY_PAGE_CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' https://checkout.razorpay.com https://cdn.razorpay.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://checkout.razorpay.com",
+    "img-src 'self' https: data:",
+    "font-src 'self' https://fonts.gstatic.com",
+    "frame-src https://api.razorpay.com https://checkout.razorpay.com",
+    "connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com https://cdn.razorpay.com",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self' https://api.razorpay.com",
+])
+_RAZORPAY_PAGE_PERMISSIONS = ('camera=(), microphone=(), geolocation=(), '
+                              'payment=(self "https://api.razorpay.com" "https://checkout.razorpay.com")')
+
+
+@app.get("/billing/razorpay/{order_id}")
+def razorpay_pay_page(order_id: str, request: Request):
+    """Razorpay Checkout for one of the signed-in organization's Razorpay
+    orders (org billing managers only; anything else looks like a missing
+    page). Plain ``def``: the tenant lookup is sync, so it runs in the threadpool."""
+    from urllib.parse import quote
+    from fastapi import HTTPException as _HTTPException
+    from app.auth.permissions import ORG_BILLING_MANAGE
+    from app.auth.tenant import get_org_context, report_out_of_scope
+    from app.db.mongo import get_sync_db
+    try:
+        ctx = get_org_context(request)
+    except _HTTPException as e:
+        if e.status_code == 401:
+            return RedirectResponse("/login?next=" + quote(request.url.path, safe=""), status_code=303)
+        return _static_status("404.html", 404, request)
+    db = get_sync_db()
+    if ORG_BILLING_MANAGE not in ctx.permissions or db is None:
+        return _static_status("404.html", 404, request)
+    sub = db.subscriptions.find_one({"checkout_session_id": order_id, "organization_id": ctx.tenant_id,
+                                     "provider": "razorpay"}, {"_id": 1})
+    if not sub:
+        other = db.subscriptions.find_one({"checkout_session_id": order_id,
+                                           "organization_id": {"$ne": ctx.tenant_id}},
+                                          {"_id": 1, "organization_id": 1})
+        if other:
+            report_out_of_scope(request, ctx, "subscriptions", other)
+        return _static_status("404.html", 404, request)
+    resp = _serve_html_file("razorpay-checkout.html", request)
+    resp.headers["Content-Security-Policy"] = _RAZORPAY_PAGE_CSP
+    resp.headers["Permissions-Policy"] = _RAZORPAY_PAGE_PERMISSIONS
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/403")

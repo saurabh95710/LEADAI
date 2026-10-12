@@ -319,8 +319,8 @@
     }, true);
     form.addEventListener('input', (e) => { const i = e.target; if (i.getAttribute && i.getAttribute('aria-invalid') === 'true' && !fieldMsg(i)) setFieldError(form, i, ''); });
   }
-  function tabs(items, active) {
-    return `<nav class="oa-tabs" aria-label="Section tabs">${items.map(([href, text]) => `<a href="${attr(href)}" ${href === active ? 'aria-current="page"' : ''}>${esc(text)}</a>`).join('')}</nav>`;
+  function tabs(items, active, tour) {
+    return `<nav class="oa-tabs" aria-label="Section tabs"${tour ? ` data-tour="${attr(tour)}"` : ''}>${items.map(([href, text]) => `<a href="${attr(href)}" ${href === active ? 'aria-current="page"' : ''}>${esc(text)}</a>`).join('')}</nav>`;
   }
   function kv(rows) { return `<dl class="oa-kv">${rows.filter(Boolean).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl>`; }
   const UNLIMITED = 1e9; // the API's "no limit" value (entitlements.UNLIMITED)
@@ -725,7 +725,8 @@
     try { await r.render(view); }
     catch (e) { if (view.alive()) renderError(main, e, route); }
     finally { if (view.alive()) { main.removeAttribute('aria-busy'); $$('.oa-tabs', main).forEach(n => { const cur = $('[aria-current="page"]', n); if (cur && n.scrollWidth > n.clientWidth) n.scrollLeft = Math.max(0, cur.offsetLeft - n.offsetLeft - 24); }); } }
-    if (view.alive() && !parts._keepFocus) { main.focus({ preventScroll: true }); window.scrollTo(0, 0); }
+    // while the interactive guide is open it keeps the keyboard focus (it opens pages itself)
+    if (view.alive() && !parts._keepFocus) { if (!guideOpen()) main.focus({ preventScroll: true }); window.scrollTo(0, 0); }
   }
   function notFound() {
     return `<div class="oa-card" style="max-width:640px;margin:40px auto"><div class="oa-state"><div class="error-code">404</div><h2>This page doesn't exist</h2><p>The link may be broken, or the section was moved. Use the menu to find what you need.</p><div class="oa-actions"><a class="btn btn-primary" href="#dashboard">Go to dashboard</a><a class="btn btn-secondary" href="#support">Get help</a></div></div></div>`;
@@ -812,7 +813,7 @@
       v.el.innerHTML = head('Dashboard', `Everything happening in ${S.ctx.organization.name}.`, `<a class="btn btn-primary" href="#search">${ico('search')} New search</a>`) +
         (alertHtml ? `<div class="oa-alerts" role="region" aria-label="Usage alerts">${alertHtml}</div>` : '') +
         bizCardHtml +
-        `<div class="oa-grid oa-grid-4">
+        `<div class="oa-grid oa-grid-4" data-tour="oa-stats">
           ${stat('#team/users', 'users', 'Users', d.users.total, `<span>${num(d.users.active)} active</span><span>${num(d.users.inactive)} inactive</span><span>${num(d.users.pending_invitations)} invited</span>`)}
           ${stat('#searches', 'search', 'Searches', d.searches.total, `<span>${num(d.searches.this_month)} this month</span><span>${num(d.searches.failed)} failed</span>`)}
           ${stat('#leads', 'target', 'Leads', d.leads.total, `<span>${num(d.leads.this_month)} this month</span><span>${num(d.leads.unassigned)} unassigned</span>`)}
@@ -876,7 +877,7 @@
       if (tab === 'profile') {
         let tzs = []; try { tzs = Intl.supportedValuesOf('timeZone'); } catch (_) { tzs = ['UTC']; }
         if (org.timezone && tzs.indexOf(org.timezone) < 0) tzs.unshift(org.timezone);
-        body = `<form class="oa-card oa-form" data-form novalidate><div class="oa-form-grid">
+        body = `<form class="oa-card oa-form" data-form data-tour="oa-org-form" novalidate><div class="oa-form-grid">
           ${fld('name', 'Organization name', org.name, 'text', ro, 'required maxlength="120"')}
           <div class="oa-field"><span class="oa-label">Industry</span><div class="oa-small" style="padding:10px 0">${esc(org.industry_name || org.industry || 'General / Any business')} · <a class="oa-link" href="#organization/business">Business profile →</a></div></div>
           ${fld('website', 'Website', org.website, 'url', ro, 'placeholder="https://example.com"')}
@@ -889,7 +890,7 @@
         </div>${editable ? '<div class="oa-form-foot"><button type="submit" class="btn btn-primary">Save profile</button></div>' : readonlyNote()}</form>`;
       } else if (tab === 'branding') {
         body = `<div class="oa-note">${ico('info')}<span>Your display name and colours apply to your organization's Admin portal. The public LeadAI website and global branding are managed by LeadAI.</span></div>
-        <form class="oa-card oa-form" data-form novalidate><div class="oa-form-grid">
+        <form class="oa-card oa-form" data-form data-tour="oa-org-form" novalidate><div class="oa-form-grid">
           ${fld('company_name', 'Company display name', b.company_name || org.name, 'text', ro, 'maxlength="120"')}
           ${fld('logo_url', 'Organization logo URL', org.logo_url, 'url', ro, 'placeholder="https://…/logo.png"')}
           ${colorFld('primary_color', 'Primary colour', b.primary_color || '#2e9573', ro)}
@@ -902,7 +903,7 @@
         const capComments = [caps.comments_per_post, caps.platform_max_comments_per_post].filter(Boolean);
         const maxPosts = capPosts.length ? Math.min(...capPosts) : '';
         const maxComments = capComments.length ? Math.min(...capComments) : '';
-        body = `<form class="oa-form" data-form novalidate>
+        body = `<form class="oa-form" data-form data-tour="oa-org-form" novalidate>
           <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Search defaults</div><span class="oa-card-sub">Within your plan limits</span></div><div class="oa-form-grid">
             ${fld('default_posts_per_search', 'Posts per search', s.default_posts_per_search || '', 'number', ro, `min="1" ${maxPosts ? 'max="' + maxPosts + '"' : ''} placeholder="${attr(maxPosts ? Math.min(maxPosts, caps.default_posts || maxPosts) : (caps.default_posts || ''))}"`, maxPosts ? 'Plan maximum: ' + maxPosts : '')}
             ${fld('default_comments_per_post', 'Comments per post', s.default_comments_per_post || '', 'number', ro, `min="1" ${maxComments ? 'max="' + maxComments + '"' : ''} placeholder="${attr(maxComments ? Math.min(maxComments, caps.default_comments_per_post || maxComments) : (caps.default_comments_per_post || ''))}"`, maxComments ? 'Plan maximum: ' + maxComments : '')}
@@ -930,7 +931,7 @@
         </form>`;
       }
       v.el.innerHTML = head('Organization', 'Your organization profile, workspace branding and settings.') +
-        tabs(ORG_TABS, '#organization/' + tab) + body;
+        tabs(ORG_TABS, '#organization/' + tab, 'oa-org-tabs') + body;
       const form = $('[data-form]', v.el);
       liveValidate(form);
       if (tab === 'branding') {
@@ -994,9 +995,9 @@
     const TARGET_OPTIONS = ['Buyers', 'Sellers', 'Renters / Tenants', 'Investors', 'Clients / Inquiries', 'Job Seekers'];
     const curTargets = new Set(Array.isArray(p.target_customer_types) ? p.target_customer_types : (p.target_customers ? [p.target_customers] : ['Buyers']));
 
-    v.el.innerHTML = head('Organization', 'Your organization profile, workspace branding and settings.') + tabs(ORG_TABS, '#organization/business') +
+    v.el.innerHTML = head('Organization', 'Your organization profile, workspace branding and settings.') + tabs(ORG_TABS, '#organization/business', 'oa-org-tabs') +
       `<div class="oa-note">${ico('info')}<span>LeadAI adapts to any business. Your industry, business model, and target customers configure how LeadAI filters social posts and qualifies high-intent leads across your entire organization.</span></div>
-      <form class="oa-card oa-form" data-form novalidate><div class="oa-form-grid">
+      <form class="oa-card oa-form" data-form data-tour="oa-biz-form" novalidate><div class="oa-form-grid">
         <div class="oa-field"><label for="f-industry">Industry</label><select class="form-select" id="f-industry" name="industry" ${ro}>${selectOpts(d.industries.map(i => [i.key, (i.icon ? i.icon + ' ' : '') + i.name]), d.industry)}</select><span class="oa-hint" data-ind-desc></span></div>
         ${fld('custom_industry', 'Custom industry label (optional)', p.custom_industry, 'text', ro, 'maxlength="80" placeholder="e.g. Clean Energy, Heavy Machinery"', 'Your specific niche name; shown to the AI instead of the generic sector.')}
         <div class="oa-field"><label for="f-business_type">Business Type</label><select class="form-select" id="f-business_type" name="business_type" ${ro}></select><span class="oa-hint">Your specific business model or specialization</span></div>
@@ -1099,8 +1100,8 @@
     const edit = can('settings.manage');
     const items = d.items || [];
     const base = location.origin + '/api/v1';
-    v.el.innerHTML = head('Organization', 'Your organization profile, workspace branding and settings.', edit ? `<button type="button" class="btn btn-primary" data-newkey>${ico('plus')} Create API key</button>` : '') + tabs(ORG_TABS, '#organization/api') +
-      `<div class="oa-note">${ico('info')}<span>Connect your CRM, Zapier or your own scripts to LeadAI. Send the key in the <code class="oa-mono">X-API-Key</code> header to <code class="oa-mono oa-break">${esc(base)}/…</code>. A key acts for the whole organization — keep it secret and revoke it if it leaks. These are not your Apify or Gemini keys; those are on <a class="oa-link" href="#integrations">API keys &amp; plan</a>.</span></div>
+    v.el.innerHTML = head('Organization', 'Your organization profile, workspace branding and settings.', edit ? `<button type="button" class="btn btn-primary" data-newkey>${ico('plus')} Create API key</button>` : '') + tabs(ORG_TABS, '#organization/api', 'oa-org-tabs') +
+      `<div class="oa-note" data-tour="oa-devapi">${ico('info')}<span>Connect your CRM, Zapier or your own scripts to LeadAI. Send the key in the <code class="oa-mono">X-API-Key</code> header to <code class="oa-mono oa-break">${esc(base)}/…</code>. A key acts for the whole organization — keep it secret and revoke it if it leaks. These are not your Apify or Gemini keys; those are on <a class="oa-link" href="#integrations">API keys &amp; plan</a>.</span></div>
       <div data-host></div>
       <div class="oa-card" style="margin-top:16px"><div class="oa-card-head"><div class="oa-card-title">Endpoints</div><span class="oa-card-sub">Each needs the matching access on the key</span></div>
         ${kv(API_SCOPES.map(([k, l, e]) => [l, `<code class="oa-mono oa-break">${esc(e)}</code> <span class="badge badge-muted">${esc(k)}</span>`]))}</div>
@@ -1211,7 +1212,7 @@
       const cheaperNext = sub && Number(sub.next_price) < Number(sub.amount);
       const fig = (lbl, val, meta, id) => `<div class="oa-ik-fig"${id ? ` data-fig="${id}"` : ''}><span class="oa-ik-fig-l">${esc(lbl)}</span><b>${val}</b>${meta ? `<span class="oa-ik-fig-m">${meta}</span>` : ''}</div>`;
 
-      const summary = `<section class="oa-card oa-ik-summary" aria-labelledby="ik-sum-t">
+      const summary = `<section class="oa-card oa-ik-summary" data-tour="oa-ik-summary" aria-labelledby="ik-sum-t">
         <div class="oa-ik-sum-head"><div><span class="oa-ik-fig-l">Your current choice</span><h2 class="oa-ik-choice" id="ik-sum-t">${esc(I.label || ikCovLabel(cov))}</h2>
           <span class="oa-small oa-muted">Apify: <b>${cov.apify === 'own' ? 'your own key' : 'LeadAI'}</b> · Gemini: <b>${cov.gemini === 'own' ? 'your own key' : 'LeadAI'}</b></span></div>
           ${plan.is_demo ? pill(st.trial && st.trial.expired ? 'expired' : 'trial', st.trial ? 'Free trial · ' + trialLeft(st.trial) : 'Free trial') : sub ? pill('active', 'Paid subscription') : pill('none', 'No paid subscription')}</div>
@@ -1225,7 +1226,7 @@
         <div class="oa-note">${ico('info')}<span><b>Bring your own key = lower price;</b> you pay Apify / Google directly for what you use. Mix as you like: your own Apify key, your own Gemini key, both, or neither.</span></div>
       </section>`;
 
-      const notAllowed = allows ? '' : `<div class="alert alert-info oa-ik-alert">${ico('info', 'alert-icon')}<div class="alert-body"><div class="alert-title">Own API keys are available on paid plans</div>
+      const notAllowed = allows ? '' : `<div class="alert alert-info oa-ik-alert" data-tour="oa-ik-locked">${ico('info', 'alert-icon')}<div class="alert-body"><div class="alert-title">Own API keys are available on paid plans</div>
         <div>${plan.is_demo ? 'During the free trial' : 'On the ' + esc(plan.name || 'current') + ' plan'} LeadAI provides Apify and Google Gemini for you. Choose a paid plan to bring your own keys and pay less.</div><div class="alert-actions"><a href="#subscription">See plans</a></div></div></div>`;
 
       const card = (a) => {
@@ -1237,7 +1238,7 @@
               <button type="button" data-cov="leadai" aria-pressed="${!own}" ${manage ? '' : 'disabled'}>LeadAI</button>
               <button type="button" data-cov="own" aria-pressed="${own}" ${manage ? '' : 'disabled'}>Your own key</button></div>`
           : `<b class="oa-ik-who-ro">LeadAI</b>`;
-        return `<section class="oa-card oa-ik-api" data-api="${a}" aria-labelledby="ik-${a}-t">
+        return `<section class="oa-card oa-ik-api" data-api="${a}" data-tour="oa-ik-${a}" aria-labelledby="ik-${a}-t">
           <div class="oa-card-head"><div style="min-width:0"><h2 class="oa-card-title" id="ik-${a}-t" tabindex="-1">${esc(m.name)}</h2><div class="oa-card-sub">${esc(m.what)}</div></div>${pill(ks[0], ks[1])}</div>
           <div class="oa-ik-who"><span class="oa-label" id="ik-${a}-who">Who provides it</span>${seg}
             ${allows && Number(addon) ? `<span class="oa-hint">Your own key takes ${esc(ikPrice(addon, cur, st.cycle))} off the plan price.</span>` : ''}</div>
@@ -1261,7 +1262,7 @@
       };
 
       const optCycle = st.cycle;
-      const options = `<section class="oa-card" aria-labelledby="ik-opt-t">
+      const options = `<section class="oa-card" data-tour="oa-ik-options" aria-labelledby="ik-opt-t">
         <div class="oa-card-head"><div><h2 class="oa-card-title" id="ik-opt-t">Compare your options</h2><div class="oa-card-sub">${esc(plan.is_demo ? 'Free trial' : (plan.name || 'Your') + ' plan')} · price per ${ikPer(optCycle)}</div></div>
           <div class="oa-seg" role="group" aria-label="Billing cycle"><button type="button" data-ik-cycle="monthly" aria-pressed="${optCycle === 'monthly'}">Monthly</button><button type="button" data-ik-cycle="yearly" aria-pressed="${optCycle === 'yearly'}">Yearly</button></div></div>
         ${opts.length ? `<ul class="oa-ik-opts">${opts.map(o => {
@@ -1417,15 +1418,17 @@
 
   // ── Team ───────────────────────────────────────────────────────────
   ROUTES.team = {
-    title: (p) => p[1] === 'user' ? 'Team · User' : 'Team · ' + ({ invitations: 'Invitations', roles: 'Roles & permissions' }[p[1]] || 'Users'),
+    title: (p) => p[1] === 'user' ? 'Team · User' : 'Team · ' + ({ invitations: 'Invitations', roles: 'Roles & permissions', messages: 'Sent messages' }[p[1]] || 'Users'),
     skel: 'table',
     async render(v) {
       const sub = v.parts[1] || 'users';
       if (sub === 'user') return renderUserDetail(v, v.parts[2]);
-      const tabBar = tabs([['#team/users', 'Users'], ['#team/invitations', 'Invitations'], ['#team/roles', 'Roles & permissions']], '#team/' + sub);
-      const actions = can('members.invite') ? `<button type="button" class="btn btn-primary" data-invite>${ico('plus')} Invite user</button>` : '';
-      v.el.innerHTML = head('Team', 'Manage who can access your organization and what they can do.', actions) + tabBar + '<div data-host></div>';
-      const inv = $('[data-invite]', v.el); if (inv) inv.onclick = () => inviteModal(() => { if (sub !== 'roles') t && t.reload(); });
+      const tabBar = tabs([['#team/users', 'Users'], ['#team/invitations', 'Invitations'], ['#team/roles', 'Roles & permissions'], ['#team/messages', 'Sent messages']], '#team/' + sub, 'oa-team-tabs');
+      const actions = (can('members.update') ? `<button type="button" class="btn btn-secondary" data-message data-tour="oa-message">${ico('message')} Message team</button>` : '') +
+        (can('members.invite') ? `<button type="button" class="btn btn-primary" data-invite data-tour="oa-invite">${ico('plus')} Invite user</button>` : '');
+      v.el.innerHTML = head('Team', 'Manage who can access your organization and what they can do.', actions) + tabBar + '<div data-host data-tour="oa-team-list"></div>';
+      const inv = $('[data-invite]', v.el); if (inv) inv.onclick = () => inviteModal(() => { if (sub !== 'roles' && sub !== 'messages') t && t.reload(); });
+      const msg = $('[data-message]', v.el); if (msg) msg.onclick = () => messageModal({ done: () => { if (sub === 'messages') route(); } });
       const host = $('[data-host]', v.el);
       let t = null;
       if (sub === 'users') {
@@ -1455,6 +1458,7 @@
           rowMenu: r => memberMenu(r),
           async onAction(act, r) {
             if (act === 'view') { location.hash = '#team/user/' + r.user_id; return; }
+            if (act === 'message') { messageModal({ title: 'Message ' + (r.name || r.email), preselect: [{ id: r.user_id, name: r.name, email: r.email }] }); return; }
             if (act === 'role') { location.hash = '#team/user/' + r.user_id; return; }
             if (['active', 'inactive', 'suspended'].indexOf(act) >= 0) { if (await bulkMemberStatus(act, [r])) t.reload(); return; }
             if (act === 'remove') {
@@ -1491,6 +1495,8 @@
         });
       } else if (sub === 'roles') {
         await renderRoles(host, v);
+      } else if (sub === 'messages') {
+        await renderSentMessages(host, v);
       } else { v.el.innerHTML = notFound(); }
     },
   };
@@ -1498,6 +1504,7 @@
   const memberManageable = (r) => !r.is_me && r.role !== 'owner' && !(r.role === 'admin' && !isOwner());
   function memberMenu(r) {
     const m = [{ act: 'view', label: 'View profile & usage' }];
+    if (can('members.update') && !r.is_me) m.push({ act: 'message', label: 'Message…' });
     if (!memberManageable(r)) return m;
     if (can('members.update')) m.push({ act: 'role', label: 'Change role…' });
     if (can('members.suspend')) {
@@ -1547,13 +1554,245 @@
       },
     });
   }
+  // ── Messages to the team (email / SMS) ─────────────────────────────
+  // One message to everyone in the organization or to the people picked.
+  // The backend keeps it to this organization, allows 20 a day and sends it in
+  // the background; Team → Sent messages shows how many arrived.
+  const SMS_LEN = 160;
+  const peopleN = (n) => num(n) + (n === 1 ? ' person' : ' people');
+  const chText = (chs) => { const a = (chs || []).map(c => c === 'sms' ? 'SMS' : 'email'); return a.length > 1 ? a.join(' and ') : (a[0] || '—'); };
+  const tmActive = (p) => !p.status || p.status === 'active';
+  function messageModal(o) {
+    o = o || {};
+    const picked = new Map();
+    (o.preselect || []).forEach(p => picked.set(String(p.id), Object.assign({ name: '', email: '' }, p, { id: String(p.id) })));
+    let everyone = null, shown = [], capped = false, qTimer = null, qSeq = 0;
+    openModal({
+      title: o.title || 'Message team',
+      body: `<form class="oa-form oa-tm-form" data-f novalidate>
+        <fieldset class="oa-tm-fs" aria-describedby="tm-e-to"><legend class="oa-label">Send to</legend>
+          <div class="oa-tm-to">
+            <label class="oa-tm-opt"><input type="radio" name="to" value="all" ${picked.size ? '' : 'checked'}/><span><b>Everyone in the team</b><span class="oa-small oa-muted" data-allcount>Loading your team…</span></span></label>
+            <label class="oa-tm-opt"><input type="radio" name="to" value="pick" ${picked.size ? 'checked' : ''}/><span><b>Pick people</b><span class="oa-small oa-muted">Only the people you choose</span></span></label>
+          </div>
+          <div class="oa-tm-picker" data-picker ${picked.size ? '' : 'hidden'}>
+            <div class="oa-tm-chips" data-chips role="list" aria-label="Picked people"></div>
+            <label class="sr-only" for="tm-q">Search your team</label>
+            <span class="oa-searchf">${ico('search')}<input class="form-input" type="search" id="tm-q" placeholder="Search name, email or phone" maxlength="120" autocomplete="off"/></span>
+            <div class="oa-tm-people" data-people role="group" aria-label="Team members"><p class="oa-small oa-muted">Loading your team…</p></div>
+          </div>
+          <span class="oa-err" id="tm-e-to" role="alert"></span>
+        </fieldset>
+        <fieldset class="oa-tm-fs" aria-describedby="tm-e-ch"><legend class="oa-label">Send by</legend>
+          <div class="oa-tm-ch">
+            <label class="oa-check"><input type="checkbox" name="ch" value="email" ${o.sms ? '' : 'checked'}/><span>Email</span></label>
+            <label class="oa-check"><input type="checkbox" name="ch" value="sms" ${o.sms ? 'checked' : ''}/><span>SMS (text message)</span></label>
+          </div>
+          <span class="oa-err" id="tm-e-ch" role="alert"></span>
+        </fieldset>
+        <div class="oa-field"><label for="tm-subject" data-subjlabel>Subject</label><input class="form-input" id="tm-subject" name="subject" maxlength="200" autocomplete="off" aria-describedby="tm-e-subject"/><span class="oa-err" id="tm-e-subject" role="alert"></span></div>
+        <div class="oa-field"><label for="tm-body">Message</label><textarea class="form-textarea" id="tm-body" name="body" rows="5" maxlength="5000" aria-describedby="tm-e-body"></textarea><span class="oa-err" id="tm-e-body" role="alert"></span></div>
+        <div class="oa-field" data-smsf hidden><label for="tm-sms">SMS text <span class="oa-muted" style="font-weight:400">(optional)</span></label><textarea class="form-textarea oa-tm-smsbox" id="tm-sms" name="sms_body" rows="3" maxlength="640" aria-describedby="tm-sms-hint tm-sms-count"></textarea>
+          <div class="oa-tm-smsfoot"><span class="oa-hint" id="tm-sms-hint">A short version for the text. Leave it empty to text the subject and message.</span><span class="oa-tm-counter" id="tm-sms-count"></span></div></div>
+        <div class="oa-tm-summary" data-summary role="status" aria-live="polite"></div>
+        <div data-formerr></div>
+      </form>`,
+      foot: `<button type="button" class="btn btn-secondary" data-close>Cancel</button><button type="button" class="btn btn-primary" data-send>${ico('message')} Send message</button>`,
+      onMount(root, close) {
+        const f = $('[data-f]', root), sendBtn = $('[data-send]', root);
+        const toVal = () => ($('input[name="to"]:checked', f) || {}).value || 'all';
+        const chans = () => $$('input[name="ch"]:checked', f).map(i => i.value);
+        const err = (id, msg) => {
+          const el = $('#' + id, root); if (el) el.textContent = msg || '';
+          const inp = { 'tm-e-subject': f.subject, 'tm-e-body': f.body }[id];
+          if (inp) { if (msg) inp.setAttribute('aria-invalid', 'true'); else inp.removeAttribute('aria-invalid'); }
+        };
+        const formErr = (msg, title) => {
+          const box = $('[data-formerr]', root);
+          box.innerHTML = msg ? `<div class="alert alert-danger" role="alert">${ico('alert', 'alert-icon')}<div class="alert-body">${title ? `<div class="alert-title">${esc(title)}</div>` : ''}${esc(msg)}</div></div>` : '';
+          if (msg) box.scrollIntoView({ block: 'nearest' });
+        };
+        const targets = () => toVal() === 'all' ? (everyone || []) : Array.from(picked.values());
+        function personRow(p) {
+          return `<label class="oa-tm-person"><input type="checkbox" value="${attr(p.id)}" ${picked.has(p.id) ? 'checked' : ''}/>${avatar(p.name || p.email)}<span class="oa-tm-who"><b class="oa-trunc">${esc(p.name || p.email)}</b><span class="oa-small oa-muted oa-trunc">${esc(p.email)}</span></span>
+            <span class="oa-tm-meta">${p.role ? roleTag(p.role) : ''}${p.has_phone ? `<span class="oa-small oa-muted oa-mono">${esc(p.phone)}</span>` : '<span class="oa-tm-nophone">No phone · email only</span>'}</span></label>`;
+        }
+        function drawPeople(list, q) {
+          shown = list;
+          $('[data-people]', root).innerHTML = list.length ? list.map(personRow).join('')
+            : `<p class="oa-small oa-muted" style="padding:8px">${q ? 'No one in your team matches “' + esc(q) + '”.' : 'No team members yet.'}</p>`;
+        }
+        function drawChips() {
+          $('[data-chips]', root).innerHTML = Array.from(picked.values()).map(p => `<span class="oa-chip" role="listitem">${esc(p.name || p.email)}<button type="button" data-unpick="${attr(p.id)}" aria-label="${attr('Remove ' + (p.name || p.email))}">✕</button></span>`).join('');
+        }
+        function update() {
+          const ch = chans(); const all = toVal() === 'all';
+          $('[data-picker]', root).hidden = all;
+          $('[data-smsf]', root).hidden = ch.indexOf('sms') < 0;
+          $('[data-subjlabel]', root).innerHTML = ch.indexOf('email') >= 0 ? 'Subject' : 'Subject <span class="oa-muted" style="font-weight:400">(optional)</span>';
+          // what the text will say: the SMS text, or "subject: message"
+          const sms = f.sms_body.value.trim(), subj = f.subject.value.trim(), body = f.body.value.trim();
+          const len = (sms || (subj ? subj + ': ' + body : body)).length;
+          const parts = len > SMS_LEN ? Math.ceil(len / 153) : 1;
+          const cnt = $('#tm-sms-count', root);
+          cnt.textContent = num(len) + ' / ' + SMS_LEN + (parts > 1 ? ' · ' + parts + ' texts' : '');
+          cnt.classList.toggle('over', len > SMS_LEN);
+          cnt.title = sms ? 'Characters in the SMS text' : 'Characters in “subject: message”, which is what gets texted';
+          const list = targets(); const n = all ? (everyone ? list.length : null) : picked.size;
+          let html;
+          if (n === null) html = 'Loading your team…';
+          else if (!n) html = all ? 'There is nobody in your team to message yet.' : 'Pick at least one person.';
+          else if (!ch.length) html = 'Choose email, SMS or both.';
+          else {
+            html = `Send to <b>${all && capped ? 'more than ' + peopleN(n) : peopleN(n)}</b> by <b>${esc(chText(ch))}</b>.`;
+            if (ch.indexOf('sms') >= 0) {
+              const noPhone = list.filter(p => p.has_phone === false).length;
+              if (noPhone) html += `<span class="warn">${noPhone === n ? (n === 1 ? 'They have' : 'None of them has') : num(noPhone) + ' of them ' + (noPhone === 1 ? 'has' : 'have')} no mobile number, so ${ch.indexOf('email') >= 0 ? (noPhone === 1 ? 'that person only gets' : 'they only get') + ' the email' : (noPhone === 1 ? 'that person gets' : 'they get') + ' nothing'}.</span>`;
+            }
+          }
+          const sum = $('[data-summary]', root);
+          if (sum.dataset.html !== html) { sum.dataset.html = html; sum.innerHTML = html; }   // announce changes only
+        }
+        async function loadPeople(q) {
+          const my = ++qSeq;
+          try {
+            const d = await api('/api/org-admin/messaging/people' + qs({ q }));
+            if (my !== qSeq || !root.isConnected) return;
+            const list = (d.people || []).filter(tmActive).map(p => Object.assign({}, p, { id: String(p.id) }));
+            if (!q) {
+              everyone = list; capped = (d.people || []).length >= 100;
+              everyone.forEach(p => { if (picked.has(p.id)) picked.set(p.id, p); });   // phone details for people picked up front
+              $('[data-allcount]', root).textContent = (capped ? 'More than ' : '') + peopleN(list.length);
+              drawChips();
+            }
+            drawPeople(list, q);
+          } catch (e) {
+            if (my !== qSeq || !root.isConnected) return;
+            $('[data-people]', root).innerHTML = `<p class="oa-err" style="padding:8px">${esc(e.message)}</p>`;
+            if (!q) { everyone = everyone || []; $('[data-allcount]', root).textContent = 'Your whole team'; }
+          }
+          update();
+        }
+        f.addEventListener('change', (e) => {
+          const t = e.target;
+          if (t.name === 'to') { err('tm-e-to', ''); formErr(''); if (t.value === 'pick') setTimeout(() => $('#tm-q', root).focus(), 0); }
+          if (t.name === 'ch') err('tm-e-ch', '');
+          if (t.closest('[data-people]')) {
+            if (t.checked) picked.set(t.value, shown.find(x => x.id === t.value) || (everyone || []).find(x => x.id === t.value) || { id: t.value, name: '', email: '' });
+            else picked.delete(t.value);
+            err('tm-e-to', ''); drawChips();
+          }
+          update();
+        });
+        f.addEventListener('input', (e) => {
+          const t = e.target;
+          if (t.id === 'tm-q') { clearTimeout(qTimer); const q = t.value.trim(); qTimer = setTimeout(() => loadPeople(q), 300); return; }
+          if (t.name === 'subject' || t.name === 'body') err('tm-e-' + t.name, '');
+          update();
+        });
+        $('[data-chips]', root).addEventListener('click', (e) => {
+          const b = e.target.closest('[data-unpick]'); if (!b) return;
+          picked.delete(b.dataset.unpick);
+          const box = $(`[data-people] input[value="${CSS.escape(b.dataset.unpick)}"]`, root); if (box) box.checked = false;
+          drawChips(); update(); $('#tm-q', root).focus();
+        });
+        async function send() {
+          formErr('');
+          const ch = chans(), all = toVal() === 'all';
+          const subject = f.subject.value.trim(), body = f.body.value.trim(), sms = f.sms_body.value.trim();
+          let bad = null;
+          const fail = (id, msg, el) => { err(id, msg); if (!bad) bad = el; };
+          ['tm-e-to', 'tm-e-ch', 'tm-e-subject', 'tm-e-body'].forEach(id => err(id, ''));
+          if (!all && !picked.size) fail('tm-e-to', 'Pick at least one person, or choose Everyone in the team.', $('#tm-q', root));
+          if (!ch.length) fail('tm-e-ch', 'Choose email, SMS or both.', $('input[name="ch"]', f));
+          if (ch.indexOf('email') >= 0 && !subject) fail('tm-e-subject', 'An email needs a subject.', f.subject);
+          if (!body) fail('tm-e-body', 'Write a message.', f.body);
+          if (bad) { bad.focus(); return; }
+          busy(sendBtn, true, 'Sending…');
+          try {
+            const r = await api('/api/org-admin/messages', { method: 'POST', body: {
+              channels: ch, subject, body, sms_body: ch.indexOf('sms') >= 0 && sms ? sms : null,
+              user_ids: all ? [] : Array.from(picked.keys()), all_members: all } });
+            const m = r.message || {};
+            close();
+            toast(`Message on its way to ${peopleN(m.recipient_count || 0)} by ${chText(m.channels || ch)}. Follow it in Team → Sent messages.`, 'success');
+            if (o.done) o.done(m);
+          } catch (e) {
+            if (!root.isConnected) return;
+            busy(sendBtn, false);
+            formErr(e.message, e.status === 429 ? 'Daily limit reached' : e.status === 422 ? 'Check the message' : 'The message wasn\'t sent');
+          }
+        }
+        sendBtn.onclick = send;
+        f.addEventListener('submit', (e) => { e.preventDefault(); send(); });
+        drawChips(); update(); loadPeople('');
+      },
+    });
+  }
+  function tmDelivery(m, plain) {
+    const c = m.counts || {};
+    return (m.channels || []).map(ch => {
+      const k = c[ch] || {}; const bits = [];
+      if (k.sent) bits.push(num(k.sent) + ' sent');
+      if (k.queued) bits.push(num(k.queued) + ' queued');
+      if (k.failed) bits.push(plain ? num(k.failed) + ' failed' : `<span class="oa-tm-failed">${num(k.failed)} failed</span>`);
+      if (k.skipped) bits.push(num(k.skipped) + (ch === 'sms' ? ' no phone' : ' no email'));
+      if (k.other) bits.push(num(k.other) + ' other');
+      const txt = bits.length ? bits.join(' · ') : (m.status === 'sending' ? 'Sending…' : 'Nothing sent');
+      const name = ch === 'sms' ? 'SMS' : 'Email';
+      return plain ? name + ': ' + txt : `<div class="oa-tm-line"><span class="badge badge-muted">${name}</span><span>${txt}</span></div>`;
+    }).join(plain ? '; ' : '');
+  }
+  function tmStatus(m) {
+    if (m.status === 'sending') return pill('processing', 'Sending');
+    const failed = Object.values(m.counts || {}).reduce((n, k) => n + ((k && k.failed) || 0), 0);
+    return failed ? pill('degraded', 'Some failed') : pill('completed', 'Sent');
+  }
+  const tmSender = (m) => typeof m.sender === 'string' ? m.sender : ((m.sender && (m.sender.name || m.sender.email)) || '—');
+  function viewMessage(m) {
+    openModal({
+      title: m.subject || 'Message',
+      body: kv([['Sent', esc(fmtDate(m.created_at, true))], ['By', esc(tmSender(m))], ['To', esc(peopleN(m.recipient_count || 0))],
+        ['Delivery', tmDelivery(m)], ['Status', tmStatus(m)]]) +
+        `<h3 class="oa-label" style="margin:16px 0 6px">Message</h3><div class="oa-pre oa-tm-pre">${esc(m.body || '')}</div>` +
+        ((m.channels || []).indexOf('sms') >= 0 ? `<h3 class="oa-label" style="margin:16px 0 6px">SMS text</h3><div class="oa-pre oa-tm-pre">${esc(m.sms_body || (m.subject ? m.subject + ': ' + (m.body || '') : (m.body || '')))}</div>` : ''),
+      foot: '<button type="button" class="btn btn-secondary" data-close>Close</button>',
+    });
+  }
+  async function renderSentMessages(host, v, polls) {
+    const d = await api('/api/org-admin/messages');
+    if (!v.alive() || !host.isConnected) return;
+    const items = d.messages || [];
+    const snippet = (s) => { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > 90 ? s.slice(0, 90) + '…' : s; };
+    dataTable(host, {
+      local: items, caption: 'Sent messages', key: 'oa-team-msgs', defaultSort: 'sent', defaults: { order: 'desc' }, initial: v.query,
+      filters: [{ name: 'q', label: 'Search', placeholder: 'Search subject, message or sender' }],
+      columns: [
+        { label: 'Sent', id: 'sent', sortVal: m => m.created_at || '', render: m => timeTag(m.created_at), csv: m => m.created_at || '' },
+        { label: 'Message', render: m => `<b class="oa-trunc oa-tm-subj">${esc(m.subject || 'SMS only')}</b><span class="oa-small oa-muted oa-trunc oa-tm-subj">${esc(snippet(m.body))}</span>`, csv: m => m.subject || '' },
+        { label: 'Sent by', render: m => esc(tmSender(m)), csv: m => tmSender(m) },
+        { label: 'Recipients', id: 'recipients', num: true, sortVal: m => Number(m.recipient_count) || 0, render: m => num(m.recipient_count) },
+        { label: 'Delivery', render: m => tmDelivery(m), csv: m => tmDelivery(m, true) },
+        { label: 'Status', render: m => tmStatus(m), csv: m => m.status || '' },
+      ],
+      rowMenu: () => [{ act: 'view', label: 'View message' }],
+      onAction(act, m) { if (act === 'view') viewMessage(m); },
+      empty: { title: 'No messages yet', desc: 'Emails and texts you send to your team appear here, with how many were delivered.',
+        action: can('members.update') ? `<button type="button" class="btn btn-primary" data-newmsg>${ico('message')} Message team</button>` : '' },
+    });
+    host.onclick = (e) => { if (e.target.closest('[data-newmsg]')) messageModal({ done: () => route() }); };
+    polls = polls || 0;   // follow messages that are still going out
+    if (items.some(m => m.status === 'sending') && polls < 10) {
+      setTimeout(() => { if (v.alive() && host.isConnected) renderSentMessages(host, v, polls + 1).catch(() => { /* keep the last list */ }); }, 3000);
+    }
+  }
   async function renderRoles(host, v) {
     const d = await api('/api/org-admin/roles');
     if (!v.alive()) return;
     const roles = d.roles; const editable = d.can_manage;
     const eff = {}; roles.forEach(r => { eff[r.role] = new Set(r.effective); });
     host.innerHTML = `<div class="oa-note" style="margin-bottom:14px">${ico('info')}<span><b>Admin (Owner)</b> and <b>Admin</b> always have full organization access and cannot be changed here. Configure what Managers, Users and Viewers can do. Only organization-level permissions can be delegated — platform administration is never available to organizations.${d.shared_workspace ? ' <b>Shared workspace is ON</b>, so every role can currently see all organization data.' : ''}</span></div>
-      <div class="oa-table-wrap"><table class="oa-table oa-matrix"><thead><tr><th scope="col">Permission</th>${roles.map(r => `<th scope="col">${esc(r.label)}<div class="oa-small oa-muted" style="text-transform:none;letter-spacing:0;font-weight:500">${num(r.members)} member${r.members === 1 ? '' : 's'}</div></th>`).join('')}</tr></thead>
+      <div class="oa-table-wrap" data-tour="oa-roles"><table class="oa-table oa-matrix"><thead><tr><th scope="col">Permission</th>${roles.map(r => `<th scope="col">${esc(r.label)}<div class="oa-small oa-muted" style="text-transform:none;letter-spacing:0;font-weight:500">${num(r.members)} member${r.members === 1 ? '' : 's'}</div></th>`).join('')}</tr></thead>
       <tbody>${d.catalog.map(g => `<tr class="grp"><td colspan="${roles.length + 1}">${esc(g.group)}</td></tr>` + g.permissions.map(p => `<tr><td><b>${esc(p.label)}</b><div class="oa-small oa-muted">${esc(p.description)}</div></td>${roles.map(r => `<td><input type="checkbox" data-role="${attr(r.role)}" data-perm="${attr(p.key)}" ${eff[r.role].has(p.key) ? 'checked' : ''} ${editable ? '' : 'disabled'} aria-label="${attr(r.label + ': ' + p.label)}"/></td>`).join('')}</tr>`).join('')).join('')}</tbody></table></div>
       ${editable ? `<div class="oa-form-foot" style="border:0;flex-wrap:wrap">${roles.map(r => `<button type="button" class="btn btn-ghost btn-sm" data-reset="${attr(r.role)}">Reset ${esc(r.label)} to defaults</button>`).join('')}<button type="button" class="btn btn-primary" data-save>Save permissions</button></div>` : '<p class="oa-hint" style="margin-top:10px">Changing role permissions requires the owner or an Admin.</p>'}`;
     if (!editable) return;
@@ -1640,14 +1879,15 @@
     const roleOpts = [['member', 'User'], ['manager', 'Manager'], ['viewer', 'Viewer']].concat(isOwner() ? [['admin', 'Admin']] : []);
     const reason = u.is_me ? 'This is your own account — manage it from Profile & security.' : u.role === 'owner' ? 'The organization owner cannot be modified.' : (!manageable ? 'Only the organization owner can modify another Admin.' : '');
     const actions = manageable ? [
-      can('members.update') ? `<button type="button" class="btn btn-secondary" data-email>${ico('user')} Change email</button><button type="button" class="btn btn-secondary" data-setpw>${ico('lock')} Set password</button><button type="button" class="btn btn-secondary" data-reset>${ico('lock')} Reset access</button>` : '',
+      can('members.update') ? `<button type="button" class="btn btn-secondary" data-email>${ico('user')} Change email</button><button type="button" class="btn btn-secondary" data-setpw data-tour="oa-setpw">${ico('lock')} Set password</button><button type="button" class="btn btn-secondary" data-reset>${ico('lock')} Reset access</button>` : '',
       can('members.suspend') && u.status === 'active' ? '<button type="button" class="btn btn-secondary" data-status="inactive">Deactivate</button><button type="button" class="btn btn-danger" data-status="suspended">Suspend</button>' : '',
       can('members.suspend') && u.status !== 'active' ? '<button type="button" class="btn btn-primary" data-status="active">Restore access</button>' : '',
       can('members.delete') ? '<button type="button" class="btn btn-danger" data-remove>Remove</button>' : '',
     ].join('') : '';
     const catalog = roles ? roles.catalog : [];
     const ov = u.permissions_override || {};
-    v.el.innerHTML = head(u.name || u.email, u.email, actions, ['#team/users', 'Team']) +
+    const msgBtn = can('members.update') && !u.is_me ? `<button type="button" class="btn btn-secondary" data-message>${ico('message')} Message</button>` : '';
+    v.el.innerHTML = head(u.name || u.email, u.email, msgBtn + actions, ['#team/users', 'Team']) +
       (reason ? `<div class="oa-note" style="margin-bottom:16px">${ico('info')}<span>${esc(reason)}</span></div>` : '') +
       `<div class="oa-grid oa-grid-4">
         ${statCard('#searches' + qs({ user_id: u.user_id }), 'Searches', statVal(us.searches), `<span>${num(us.failed_searches)} failed</span>`, { title: 'Searches run by ' + (u.name || u.email) })}
@@ -1657,7 +1897,7 @@
       </div>
       <div class="oa-grid oa-grid-2">
         <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Account</div></div>${kv([['Role', roleTag(u.role)], ['Status', pill(u.status)], ['Last login', timeTag(u.last_login)], ['Joined', esc(fmtDate(u.joined_at))]])}
-          ${manageable && can('members.update') ? `<form class="oa-form" data-role-form style="margin-top:16px"><div class="oa-field"><label for="ud-role">Change role</label><div class="oa-color"><select class="form-select" id="ud-role" name="role">${selectOpts(roleOpts, u.role)}</select><button type="submit" class="btn btn-secondary">Update role</button></div><span class="oa-hint">Changing the role signs the user out so the new access applies immediately.</span></div></form>` : ''}</div>
+          ${manageable && can('members.update') ? `<form class="oa-form" data-role-form data-tour="oa-role-form" style="margin-top:16px"><div class="oa-field"><label for="ud-role">Change role</label><div class="oa-color"><select class="form-select" id="ud-role" name="role">${selectOpts(roleOpts, u.role)}</select><button type="submit" class="btn btn-secondary">Update role</button></div><span class="oa-hint">Changing the role signs the user out so the new access applies immediately.</span></div></form>` : ''}</div>
         <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Permissions</div><span class="oa-card-sub">${u.configurable ? 'Per-user overrides of the role' : 'Fixed for this role'}</span></div>
           ${u.configurable && manageable && can('roles.manage') && catalog.length ? `<form data-ov><div class="oa-table-wrap" style="max-height:340px;overflow:auto"><table class="oa-table"><tbody>${catalog.flatMap(g => g.permissions).map(p => `<tr><td><b>${esc(p.label)}</b><div class="oa-small oa-muted">${u.permissions.indexOf(p.key) >= 0 ? 'Currently allowed' : 'Currently not allowed'}</div></td><td style="text-align:right"><label class="sr-only" for="ov-${attr(p.key)}">${esc(p.label)}</label><select class="oa-tri" id="ov-${attr(p.key)}" data-perm="${attr(p.key)}">${selectOpts([['', 'Role default'], ['1', 'Allow'], ['0', 'Deny']], p.key in ov ? (ov[p.key] ? '1' : '0') : '')}</select></td></tr>`).join('')}</tbody></table></div><div class="oa-form-foot" style="border:0"><button type="submit" class="btn btn-primary btn-sm">Save overrides</button></div></form>`
             : `<div style="display:flex;flex-wrap:wrap;gap:6px">${u.permissions.map(p => `<span class="badge badge-muted">${esc(p)}</span>`).join('') || '<span class="oa-muted">None</span>'}</div>`}</div>
@@ -1680,6 +1920,8 @@
       if (!(await confirmDialog(text[0], text[1], { danger: st !== 'active', confirm: text[2] }))) return;
       patch({ status: st }, b, st === 'active' ? 'Access restored.' : 'User ' + (st === 'inactive' ? 'deactivated.' : 'suspended.'));
     });
+    const mb = $('[data-message]', v.el);
+    if (mb) mb.onclick = () => messageModal({ title: 'Message ' + (u.name || u.email), preselect: [{ id: u.user_id, name: u.name, email: u.email }] });
     const em = $('[data-email]', v.el);
     if (em) em.onclick = () => changeEmailModal(u);
     const sp = $('[data-setpw]', v.el);
@@ -1772,7 +2014,7 @@
     async render(v) {
       if (v.parts[1]) return renderSearchDetail(v, v.parts[1]);
       const members = await getMembers(); if (!v.alive()) return;
-      v.el.innerHTML = head('Searches', 'Every search run in your organization, by any member.', `<a class="btn btn-primary" href="#search">${ico('search')} New search</a>`) + '<div data-host></div>';
+      v.el.innerHTML = head('Searches', 'Every search run in your organization, by any member.', `<a class="btn btn-primary" href="#search">${ico('search')} New search</a>`) + '<div data-host data-tour="oa-searches-list"></div>';
       dataTable($('[data-host]', v.el), {
         url: '/api/org-admin/searches', caption: 'Searches', defaultSort: 'newest', initial: v.query,
         exportUrl: can('exports.create') && can('search.export') ? (p) => '/api/org-admin/exports/searches.csv' + qs(p) : null,
@@ -1879,7 +2121,7 @@
       const scoped = [v.query.owner ? 'leads found by ' + (finder ? (finder.name || finder.email) : 'one member') : '', v.query.run_id ? 'search ' + v.query.run_id : ''].filter(Boolean);
       v.el.innerHTML = head(assignedView ? 'Assigned leads' : 'All leads', (assignedView ? 'Leads assigned to members — they appear in each member\'s User Portal.' : 'Every lead found in your organization. Select leads to assign or move them in bulk, or open one for notes and history.') + (scoped.length ? ' Filtered to ' + scoped.join(', ') + '.' : ''),
         (scoped.length ? `<a class="btn btn-ghost" href="${assignedView ? '#leads/assigned' : '#leads'}">${ico('x')} Clear filter</a>` : '') + `<a class="btn btn-primary" href="#search">${ico('search')} New search</a>`) +
-        tabs(LEAD_TABS, assignedView ? '#leads/assigned' : '#leads') + '<div data-host></div>';
+        tabs(LEAD_TABS, assignedView ? '#leads/assigned' : '#leads', 'oa-lead-tabs') + '<div data-host data-tour="oa-leads-list"></div>';
       const init = Object.assign({}, v.query);
       if (assignedView && !init.assignee) init.assignee = 'assigned';
       const t = dataTable($('[data-host]', v.el), {
@@ -2029,8 +2271,8 @@
       const d = await api('/api/org-admin/leads/pipeline'); if (!v.alive()) return;
       S.transitions = d.transitions;
       v.el.innerHTML = head('Lead lifecycle', 'Where your leads are in the pipeline. Click a stage to see its leads.') +
-        tabs(LEAD_TABS, '#pipeline') +
-        (d.total ? `<div class="oa-pipeline">${Object.entries(d.statuses).map(([s, n]) => `<a class="oa-stage" href="#leads?status=${attr(s)}">${pill(s)}<b>${num(n)}</b><span class="oa-small oa-muted">${d.total ? Math.round(n / d.total * 100) : 0}% of leads</span></a>`).join('')}</div>
+        tabs(LEAD_TABS, '#pipeline', 'oa-lead-tabs') +
+        (d.total ? `<div class="oa-pipeline" data-tour="oa-pipeline">${Object.entries(d.statuses).map(([s, n]) => `<a class="oa-stage" href="#leads?status=${attr(s)}">${pill(s)}<b>${num(n)}</b><span class="oa-small oa-muted">${d.total ? Math.round(n / d.total * 100) : 0}% of leads</span></a>`).join('')}</div>
         <div class="oa-grid oa-grid-2">${hbars('Leads by owner', Object.fromEntries(d.owners.map(o => [o.name || o.email || 'Unknown', o.leads])))}
         <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Allowed transitions</div></div><ul class="oa-feed">${Object.entries(d.transitions).map(([k, arr]) => `<li><div class="oa-feed-main">${pill(k)} → ${arr.length ? arr.map(a => pill(a)).join(' ') : '<span class="oa-muted oa-small">final</span>'}</div><span></span></li>`).join('')}</ul></div></div>`
           : `<div class="oa-card">${stateHtml('empty', 'No leads yet', 'Once searches find leads you will see them move through the pipeline here.', '<a class="btn btn-primary" href="#search">Start a search</a>')}</div>`);
@@ -2075,7 +2317,7 @@
         });
 
         v.el.innerHTML = head('Keyword library', 'Manage organization-wide suggested, active, custom, and excluded keywords.') +
-          tabs(LEAD_TABS, '#rules') +
+          tabs(LEAD_TABS, '#rules', 'oa-lead-tabs') +
           
           `<div class="alert ${d.using_defaults ? 'alert-info' : 'alert-success'}" style="margin-bottom:16px">${ico('info', 'alert-icon')}<div class="alert-body">
             <div class="alert-title">${d.using_defaults ? 'Using LeadAI Default Business Intelligence' : 'Custom Organization Keywords Active'}</div>
@@ -2083,12 +2325,12 @@
           </div></div>
 
           <!-- Stats Strip -->
-          <div class="oa-grid oa-grid-4" style="margin-bottom:16px">
+          <div class="oa-grid oa-grid-4" data-tour="oa-kw-stats" style="margin-bottom:16px">
             ${KW_TABS.map(([tab, icon, k, n, meta, style]) => statCard(tabHash(tab), ico(icon) + ' ' + esc(k), statVal(n, style), esc(meta), { data: `data-kwtab="${tab}"${activeTab === tab ? ' aria-current="true"' : ''}`, title: 'Show ' + k.toLowerCase() + ' in the keyword library' })).join('')}
           </div>
 
           <!-- Library Main Card -->
-          <div class="oa-card oa-kw-lib">
+          <div class="oa-card oa-kw-lib" data-tour="oa-kw-lib">
             <div class="oa-kw-lib-head">
               <div class="oa-kw-tabs" role="group" aria-label="Keyword list">
                 <button type="button" class="oa-kw-tab ${activeTab === 'all' ? 'active' : ''}" data-tab="all" aria-pressed="${activeTab === 'all'}">All (${num(allKws.length)})</button>
@@ -2098,7 +2340,7 @@
                 <button type="button" class="oa-kw-tab ${activeTab === 'excluded' ? 'active' : ''}" data-tab="excluded" aria-pressed="${activeTab === 'excluded'}">Excluded (${num(sum.excluded_count)})</button>
               </div>
               ${edit ? `
-              <div class="oa-actions" style="flex-wrap:wrap">
+              <div class="oa-actions" data-tour="oa-kw-actions" style="flex-wrap:wrap">
                 <button type="button" class="btn btn-secondary btn-sm" id="btnGenSuggestions">${ico('cpu')} Generate Suggestions</button>
                 <button type="button" class="btn btn-secondary btn-sm" id="btnAddKeywordModal">${ico('plus')} Add Keyword</button>
                 <button type="button" class="btn btn-secondary btn-sm" id="btnAddBulkModal">${ico('list')} Add Multiple</button>
@@ -2610,7 +2852,7 @@
       v.el.innerHTML = head('Subscription', 'Your plan, usage against its limits, invoices and billing history.') +
         (pending ? `<div class="alert alert-warning" style="margin-bottom:16px">${ico('alert', 'alert-icon')}<div class="alert-body"><div class="alert-title">Plan change pending confirmation</div>${esc((pending.plan && pending.plan.name) || pending.plan_id)} (${esc(pending.billing_cycle || '')}${pending.api_coverage ? ' · ' + esc(ikCovLabel(pending.api_coverage)) : ''}) — status: ${pill(pending.status)}. ${pending.status === 'pending_payment' ? 'Complete the payment to continue.' : 'Our team confirms payments and activates your new plan shortly.'}${pending.checkout_session_id ? ` <a href="/billing/status?session=${encodeURIComponent(pending.checkout_session_id)}">View payment status</a>` : ''}</div></div>` : '') +
         `<div class="oa-grid oa-grid-3">
-          <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Current plan</div>${pill(subState === 'active' && !active ? 'pending' : trial && trial.expired ? 'expired' : subState, statusText)}</div>
+          <div class="oa-card" data-tour="oa-sub-plan"><div class="oa-card-head"><div class="oa-card-title">Current plan</div>${pill(subState === 'active' && !active ? 'pending' : trial && trial.expired ? 'expired' : subState, statusText)}</div>
             <div style="font-size:1.5rem;font-weight:800">${esc(subState === 'demo' ? 'Free trial' : plan.name || 'No plan')}</div>
             <div style="margin-top:12px">${kv(subState === 'demo' ? [['Billing', 'Free — no payment yet'],
               ['API keys', `<a class="oa-link" href="#integrations">${esc(integ ? (integ.label || ikCovLabel(myCov)) : 'View')}</a>`],
@@ -2622,11 +2864,11 @@
             ${subState === 'demo' ? `<p class="oa-hint" style="margin-top:12px">${trial && trial.expired ? 'Your free trial has ended. Choose a plan below to keep running searches.' : 'Choose a plan below any time — your searches, leads and settings carry over.'}</p>` : ''}
             ${sub.cancel_at_period_end ? `<div class="alert alert-warning" style="margin-top:12px">${ico('alert', 'alert-icon')}<div class="alert-body">Cancellation scheduled for the end of this period.</div></div>` : ''}
             ${manage && active ? `<div class="oa-actions" style="margin-top:14px">${sub.cancel_at_period_end ? '<button type="button" class="btn btn-secondary btn-sm" data-reactivate>Keep my subscription</button>' : (isOwner() ? '<button type="button" class="btn btn-danger btn-sm" data-cancel>Request cancellation</button>' : '<span class="oa-hint">Only the organization owner can cancel.</span>')}</div>` : ''}</div>
-          <div class="oa-card" style="grid-column:span 2"><div class="oa-card-head"><div class="oa-card-title">Usage vs limits</div><span class="oa-card-sub">${usage && usage.period && usage.period.end ? 'Resets ' + esc(fmtDate(usage.period.end)) : ''}</span></div>
+          <div class="oa-card" data-tour="oa-sub-usage" style="grid-column:span 2"><div class="oa-card-head"><div class="oa-card-title">Usage vs limits</div><span class="oa-card-sub">${usage && usage.period && usage.period.end ? 'Resets ' + esc(fmtDate(usage.period.end)) : ''}</span></div>
             ${usage ? Object.entries(usage.metrics || {}).filter(([, m]) => m.limit).map(([k, m]) => meter(metricNames[k] || label(k), m.used, m.limit, m.percentage)).join('') || '<p class="oa-muted oa-small">Your plan has no metered limits.</p>' : '<p class="oa-muted oa-small">Usage unavailable.</p>'}
             ${usage && usage.tokens ? meter('Tokens', usage.tokens.used, usage.tokens.allocated) + `<p class="oa-hint" style="margin-top:6px">${num(usage.tokens.remaining)} tokens remaining</p>` : ''}</div>
         </div>
-        <div class="oa-card"><div class="oa-card-head" style="flex-wrap:wrap;gap:12px"><div class="oa-card-title">Plans & Pricing</div>
+        <div class="oa-card" data-tour="oa-plans"><div class="oa-card-head" style="flex-wrap:wrap;gap:12px"><div class="oa-card-title">Plans & Pricing</div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
             <div class="oa-seg" role="group" aria-label="Billing cycle"><button type="button" data-cycle="monthly" aria-pressed="${cycle === 'monthly'}">Monthly</button><button type="button" data-cycle="yearly" aria-pressed="${cycle === 'yearly'}">Yearly</button></div>
           </div>
@@ -2642,7 +2884,7 @@
               <ul>${hl.map(h => `<li>${esc(h)}</li>`).join('')}</ul>
               ${manage ? (isCur ? '<button type="button" class="btn btn-secondary" disabled>Current plan</button>' : isPend ? '<button type="button" class="btn btn-secondary" disabled>Awaiting confirmation</button>' : price ? `<button type="button" class="btn btn-primary" data-plan="${attr(p.slug)}" data-name="${attr(p.name)}" data-cov="${attr(JSON.stringify(offer.cov))}" data-price="${attr(money(price, p.currency))}">${active ? 'Switch to ' + esc(p.name) : 'Choose ' + esc(p.name)}</button>` : '<button type="button" class="btn btn-secondary" disabled>Not purchasable</button>') : ''}</div>`;
           }).join('')}</div>${manage ? '' : '<p class="oa-hint" style="margin-top:10px">Changing the plan requires the billing permission.</p>'}` : stateHtml('empty', 'No plans available', 'Contact support to change your plan.')}</div>
-        <h2 class="oa-section-title" style="margin:24px 0 12px">Invoices</h2><div data-inv></div>
+        <h2 class="oa-section-title" data-tour="oa-invoices" style="margin:24px 0 12px">Invoices</h2><div data-inv></div>
         <h2 class="oa-section-title" style="margin:24px 0 12px">Payments</h2><div data-pay></div>
         <h2 class="oa-section-title" style="margin:24px 0 12px">Billing history</h2><div data-hist></div>`;
       const ts = (d) => { const x = toDate(d); return x ? x.getTime() : 0; };
@@ -2713,7 +2955,7 @@
       ];
       v.el.innerHTML = head('Exports', 'Download your organization\'s data as CSV. Every export is logged.') +
         `<div class="oa-card"><form class="oa-toolbar" data-range style="margin:0"><span class="oa-label">Date range for leads, searches and activity:</span><label class="sr-only" for="ex-from">From</label><input class="form-input" type="date" id="ex-from" name="from"/><label class="sr-only" for="ex-to">To</label><input class="form-input" type="date" id="ex-to" name="to"/><span class="oa-hint">Leave empty for all time.</span></form></div>
-        <div class="oa-grid oa-grid-4">${items.map(([k, t, d, perm, ranged]) => `<div class="oa-card" style="display:flex;flex-direction:column;gap:8px"><div class="oa-card-title">${esc(t)}</div><p class="oa-small oa-muted" style="flex:1">${esc(d)}${ranged ? ' Uses the date range.' : ''}</p><button type="button" class="btn btn-secondary btn-sm" data-dl="${attr(k)}" ${can(perm) && can('exports.create') ? '' : 'disabled title="You don\'t have permission for this export"'}>${ico('download')} Download CSV</button></div>`).join('')}</div>
+        <div class="oa-grid oa-grid-4" data-tour="oa-export-grid">${items.map(([k, t, d, perm, ranged]) => `<div class="oa-card" style="display:flex;flex-direction:column;gap:8px"><div class="oa-card-title">${esc(t)}</div><p class="oa-small oa-muted" style="flex:1">${esc(d)}${ranged ? ' Uses the date range.' : ''}</p><button type="button" class="btn btn-secondary btn-sm" data-dl="${attr(k)}" ${can(perm) && can('exports.create') ? '' : 'disabled title="You don\'t have permission for this export"'}>${ico('download')} Download CSV</button></div>`).join('')}</div>
         <h2 class="oa-section-title" style="margin:24px 0 12px">Export history</h2><div data-host></div>`;
       const rf = $('[data-range]', v.el);
       $$('[data-dl]', v.el).forEach(b => b.onclick = () => {
@@ -2812,7 +3054,7 @@
     async render(v) {
       if (v.parts[1]) return renderTicket(v, v.parts[1]);
       v.el.innerHTML = head('Support', 'Get help, report an issue and follow your tickets.', `<button type="button" class="btn btn-primary" data-new>${ico('plus')} New ticket</button>`) +
-        `<div class="oa-grid oa-grid-3">
+        `<div class="oa-grid oa-grid-3" data-tour="oa-support">
           <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Help center</div>${ico('help')}</div><ul class="oa-feed"><li><div class="oa-feed-main"><a class="oa-link" href="/faq">Frequently asked questions</a></div><span></span></li><li><div class="oa-feed-main"><a class="oa-link" href="/features">Product features &amp; guides</a></div><span></span></li><li><div class="oa-feed-main"><a class="oa-link" href="/pricing">Plans &amp; pricing</a></div><span></span></li></ul></div>
           <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Contact support</div>${ico('chat')}</div><p class="oa-small oa-muted">Open a ticket and our team replies here and by email. For sales questions use the contact form.</p><div class="oa-actions" style="margin-top:12px"><button type="button" class="btn btn-secondary btn-sm" data-new>Report an issue</button><a class="btn btn-ghost btn-sm" href="/contact">Contact form</a></div></div>
           <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">System status</div>${ico('cpu')}</div><div data-health><div class="oa-skel oa-skel-line"></div></div></div>
@@ -2979,6 +3221,153 @@
   };
 
   // ════════════════════════════════════════════════════════════════════
+  // Interactive guide (design/tour.js): a welcome tour on the first visit,
+  // short page guides, and the "? Guide" button in the top bar.
+  // Targets carry data-tour="…"; steps whose target depends on role,
+  // permissions or data are optional or fall back to a nearby element.
+  // ════════════════════════════════════════════════════════════════════
+  const guideOpen = () => !!(window.LeadTour && window.LeadTour.isActive());
+  // the first of these that is on screen (an off-canvas sidebar on phones doesn't count)
+  const tourPick = (...sels) => () => {
+    for (const s of sels) {
+      const el = $(s); if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width && r.height && r.right > 0 && r.left < window.innerWidth) return el;
+    }
+    return null;
+  };
+  const tourSel = (name) => `[data-tour="${name}"]`;
+  // a team member the signed-in admin may manage (to show the person page), else the team list
+  async function tourMemberPage() {
+    const m = (await getMembers()).find(memberManageable);
+    location.hash = m ? '#team/user/' + m.user_id : '#team/users';
+  }
+  const GUIDES = [
+    ['oa-basics', 'Admin portal basics', 'A quick tour of everything you can do here.'],
+    ['oa-team', 'Managing your team', 'Invitations, roles, passwords and messages to your team.'],
+    ['oa-keys', 'API keys & plan', 'LeadAI\'s Apify and Gemini, or your own keys.'],
+    ['oa-leads', 'Leads & keyword library', 'Work your leads and tune what counts as one.'],
+    ['oa-billing', 'Billing & subscription', 'Your plan, usage, plan changes and invoices.'],
+    ['oa-org', 'Organization & settings', 'Profile, branding, settings and the Developer API.'],
+  ];
+  function defineGuides() {
+    const LT = window.LeadTour;
+    LT.define('oa-basics', { title: 'Admin portal basics', steps: [
+      { title: 'Welcome to your Admin portal',
+        body: 'This is where you run your organization in LeadAI: your team, everyone\'s leads, your plan and your settings.\n\nIt\'s different from the User Portal (at /user), where you and your team run searches and work your own leads day to day. Here you see and manage everything across the organization.\n\nThe tour takes about two minutes. Use Next or the arrow keys, and Esc to close it.' },
+      { target: tourPick('#oa-nav', '#oa-menu-btn'), title: 'Find your way around',
+        body: 'Every section is in the side menu, grouped by topic: your organization, LeadAI data, lead management, operations and your account. On a phone, tap the menu button to open it.\n\n"Open User Portal" at the bottom of the menu takes you back to /user.' },
+      { route: '#dashboard', target: tourSel('oa-stats'), title: 'Your dashboard at a glance',
+        body: 'These boxes count your users, searches, leads and Apify jobs. Each one is clickable and opens the page behind the number.\n\nFurther down you\'ll find trends, your token balance, your plan and the latest activity.' },
+      { route: '#team/users', target: tourPick(tourSel('oa-invite'), tourSel('oa-team-tabs')), title: 'Your team',
+        body: 'Invite people by email with Invite user. They get a secure one-time link to join, so no password is ever emailed.\n\nGive each person a role: User, Manager, Viewer or Admin (only the owner can make Admins). Roles & permissions sets what each role may do, and opening a person lets you change their role, set a password or change their sign-in email.' },
+      { route: '#leads', target: tourSel('oa-lead-tabs'), title: 'Leads',
+        body: 'Every lead your organization finds lands in All leads. Select leads to assign them to a teammate or change their status in one go, or open one for notes and history.\n\nAssigned shows who is working on what, and Lifecycle shows where your leads are in the pipeline.' },
+      { route: '#rules', target: tourSel('oa-kw-stats'), title: 'Keyword library',
+        body: 'Keywords decide which comments are worth a closer look. Active keywords are used in every search, Suggested ones are ready to switch on, Custom ones are your own, and Excluded terms are ignored.\n\nClick a box to jump to that list.' },
+      { route: '#searches', target: tourSel('oa-searches-list'), title: 'Searches and data',
+        body: 'Every search anyone in your organization runs is listed here, with its status and results. Start a new one by pasting a Facebook, Instagram, YouTube or LinkedIn link.\n\nPages, Posts and Comments in the menu show the data each search collected.' },
+      { route: '#exports', target: tourSel('oa-export-grid'), title: 'Exports',
+        body: 'Download leads, searches, pages, posts, comments, users and more as CSV files for your CRM or a spreadsheet. Set a date range at the top if you only need part of it.\n\nEvery download is recorded in Export history.' },
+      { route: '#integrations', target: tourSel('oa-ik-summary'), title: 'API keys & plan',
+        body: 'LeadAI relies on two outside services: Apify collects posts and comments, and Google Gemini is the AI that spots leads. By default LeadAI provides both, included in your plan price.\n\nOn a paid plan you can bring your own Apify key, Gemini key or both, and your plan price goes down. You then pay Apify or Google directly for what you use.' },
+      { route: '#subscription', target: tourSel('oa-sub-plan'), title: 'Subscription and billing',
+        body: 'Here you see your plan, when it renews and how much of each limit you\'ve used. Plans, invoices and payments are further down the page.\n\nOn the free trial this shows how many days you have left. Choose a plan whenever you\'re ready: your searches, leads and settings carry over.' },
+      { route: '#organization/api', target: tourSel('oa-devapi'), title: 'Developer API keys',
+        body: 'Want to connect your CRM, Zapier or your own scripts? Create a LeadAI API key here. It\'s shown only once, so copy it somewhere safe, and revoke it if it ever leaks.\n\nThese keys are for LeadAI\'s own API. They aren\'t your Apify or Gemini keys.' },
+      { route: '#organization/profile', target: tourSel('oa-org-tabs'), title: 'Organization settings and branding',
+        body: 'Profile holds your company details. Business profile tells the AI what you sell and who your customers are, so it finds better leads.\n\nBranding puts your name, logo and colours on this portal, and Settings covers search defaults, lead assignment, notifications and who sees which data.' },
+      { route: '#support', target: tourSel('oa-support'), title: 'Help and support',
+        body: 'Stuck, or spotted a problem? Open a ticket here. Our team replies on the ticket and by email, and you can check the system status at any time.' },
+      { route: '#dashboard', target: tourPick(tourSel('oa-guide')), title: 'Open the guide any time',
+        body: 'Click Guide to replay this tour, or take a short guide for one page, such as your team, API keys or billing. On a phone it\'s the ? button, and it\'s also in your profile menu.\n\nThat\'s it. Enjoy LeadAI!' },
+    ] });
+
+    LT.define('oa-team', { title: 'Managing your team', steps: [
+      { route: '#team/users', target: tourSel('oa-team-tabs'), title: 'Four views of your team',
+        body: 'Users lists everyone in your organization. Invitations tracks the invites you\'ve sent, Roles & permissions decides what each role can do, and Sent messages lists the emails and texts you\'ve sent the team.' },
+      { target: tourSel('oa-invite'), optional: true, title: 'Invite someone',
+        body: 'Enter their email and pick a role. They get a secure one-time link to join, valid for the number of days set in Organization → Settings. No password is ever emailed.' },
+      { target: tourSel('oa-message'), optional: true, title: 'Message your team',
+        body: 'Send an email, a text message (SMS) or both, to everyone in the team or just the people you pick. People without a mobile number get the email only. To message one person, use Message in their row menu or on their page.\n\nSent messages shows how many were delivered or failed. Your team can send 20 messages a day.' },
+      { target: tourSel('oa-team-list'), title: 'Everyone in one list',
+        body: 'Search, or filter by role and status. Click a person to see their searches, leads and activity.\n\nTick several people to deactivate, suspend or restore them at once.' },
+      { route: tourMemberPage, target: tourPick(tourSel('oa-setpw'), tourSel('oa-role-form')), optional: true, title: 'Roles, passwords and sign-in',
+        body: 'On a person\'s page you can change their role, set a new password for them, change the email they sign in with, or email them a reset link.\n\nYour own account is managed in Profile & security, and only the owner can change another Admin.' },
+      { route: '#team/invitations', target: tourSel('oa-team-list'), title: 'Invitations',
+        body: 'Invitations wait here until they\'re accepted. Resend one if it got lost, or revoke it to cancel the link.' },
+      { route: '#team/roles', target: tourPick(tourSel('oa-roles'), tourSel('oa-team-list')), title: 'Roles & permissions',
+        body: 'Tick what Managers, Users and Viewers may do, then Save permissions. The owner and Admins always have full access.\n\nPeople get the new permissions the next time they use LeadAI.' },
+    ] });
+
+    LT.define('oa-keys', { title: 'API keys & plan', steps: [
+      { route: '#integrations', target: tourSel('oa-ik-summary'), title: 'Your current choice',
+        body: 'This shows who provides Apify and Google Gemini for you right now, what you pay today, and the price at your next renewal.' },
+      { target: tourSel('oa-ik-locked'), optional: true, title: 'Own keys come with a paid plan',
+        body: 'On the free trial, and on plans without this option, LeadAI provides both services for you. Choose a paid plan that includes it to bring your own keys and pay less.' },
+      { target: tourSel('oa-ik-apify'), title: 'Apify collects the data',
+        body: 'Apify gathers posts and comments from Facebook, Instagram, YouTube and LinkedIn. Choose LeadAI to have it included, or "Your own key" to use your own Apify account for a lower plan price.\n\nAdd key stores your token encrypted and tests it straight away. After that you only ever see its last few characters.' },
+      { target: tourSel('oa-ik-gemini'), title: 'Google Gemini is the AI',
+        body: 'Gemini reads comments and scores how likely each person is to buy. It works the same way: LeadAI\'s, or your own key from Google AI Studio.\n\nIf you choose your own key and it stops working, searches that need it pause until you fix the key or switch back to LeadAI.' },
+      { target: tourSel('oa-ik-options'), title: 'Compare the prices',
+        body: 'Every combination with its price, monthly or yearly. Switching to your own key takes effect now and lowers the price from your next renewal.\n\nSwitching back to LeadAI for a service you haven\'t paid for goes through checkout.' },
+    ] });
+
+    LT.define('oa-leads', { title: 'Leads & keyword library', steps: [
+      { route: '#leads', target: tourSel('oa-lead-tabs'), title: 'Four views of your leads',
+        body: 'All leads, Assigned (who\'s working on what), Lifecycle (your pipeline) and the Keyword library that shapes which comments become leads.' },
+      { target: tourSel('oa-leads-list'), title: 'Work your leads',
+        body: 'Filter by status, assignee, quality, score or date. Tick leads to assign them, change their status or priority, or export them.\n\nClick a lead to see the full comment, notes and history.' },
+      { route: '#pipeline', target: tourPick(tourSel('oa-pipeline'), tourSel('oa-lead-tabs')), title: 'Lifecycle',
+        body: 'See how many leads are at each stage, from new to converted or lost. Click a stage to open its leads.' },
+      { route: '#rules', target: tourSel('oa-kw-stats'), title: 'Your keyword library',
+        body: 'Active keywords are used in every search, Suggested ones are ready to switch on, Custom ones are your own, and Excluded terms make LeadAI ignore a conversation. Click a box to open that list.' },
+      { target: tourSel('oa-kw-actions'), optional: true, title: 'Grow your list',
+        body: 'Generate Suggestions builds keywords for your industry. Add Keyword and Add Multiple add your own, and Defaults brings back LeadAI\'s standard list.' },
+      { target: tourSel('oa-kw-lib'), title: 'Fine-tune each keyword',
+        body: 'Filter the list, then activate, exclude, restore or remove keywords one by one. Changes apply to new searches by everyone in your organization.' },
+      { route: '#organization/business', target: tourSel('oa-biz-form'), title: 'Business profile',
+        body: 'Tell LeadAI your industry, what you sell and who your customers are. The AI uses this to tell real buyers from noise.' },
+    ] });
+
+    LT.define('oa-billing', { title: 'Billing & subscription', steps: [
+      { route: '#subscription', target: tourSel('oa-sub-plan'), title: 'Your plan',
+        body: 'Your plan, its status, billing cycle and renewal date, and who provides your API keys. On the free trial you\'ll see how many days are left.' },
+      { target: tourSel('oa-sub-usage'), title: 'Usage against your limits',
+        body: 'How much of each limit you\'ve used this period, and your token balance. Limits reset on the date shown.' },
+      { target: tourSel('oa-plans'), title: 'Change your plan',
+        body: 'Pick monthly or yearly, then choose a plan. Prices already include your API key choice.\n\nYou\'ll go to checkout, and the new plan starts as soon as the payment is confirmed. Everything you\'ve built carries over.' },
+      { target: tourSel('oa-invoices'), title: 'Invoices and payments',
+        body: 'Download your invoices, and see every payment and plan change in your billing history.' },
+    ] });
+
+    LT.define('oa-org', { title: 'Organization & settings', steps: [
+      { route: '#organization/profile', target: tourSel('oa-org-tabs'), title: 'Your organization',
+        body: 'Profile, Business profile, Branding, Settings and Developer API all live here. API keys & plan has its own page.' },
+      { target: tourSel('oa-org-form'), title: 'Profile',
+        body: 'Your company name, website, contact details and time zone. The description is shown to your team.' },
+      { route: '#organization/branding', target: tourSel('oa-org-form'), title: 'Branding',
+        body: 'Set your display name, logo and colours. They appear in this portal for your team, and the preview shows how it will look.' },
+      { route: '#organization/settings', target: tourSel('oa-org-form'), title: 'Settings',
+        body: 'Default posts and comments per search, the minimum lead score, how new leads are assigned, notifications, invitation expiry and the default role for new people.\n\nShared workspace lets every member see all of the organization\'s data. Leave it off to keep each person\'s data private.' },
+      { route: '#organization/api', target: tourSel('oa-devapi'), title: 'Developer API',
+        body: 'Create keys for LeadAI\'s REST API to connect your CRM, Zapier or your own scripts. Each key is shown once; revoke it if it leaks.' },
+    ] });
+  }
+  function setupGuide() {
+    const LT = window.LeadTour; if (!LT) return;   // the guide is an extra: the portal works without it
+    LT.setUser(S.ctx.me.email || S.me.email || '');
+    defineGuides();
+    const tours = GUIDES.map(([id, label, description]) => ({ id, label, description }));
+    const wrap = LT.mountLauncher({ container: '.oa-topbar', tours, label: 'Guide', className: 'oa-guide-launch', title: 'Interactive guide: how the Admin portal works' });
+    wrap.setAttribute('data-tour', 'oa-guide');
+    const theme = $('.oa-topbar > .theme-toggle'); if (theme) theme.parentNode.insertBefore(wrap, theme);
+    const item = $('#oa-guide-item');
+    if (item) item.onclick = () => { closePops(); LT.start('oa-basics'); };
+    LT.autoStart('oa-basics', { delay: 1200 });
+  }
+
+  // ════════════════════════════════════════════════════════════════════
   // Shell: sidebar, popovers, notifications, gate
   // ════════════════════════════════════════════════════════════════════
   function closeSidebar() { $('#oa-sidebar').classList.remove('open'); $('#oa-scrim').classList.remove('open'); $('#oa-menu-btn').setAttribute('aria-expanded', 'false'); }
@@ -3079,6 +3468,7 @@
     if (skip) skip.addEventListener('click', (e) => { e.preventDefault(); const m = document.getElementById('oa-content'); if (m) { m.setAttribute('tabindex', '-1'); m.focus(); } });
     if (!location.hash) history.replaceState(null, '', '#dashboard');
     route();
+    setupGuide();
   }
   function wireShell() {
     $('#oa-menu-btn').onclick = () => { const s = $('#oa-sidebar'); const open = !s.classList.contains('open'); s.classList.toggle('open', open); $('#oa-scrim').classList.toggle('open', open); $('#oa-menu-btn').setAttribute('aria-expanded', String(open)); if (open) { const a = $('#oa-nav a'); if (a) a.focus(); } };

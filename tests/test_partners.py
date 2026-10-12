@@ -604,16 +604,29 @@ def test_two_factor_is_enforced_at_login(env, site_account):
     assert r.status_code == 200 and r.json()["success"] is True
 
 
-def test_razorpay_checkout_keeps_major_unit_amount(env):
+def test_razorpay_checkout_keeps_major_unit_amount(env, monkeypatch):
     client, db = env
     import asyncio
-    from app.billing.provider import RazorpayBillingProvider
+    import json
+
+    import httpx
+
+    from app.billing import provider as prov
+    sent = {}
+
+    def razorpay_api(request):  # the Razorpay Orders API, mocked
+        sent.update(json.loads(request.content))
+        return httpx.Response(200, json={"id": "order_Major1", "amount": sent["amount"]})
+    monkeypatch.setattr(prov, "_HTTP_TRANSPORT", httpx.MockTransport(razorpay_api))
     sub_id = db.subscriptions.insert_one({"status": "pending_payment", "amount": 2499.0}).inserted_id
-    out = asyncio.run(RazorpayBillingProvider("k", "s", "w").create_checkout_session(
+    out = asyncio.run(prov.RazorpayBillingProvider("k", "s", "w").create_checkout_session(
         subscription={"_id": sub_id, "amount": 2499.0}, plan={"name": "Starter", "currency": "INR"},
         customer_email="b@x.example", success_url="/s", cancel_url="/c"))
-    assert out["amount"] == 249900
-    assert db.subscriptions.find_one({"_id": sub_id})["amount"] == 2499.0
+    # the order is in paise, the stored subscription amount stays in rupees
+    assert out["amount"] == 249900 and sent["amount"] == 249900 and sent["currency"] == "INR"
+    assert out["order_id"] == "order_Major1"
+    doc = db.subscriptions.find_one({"_id": sub_id})
+    assert doc["amount"] == 2499.0 and doc["checkout_session_id"] == "order_Major1"
 
 
 def test_hold_period_releases_clean_commissions_automatically(env):
