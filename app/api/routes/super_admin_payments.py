@@ -90,7 +90,7 @@ async def update_payments_setup(body: PaymentSettingsUpdate, request: Request,
             # Blank secret provided: keep existing
             continue
         val_str = str(val).strip() if val is not None else ""
-        ok = await envvars.aset_envvar_override(env_name, val_str, by=by_user)
+        ok = await envvars.aset_envvar_override(env_name, val_str, by=by_user, allow_locked=True)
         if not ok:
             raise HTTPException(status_code=503, detail=f"Couldn't save {field}. Try again.")
         envvars._CACHE.pop(env_name, None)
@@ -99,7 +99,7 @@ async def update_payments_setup(body: PaymentSettingsUpdate, request: Request,
     for field in clear:
         if field in _PAYMENT_SECRETS:
             env_name = _PAYMENT_SECRETS[field]
-            envvars.delete_envvar_override(env_name)
+            envvars.delete_envvar_override(env_name, allow_locked=True)
             envvars._CACHE.pop(env_name, None)
             changed.append(f"{field} (cleared)")
 

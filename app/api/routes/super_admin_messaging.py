@@ -120,7 +120,7 @@ async def update_email_settings(body: EmailSettingsBody, request: Request, ctx: 
         if field in _EMAIL_SECRETS and not str(val).strip():
             continue  # keep existing secret
         val_to_save = str(val).strip() if isinstance(val, str) else val
-        ok = await envvars.aset_envvar_override(env, val_to_save, by=by_user)
+        ok = await envvars.aset_envvar_override(env, val_to_save, by=by_user, allow_locked=True)
         if not ok:
             raise HTTPException(status_code=503, detail=f"Couldn't save {field}. Try again.")
         envvars._CACHE.pop(env, None)
@@ -129,7 +129,7 @@ async def update_email_settings(body: EmailSettingsBody, request: Request, ctx: 
     for field in clear:
         if field in _EMAIL_SECRETS:
             env = _EMAIL_SECRETS[field]
-            envvars.delete_envvar_override(env)
+            envvars.delete_envvar_override(env, allow_locked=True)
             envvars._CACHE.pop(env, None)
             changed.append(f"{field} (cleared)")
 
@@ -190,13 +190,13 @@ async def update_sms_settings(body: SmsSettingsBody, request: Request, ctx: Tena
         if field in _SMS_SECRETS and not str(value).strip():
             continue                                    # keep the stored secret
         ok = await envvars.aset_envvar_override(env, str(value).strip() if isinstance(value, str) else value,
-                                                by=ctx.email or "super_admin")
+                                                by=ctx.email or "super_admin", allow_locked=True)
         if not ok:
             raise HTTPException(status_code=503, detail="Couldn't save the settings. Try again.")
         envvars._CACHE.pop(env, None)
         changed.append(field)
     for field in clear:
-        envvars.delete_envvar_override(_SMS_SECRETS[field])
+        envvars.delete_envvar_override(_SMS_SECRETS[field], allow_locked=True)
         envvars._CACHE.pop(_SMS_SECRETS[field], None)
         changed.append(f"{field} (cleared)")
     meta = request_meta(request)

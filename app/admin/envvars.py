@@ -170,13 +170,13 @@ ENVVAR_REGISTRY: list[EnvVarDef] = [
      "group": "Security", "description": "Enable /docs and /redoc endpoints. "
                                         "Disable in production. Requires restart."},
     # Stripe / Billing
-    {"name": "STRIPE_SECRET_KEY", "kind": "str", "secret": True, "restart": False,
+    {"name": "STRIPE_SECRET_KEY", "kind": "str", "secret": True, "restart": False, "locked": True,
      "settings_attr": "stripe_secret_key", "default": "",
      "group": "Billing", "description": "Stripe secret API key for billing."},
     {"name": "STRIPE_PUBLISHABLE_KEY", "kind": "str", "secret": False, "restart": False,
      "settings_attr": "stripe_publishable_key", "default": "",
      "group": "Billing", "description": "Stripe publishable key for frontend checkout."},
-    {"name": "STRIPE_WEBHOOK_SECRET", "kind": "str", "secret": True, "restart": False,
+    {"name": "STRIPE_WEBHOOK_SECRET", "kind": "str", "secret": True, "restart": False, "locked": True,
      "settings_attr": "stripe_webhook_secret", "default": "",
      "group": "Billing", "description": "Stripe webhook signing secret."},
     {"name": "BILLING_WEBHOOK_SECRET", "kind": "str", "secret": True, "restart": False,
@@ -184,14 +184,14 @@ ENVVAR_REGISTRY: list[EnvVarDef] = [
      "group": "Billing", "description": "HMAC secret for the generic/mock billing "
                                        "webhook (X-LeadAI-Signature). Webhooks are "
                                        "rejected while it is empty."},
-    {"name": "RAZORPAY_KEY_ID", "kind": "str", "secret": False, "restart": False,
+    {"name": "RAZORPAY_KEY_ID", "kind": "str", "secret": False, "restart": False, "locked": True,
      "settings_attr": None, "env_only": True, "default": "",
      "group": "Billing", "description": "Razorpay key id (rzp_test_… or rzp_live_…), "
                                        "Razorpay Dashboard → Account & Settings → API keys."},
-    {"name": "RAZORPAY_KEY_SECRET", "kind": "str", "secret": True, "restart": False,
+    {"name": "RAZORPAY_KEY_SECRET", "kind": "str", "secret": True, "restart": False, "locked": True,
      "settings_attr": None, "env_only": True, "default": "",
      "group": "Billing", "description": "Razorpay key secret (shown once when the key is made)."},
-    {"name": "RAZORPAY_WEBHOOK_SECRET", "kind": "str", "secret": True, "restart": False,
+    {"name": "RAZORPAY_WEBHOOK_SECRET", "kind": "str", "secret": True, "restart": False, "locked": True,
      "settings_attr": None, "env_only": True, "default": "",
      "group": "Billing", "description": "Secret you type when adding the webhook in "
                                        "Razorpay Dashboard → Webhooks."},
@@ -209,7 +209,7 @@ ENVVAR_REGISTRY: list[EnvVarDef] = [
      "settings_attr": None, "env_only": True, "default": "",
      "group": "Server", "description": "Public origin used in emailed links, e.g. "
                                       "https://app.example.com"},
-    {"name": "SMTP_HOST", "kind": "str", "secret": False, "restart": False,
+    {"name": "SMTP_HOST", "kind": "str", "secret": False, "restart": False, "locked": True,
      "settings_attr": None, "env_only": True, "default": "",
      "group": "Email", "description": "SMTP server. Empty = emails stay in the "
                                      "outbox (visible to Super Admin)."},
@@ -220,10 +220,10 @@ ENVVAR_REGISTRY: list[EnvVarDef] = [
      "settings_attr": None, "env_only": True, "default": "auto",
      "group": "Email", "description": "auto | ssl | starttls | none. auto = SSL on port 465, "
                                      "STARTTLS otherwise."},
-    {"name": "SMTP_USER", "kind": "str", "secret": False, "restart": False,
+    {"name": "SMTP_USER", "kind": "str", "secret": False, "restart": False, "locked": True,
      "settings_attr": None, "env_only": True, "default": "",
      "group": "Email", "description": "SMTP username."},
-    {"name": "SMTP_PASSWORD", "kind": "str", "secret": True, "restart": False,
+    {"name": "SMTP_PASSWORD", "kind": "str", "secret": True, "restart": False, "locked": True,
      "settings_attr": None, "env_only": True, "default": "",
      "group": "Email", "description": "SMTP password."},
     {"name": "SMTP_FROM", "kind": "str", "secret": False, "restart": False,
@@ -265,10 +265,10 @@ _REGISTRY: Dict[str, EnvVarDef] = {e["name"]: e for e in ENVVAR_REGISTRY}
 
 _SECRET_NAMES = {e["name"] for e in ENVVAR_REGISTRY if e.get("secret")}
 
-# Environment-only values (the permanent Super Admin, the session signing
-# secret and the SMTP / Stripe credentials): readable from the
-# process environment / .env alone — no DB override may set or shadow them.
 _LOCKED_NAMES = {e["name"] for e in ENVVAR_REGISTRY if e.get("locked")}
+
+# Core root credentials that can never be overridden in the database under any circumstances
+_CORE_LOCKED = {"SUPERADMIN_EMAIL", "SUPERADMIN_PASSWORD", "SESSION_SECRET"}
 
 # APIFY_API_TOKEN is stored under the settings key the scrapers already read,
 # so the Environment view and the Apify view stay one source of truth.
@@ -350,7 +350,7 @@ def get_envvar(name: str) -> Any:
     hit = _CACHE.get(name)
     if hit is not None and now - hit[0] < _CACHE_TTL:
         return hit[1]
-    doc = None if name in _LOCKED_NAMES else _sync_override(name)
+    doc = None if name in _CORE_LOCKED else _sync_override(name)
     stored = _unseal(name, doc.get("value")) if doc is not None else None
     if stored is not None:
         value = _coerce(name, stored)
@@ -411,9 +411,11 @@ def get_envvar_bool(name: str, fallback: bool = False) -> bool:
     return bool(value) if value is not None else fallback
 
 
-def set_envvar_override(name: str, value: Any, by: str = "admin") -> bool:
+def set_envvar_override(name: str, value: Any, by: str = "admin", *, allow_locked: bool = False) -> bool:
     """Persist a coerced override. Returns False when Mongo is down."""
-    if name not in _REGISTRY or name in _LOCKED_NAMES:
+    if name not in _REGISTRY or name in _CORE_LOCKED:
+        return False
+    if name in _LOCKED_NAMES and not allow_locked:
         return False
     if name == "APIFY_API_TOKEN":
         return s_set_apify_token(value, by)
@@ -435,8 +437,10 @@ def set_envvar_override(name: str, value: Any, by: str = "admin") -> bool:
         return False
 
 
-async def aset_envvar_override(name: str, value: Any, by: str = "admin") -> bool:
-    if name in _LOCKED_NAMES:
+async def aset_envvar_override(name: str, value: Any, by: str = "admin", *, allow_locked: bool = False) -> bool:
+    if name not in _REGISTRY or name in _CORE_LOCKED:
+        return False
+    if name in _LOCKED_NAMES and not allow_locked:
         return False
     if name == "APIFY_API_TOKEN":
         return s_set_apify_token(value, by)
@@ -466,7 +470,7 @@ def legacy_locked_overrides() -> List[str]:
         if db is None:
             return []
         return sorted(d["_id"] for d in db[COLLECTION].find(
-            {"_id": {"$in": sorted(_LOCKED_NAMES)}}, {"_id": 1}))
+            {"_id": {"$in": sorted(_CORE_LOCKED)}}, {"_id": 1}))
     except Exception:
         return []
 
@@ -474,7 +478,7 @@ def legacy_locked_overrides() -> List[str]:
 def legacy_override_value(name: str) -> Optional[str]:
     """Read-only access to a stored override of a locked variable (used only
     as a fallback so an upgrade does not sign everyone out)."""
-    if name not in _LOCKED_NAMES:
+    if name not in _CORE_LOCKED:
         return None
     try:
         doc = _sync_override(name)
@@ -487,6 +491,8 @@ def legacy_override_value(name: str) -> Optional[str]:
 def delete_envvar_override(name: str, *, allow_locked: bool = False) -> bool:
     """Remove an override. Locked (environment-only) variables can only have
     a leftover override removed (``allow_locked``) — never set."""
+    if name in _CORE_LOCKED:
+        return False
     if name in _LOCKED_NAMES and not allow_locked:
         return False
     if name == "APIFY_API_TOKEN":
@@ -579,10 +585,10 @@ def envvar_info(name: str) -> Dict[str, Any]:
             "masked": _mask(value),
         }
     locked = name in _LOCKED_NAMES
-    doc = None if locked else _sync_override(name)
+    doc = None if name in _CORE_LOCKED else _sync_override(name)
     source = _source(name, doc)
     value = get_envvar(name)
-    if locked and definition.get("secret"):
+    if name in _CORE_LOCKED and definition.get("secret"):
         return {
             "name": name,
             "group": definition.get("group", ""),
