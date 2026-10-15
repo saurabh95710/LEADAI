@@ -1,17 +1,22 @@
 # Payments and email: setup
 
-Payment keys and mail-server settings live **only in the server's `.env`** (`~/leadai/.env` on the VPS). The app can't show or change them, so even someone who takes over an admin session can't redirect payments or password-reset emails. Super Admin → **Global Settings** shows what is set, what is missing and the exact lines to add, and has buttons to test the result:
+Payment and mail-server credentials can be set in two places:
 
-- **Payments** tab: the active provider, each provider's keys and webhook status, its webhook URL and events, and **Check keys**.
-- **Email & alerts** tab: the mail server, the outbox and **Send test email**.
+- **Super Admin → Global Settings** (recommended):
+  - The **Payments** tab has each provider's keys and webhook secret, its webhook URL and events to tick, and **Check keys**.
+  - The **Email & alerts** tab has the mail server, the outbox and **Send test email**.
+  - Only the Super Admin can do this, and every change is audited.
+  - Secrets are stored encrypted (Fernet, key from `API_KEY_ENCRYPTION_KEY`) and are never sent back to the browser.
+  - A value saved here overrides `.env`.
+- **The server's `.env`** (`~/leadai/.env` on the VPS) is used when nothing is saved in the app. It is read at start-up, so restart after editing it:
 
-After editing `.env`, restart the app:
+  ```
+  cd ~/leadai && bash scripts/deploy_vps.sh
+  ```
 
-```
-cd ~/leadai && bash scripts/deploy_vps.sh
-```
+  Pushing any commit to `main` also restarts it. Real environment variables win over the file.
 
-Pushing any commit to `main` also restarts it. The `.env` file is read at start-up; real environment variables win over it.
+The root login (`SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD`) and `SESSION_SECRET` can only be set in the environment, never in the app.
 
 ## Email (SMTP)
 
@@ -36,7 +41,7 @@ Every verified payment still waits for a Super Admin to confirm it in Subscripti
 
 ### Razorpay (UPI, cards, net banking, wallets in INR)
 
-1. Razorpay Dashboard → Account & Settings → **API keys**: generate a key. Put it in `.env`:
+1. Razorpay Dashboard → Account & Settings → **API keys**: generate a key. Enter it on the Payments tab, or put it in `.env`:
    ```
    RAZORPAY_KEY_ID=rzp_live_…
    RAZORPAY_KEY_SECRET=…
@@ -64,4 +69,4 @@ Global Settings → Payments → **Take payments with**:
 
 Both webhook URLs keep working whichever provider is active, so renewals and refunds from the other provider are still recorded.
 
-Use **Check keys** on the Payments tab after a restart. Test keys (`rzp_test_…`, `sk_test_…`) are labelled as such.
+Use **Check keys** on the Payments tab after saving the keys (or after a restart when they are in `.env`). Test keys (`rzp_test_…`, `sk_test_…`) are labelled as such.
