@@ -210,6 +210,24 @@ def run_smoke_test():
     # 9. Razorpay Billing Provider
     logger.info("Step 9: Testing Razorpay Billing Provider...")
     from app.billing.provider import RazorpayBillingProvider
+    from app.billing import provider as prov
+    import httpx
+
+    if "--in-memory" in sys.argv or os.environ.get("PYTEST_CURRENT_TEST"):
+        def _mock_razorpay(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST" and request.url.path == "/v1/orders":
+                body = _json.loads(request.content)
+                return httpx.Response(200, json={
+                    "id": "order_smoke_1234",
+                    "entity": "order",
+                    "amount": body["amount"],
+                    "currency": body["currency"],
+                    "receipt": body.get("receipt", "rcpt"),
+                    "notes": body.get("notes", {}),
+                    "status": "created"
+                })
+            return httpx.Response(200, json={"entity": "collection", "count": 0, "items": []})
+        prov._HTTP_TRANSPORT = httpx.MockTransport(_mock_razorpay)
 
     import asyncio
     import hmac
