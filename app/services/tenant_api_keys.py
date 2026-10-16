@@ -212,7 +212,7 @@ def record_key_failure(organization_id: Optional[str], provider: str, code: str,
             from app.events.notifications import notify_org_admins
             notify_org_admins(str(organization_id), "api_key_problem",
                               f"Your {PROVIDER_NAMES[provider]} key needs attention", message,
-                              severity="error", email=True, link="/org-admin#integrations")
+                              severity="danger", email=True, link="/org-admin#integrations")
     except Exception as e:  # alerting never breaks the caller
         logger.warning("Could not record %s key failure for %s: %s", provider, organization_id, e)
 

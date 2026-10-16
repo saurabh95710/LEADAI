@@ -19,7 +19,7 @@
   <link rel="stylesheet" href="/static/design/tokens.css?v=r1005">
   <!-- shared components in a cascade layer: the portal's own (unlayered) rules always win -->
   <style id="dsLayer">@layer ds, ds-reset; @import url("/static/design/components.css?v=step4") layer(ds);</style>
-  <link rel="stylesheet" href="/static/styles.css?v=tour1">
+  <link rel="stylesheet" href="/static/styles.css?v=err1">
   <link rel="stylesheet" href="/static/design/domain-keywords.css?v=1">
   <link rel="stylesheet" href="/static/design/tour.css?v=tour1">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
@@ -296,16 +296,25 @@
 
           <!-- ══════════ NEW SEARCH (URL Search Agent) ══════════ -->
           <section id="view-search" class="workflow-view portal-view hidden">
+            <div id="limitsBanner" class="limits-banner hidden" role="region" aria-label="Limits that affect searching" aria-live="polite"></div>
 
             <div class="hero" data-tour="search-hero">
-              <div class="hero-badge"><span class="hero-badge-star" aria-hidden="true">✦</span> URL Search Agent</div>
+              <div class="hero-badge"><span class="hero-badge-star" aria-hidden="true">✦</span> <span class="hero-badge-text">URL Search Agent</span></div>
               <h1 class="hero-title">Find your next <span class="grad-text">high-intent leads</span></h1>
               <p class="hero-sub">Paste a Facebook, Instagram, YouTube or LinkedIn link. The agent collects the page, its posts and comments, qualifies them and scores every lead with AI.</p>
             </div>
 
             <div id="searchPermission" class="hidden" data-tour="search-permission"></div>
 
-            <!-- ── Search card ── -->
+            <!-- ── Search type: by link (URL Search Agent) | by keyword (keyword-search.js) ── -->
+            <div class="search-mode-bar hidden" id="searchModeBar">
+              <div class="seg-tabs search-mode-tabs" role="tablist" aria-label="Search type" id="searchModeTabs" data-tour="search-mode-tabs">
+                <button type="button" role="tab" class="seg-tab active" id="searchTabLink" data-search-mode="link" aria-selected="true" aria-controls="searchPanelLink"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-link"/></svg> Search by link</button>
+                <button type="button" role="tab" class="seg-tab hidden" id="searchTabKeyword" data-search-mode="keyword" aria-selected="false" aria-controls="searchPanelKeyword" tabindex="-1"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-search"/></svg> Keyword search <span class="seg-new">New</span></button>
+              </div>
+            </div>
+
+            <div id="searchPanelLink" role="tabpanel" aria-labelledby="searchTabLink">
             <!-- ── Search card ── -->
             <div class="search-card glass-card" id="searchCard" data-tour="search-card">
               <div class="search-card-glow" aria-hidden="true"></div>
@@ -653,6 +662,178 @@
                   </div>
                 </div>
               </form>
+            </div>
+            </div><!-- /#searchPanelLink -->
+
+            <!-- ══════════ KEYWORD SEARCH (keyword-search.js; /api/keyword-search) ══════════ -->
+            <div id="searchPanelKeyword" class="hidden" role="tabpanel" aria-labelledby="searchTabKeyword">
+              <div id="kwNotice" class="kw-notice hidden" role="status"></div>
+
+              <div class="search-card glass-card kw-card" id="kwCard" data-tour="kw-card">
+                <div class="search-card-glow" aria-hidden="true"></div>
+                <div id="kwFormWrap" class="hidden">
+                  <!-- Saved keyword presets -->
+                  <div class="presets-bar" data-tour="kw-presets">
+                    <div class="presets-left">
+                      <label class="presets-label" for="kwPresetSelect"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-layers"/></svg> Saved filters:</label>
+                      <select id="kwPresetSelect" class="presets-select">
+                        <option value="">Choose a saved preset…</option>
+                      </select>
+                    </div>
+                    <div class="presets-right">
+                      <button type="button" class="btn btn-secondary btn-sm" id="kwPresetSave" aria-expanded="false" aria-controls="kwPresetForm">Save filter preset</button>
+                      <button type="button" class="btn btn-ghost btn-sm hidden" id="kwPresetDelete">Delete preset</button>
+                    </div>
+                  </div>
+                  <form id="kwPresetForm" class="kw-preset-form hidden" novalidate aria-label="Save filter preset">
+                    <div class="kw-preset-row">
+                      <div class="kw-ff">
+                        <label class="field-label" for="kwPresetName">Preset name</label>
+                        <input type="text" id="kwPresetName" class="form-input form-input-sm" maxlength="120" autocomplete="off" aria-describedby="kwPresetNameErr kwPresetHint">
+                      </div>
+                      <label class="kw-check kw-preset-share" for="kwPresetShared"><input type="checkbox" id="kwPresetShared"><span>Share with my team</span></label>
+                      <div class="kw-preset-btns">
+                        <button type="submit" class="btn-primary btn-sm" id="kwPresetSubmit">Save</button>
+                        <button type="button" class="btn-ghost btn-sm" id="kwPresetCancel">Cancel</button>
+                      </div>
+                    </div>
+                    <p class="field-hint" id="kwPresetHint">Saves the keywords, platforms, filters, strict mode and limits below.</p>
+                    <div class="field-error" id="kwPresetNameErr" role="alert"></div>
+                  </form>
+
+                  <form id="kwForm" class="search-form kw-form" novalidate>
+                    <div class="kw-field" data-tour="kw-keywords">
+                      <label class="field-label" for="kwKeywordInput">Keywords <span class="kw-count" id="kwKeywordsCount"></span></label>
+                      <div class="kw-chipbox" id="kwChipBox">
+                        <ul class="kw-chiplist" id="kwChipList" aria-label="Keywords added"></ul>
+                        <input type="text" id="kwKeywordInput" class="kw-chip-input" autocomplete="off" spellcheck="false" maxlength="300" placeholder="e.g. villa rental, goa homes" aria-describedby="kwKeywordsHint kwKeywordsErr">
+                      </div>
+                      <p class="field-hint" id="kwKeywordsHint">Press Enter or a comma to add each keyword. Every keyword is searched on every platform you pick.</p>
+                      <div class="field-error" id="kwKeywordsErr" role="alert"></div>
+                    </div>
+
+                    <fieldset class="kw-field kw-platforms" data-tour="kw-platforms" aria-describedby="kwPlatformsErr">
+                      <legend class="field-label">Platforms</legend>
+                      <div class="kw-platform-grid" id="kwPlatforms"></div>
+                      <div class="field-error" id="kwPlatformsErr" role="alert"></div>
+                    </fieldset>
+
+                    <fieldset class="kw-field kw-limits" data-tour="kw-limits">
+                      <legend class="field-label">Limits</legend>
+                      <div class="kw-limit-grid">
+                        <div class="kw-ff">
+                          <label class="kw-flabel" for="kwMaxCandidates">Profiles to discover</label>
+                          <input type="number" id="kwMaxCandidates" class="form-input form-input-sm" min="1" step="1" inputmode="numeric" aria-describedby="kwMaxCandidatesHint kwMaxCandidatesErr">
+                          <span class="field-hint" id="kwMaxCandidatesHint"></span>
+                          <div class="field-error" id="kwMaxCandidatesErr" role="alert"></div>
+                        </div>
+                        <div class="kw-ff">
+                          <label class="kw-flabel" for="kwRecentPosts">Recent posts to analyze</label>
+                          <input type="number" id="kwRecentPosts" class="form-input form-input-sm" min="1" step="1" inputmode="numeric" aria-describedby="kwRecentPostsHint kwRecentPostsErr">
+                          <span class="field-hint" id="kwRecentPostsHint"></span>
+                          <div class="field-error" id="kwRecentPostsErr" role="alert"></div>
+                        </div>
+                        <div class="kw-ff">
+                          <label class="kw-flabel" for="kwCommentsPerPost">Comments per post</label>
+                          <input type="number" id="kwCommentsPerPost" class="form-input form-input-sm" min="1" step="1" inputmode="numeric" aria-describedby="kwCommentsPerPostHint kwCommentsPerPostErr">
+                          <span class="field-hint" id="kwCommentsPerPostHint"></span>
+                          <div class="field-error" id="kwCommentsPerPostErr" role="alert"></div>
+                        </div>
+                        <div class="kw-ff">
+                          <label class="kw-flabel" for="kwMaxTokens">Token budget <span class="muted">(optional)</span></label>
+                          <input type="number" id="kwMaxTokens" class="form-input form-input-sm" min="1" step="1" inputmode="numeric" placeholder="no budget" aria-describedby="kwMaxTokensHint kwMaxTokensErr">
+                          <span class="field-hint" id="kwMaxTokensHint">The search stops before spending more</span>
+                          <div class="field-error" id="kwMaxTokensErr" role="alert"></div>
+                        </div>
+                      </div>
+                      <p class="field-hint kw-limit-note hidden" id="kwLimitNote" role="status"></p>
+                    </fieldset>
+
+                    <details class="filter-panel kw-filters" id="kwFiltersPanel" data-tour="kw-filters">
+                      <summary class="filter-panel-summary">
+                        <span class="filter-panel-title">Filters</span>
+                        <span class="field-hint" id="kwFiltersSummary"></span>
+                      </summary>
+                      <div class="filter-panel-body kw-filters-body">
+                        <p class="field-hint kw-filters-intro">Every filter you fill in must pass. Leave a field empty to switch it off. Badges show where a platform can't measure a filter.</p>
+                        <div id="kwFilterFields"></div>
+                        <button type="button" class="btn-ghost btn-sm" id="kwResetBtn">Reset to suggested values</button>
+                      </div>
+                    </details>
+
+                    <section class="kw-estimate" id="kwEstimate" aria-live="polite" aria-label="Cost preview" data-tour="kw-estimate"></section>
+
+                    <div class="kw-actions">
+                      <span class="field-hint" id="kwStartHint" role="status"></span>
+                      <button type="submit" id="kwStartBtn" class="btn-primary btn-analyze" data-tour="kw-start">
+                        <span class="btn-icon" aria-hidden="true">✦</span>
+                        <span class="btn-text">Find profiles</span>
+                        <span class="btn-arrow" aria-hidden="true">→</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+                <!-- Live progress of the open keyword search -->
+                <section id="kwRun" class="kw-run pipeline-progress hidden" aria-labelledby="kwRunTitle" data-tour="kw-progress">
+                  <div class="processing-card">
+                    <h2 class="kw-run-title" id="kwRunTitle"></h2>
+                    <p class="kw-searched hidden" id="kwSearched"></p>
+                    <div class="processing-head">
+                      <span class="mini-spinner" id="kwRunSpinner" aria-hidden="true"></span>
+                      <span id="kwRunLabel" role="status" aria-live="polite">Starting keyword search…</span>
+                      <span class="processing-meta"><span id="kwRunStepCount" class="ps-count"></span><span class="pipeline-elapsed" id="kwRunElapsed" title="Elapsed time"></span></span>
+                    </div>
+                    <div class="progress-bar" role="progressbar" aria-label="Keyword search progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="kwRunBar">
+                      <div class="progress-fill" id="kwRunFill"></div>
+                    </div>
+                    <ol class="kw-steps" id="kwStages" aria-label="Keyword search stages"></ol>
+                    <div class="search-cost-row" id="kwRunMeta"></div>
+                    <div class="kw-run-alerts" id="kwRunAlerts" aria-live="polite"></div>
+                    <div class="progress-cancel-row">
+                      <button type="button" id="kwCancelBtn" class="btn-cancel hidden">✕ Cancel search</button>
+                      <span id="kwRunActions" class="done-actions hidden"></span>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              <!-- Candidates of the open keyword search -->
+              <section id="kwResults" class="panel kw-results hidden" aria-labelledby="kwResultsTitle" data-tour="kw-results">
+                <div class="panel-head kw-results-head">
+                  <div>
+                    <h2 class="panel-title" id="kwResultsTitle">Profiles found</h2>
+                    <p class="field-hint" id="kwResultsSummary" aria-live="polite"></p>
+                  </div>
+                  <button type="button" class="btn-secondary btn-sm" id="kwReapplyToggle" aria-expanded="false" aria-controls="kwReapply" data-tour="kw-reapply">Re-run with different filters</button>
+                </div>
+                <form id="kwReapply" class="kw-reapply hidden" novalidate aria-label="Re-apply filters to these results">
+                  <p class="field-hint">Change the filters and re-apply them to the profiles this search already found. It is free: nothing is scraped. Profiles that now pass but still need their posts analyzed can be fetched afterwards.</p>
+                  <div id="kwReapplyFields"></div>
+                  <div class="kw-reapply-btns">
+                    <button type="submit" class="btn-primary btn-sm" id="kwReapplyBtn">Re-apply filters (free)</button>
+                    <button type="button" class="btn-ghost btn-sm" id="kwReapplyCancel">Close</button>
+                  </div>
+                  <div id="kwReapplyResult" aria-live="polite"></div>
+                </form>
+                <div class="kw-results-tools">
+                  <div class="seg-tabs" role="tablist" aria-label="Filter profiles by status" id="kwStatusTabs"></div>
+                  <div class="kw-results-selects">
+                    <label class="kw-inline-field hidden" id="kwPlatformFilterWrap"><span>Platform</span>
+                      <select id="kwPlatformFilter" class="form-input form-input-sm"></select></label>
+                    <label class="kw-inline-field"><span>Sort</span>
+                      <select id="kwSort" class="form-input form-input-sm">
+                        <option value="followers">Most followers</option>
+                        <option value="engagement">Highest engagement</option>
+                        <option value="avg_comments">Most comments per post</option>
+                        <option value="newest">Newest found</option>
+                      </select></label>
+                  </div>
+                </div>
+                <p class="kw-hidden-note hidden" id="kwHiddenNote" aria-live="polite"></p>
+                <div class="panel-body flush kw-table-scroll" id="kwTable" role="tabpanel" aria-label="Profiles"></div>
+                <div class="pager" id="kwPager"></div>
+              </section>
             </div>
 
             <!-- ── Session stats (aggregated from the real search history) ── -->
@@ -1357,6 +1538,7 @@
       <div class="confirm-icon" id="confirmIcon" aria-hidden="true">?</div>
       <h3 id="confirmTitle" class="confirm-title">Are you sure?</h3>
       <p id="confirmMsg" class="confirm-msg"></p>
+      <div id="confirmDetails" class="confirm-details hidden"></div>
       <div class="confirm-actions">
         <button type="button" class="btn-secondary" id="confirmCancel">Cancel</button>
         <button type="button" class="btn-primary" id="confirmOk">Confirm</button>
@@ -1371,6 +1553,7 @@
   <script src="/static/design/theme.js?v=r1006" defer></script>
   <script src="/static/design/ui.js?v=step4" defer></script>
   <script src="/static/design/tour.js?v=tour1" defer></script>
-  <script src="/static/app.js?v=cfg1" defer></script>
+  <script src="/static/app.js?v=lim1" defer></script>
+  <script src="/static/keyword-search.js?v=err1" defer></script>
 </body>
 </html>

@@ -74,6 +74,10 @@ SETTING_DEFAULTS: Dict[str, Any] = {
     "ai.rule_fallback": True,
     "ai.max_calls_per_job": 500,
     "ai.temperature": 0.1,
+    # LeadAI's Gemini key limits (Google AI Studio → Rate limits); 0 = not set
+    "ai.gemini.requests_per_minute": 0,
+    "ai.gemini.requests_per_day": 0,
+    "ai.gemini.input_per_minute": 0,
 
     # Business context: industry used for organizations that chose none
     # (a key of app/pipeline/business_context.py; "general" = any business)
@@ -138,6 +142,29 @@ SETTING_DEFAULTS: Dict[str, Any] = {
     "features.exports.enabled": True,
     "features.demo_registration.enabled": True,
     "features.ai_analysis.enabled": True,
+
+    # Keyword / discovery search (app/discovery): switches, hard caps (plans
+    # can allow less, never more), suggested filter values and actor ids
+    "features.keyword_search.enabled": True,
+    "keyword.platform.instagram.enabled": True,
+    "keyword.platform.facebook.enabled": True,
+    "keyword.platform.youtube.enabled": True,
+    "keyword.platform.linkedin.enabled": False,
+    "keyword.max_keywords": 5,
+    "keyword.max_candidates": 200,
+    "keyword.max_recent_posts": 30,
+    "keyword.cache_ttl_hours": 24,
+    "keyword.default.min_followers": 1000,
+    "keyword.default.min_posts": 10,
+    "keyword.default.recent_posts": 10,
+    "keyword.default.min_avg_comments": 2,
+    "keyword.default.active_within_days": 90,
+    "discovery.actor.instagram.search": "apify/instagram-search-scraper",
+    "discovery.actor.instagram.posts": "apify/instagram-post-scraper",
+    "discovery.actor.facebook.search": "apify/facebook-search-scraper",
+    "discovery.actor.youtube.channel_search": "",
+    "discovery.actor.youtube.channel": "streamers/youtube-channel-scraper",
+    "discovery.actor.linkedin.search": "harvestapi/linkedin-company-search",
 
     # ── White-label / Global Settings (managed from the Global Settings UI) ──
     "general.app.name": "LeadAI",
@@ -206,6 +233,17 @@ SETTING_DEFAULTS: Dict[str, Any] = {
     "email.company_name": "",
     "email.logo": "",
     "email.footer_text": "",
+    # API usage & limits monitor (app/limits): background checks, alert
+    # thresholds and who is told; limits of providers that have no quota API
+    "api_limits.enabled": True,
+    "api_limits.check_minutes": 15,
+    "api_limits.warn_percent": 80,
+    "api_limits.critical_percent": 95,
+    "api_limits.notify_org_admins": True,
+    "api_limits.notify_users": True,
+    "api_limits.email_admins": True,
+    "email.daily_limit": 0,
+    "sms.min_balance": 0.0,
 
     # Leads & exports
     "leads.duplicate_detection": True,

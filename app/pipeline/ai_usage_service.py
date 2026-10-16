@@ -43,8 +43,11 @@ def log_ai_request(
     status: str = "success",
     error_type: Optional[str] = None,
     error_message: Optional[str] = None,
+    key_source: Optional[str] = None,
 ) -> None:
-    """Persists an AI request log with computed token cost."""
+    """Persists an AI request log with computed token cost. ``key_source``:
+    "platform" (LeadAI's key) or "organization" (the organization's own key) —
+    the API limits monitor counts requests per key from it."""
     try:
         db = get_sync_db()
         if db is None:
@@ -70,6 +73,7 @@ def log_ai_request(
             "status": status,
             "error_type": error_type,
             "error_message": error_message,
+            "key_source": "organization" if key_source in ("organization", "custom") else "platform",
             "created_at": datetime.now(timezone.utc),
         }
         db.ai_requests.insert_one(doc)
@@ -83,6 +87,8 @@ def _parse_time_range(time_range: str) -> datetime:
         return now.replace(hour=0, minute=0, second=0, microsecond=0)
     elif time_range == "yesterday":
         return (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif time_range == "24h":
+        return now - timedelta(hours=24)
     elif time_range == "7d":
         return now - timedelta(days=7)
     elif time_range == "30d":
@@ -245,7 +251,16 @@ def get_ai_overview_metrics(time_range: str = "30d", organization_id: Optional[s
             org_id = o["_id"]
             org_name = "Global / Default"
             if org_id:
-                org_doc = db.organizations.find_one({"_id": org_id}) or db.organizations.find_one({"slug": org_id})
+                # organization ids are stored as text on ai_requests; the
+                # organizations collection keys them as ObjectId
+                org_doc = None
+                try:
+                    from bson import ObjectId
+                    if ObjectId.is_valid(str(org_id)):
+                        org_doc = db.organizations.find_one({"_id": ObjectId(str(org_id))}, {"name": 1})
+                except Exception:
+                    org_doc = None
+                org_doc = org_doc or db.organizations.find_one({"_id": org_id}) or db.organizations.find_one({"slug": org_id})
                 if org_doc:
                     org_name = org_doc.get("name", org_id)
                 else:

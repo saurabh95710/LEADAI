@@ -36,6 +36,11 @@ DEMO_CONFIG_SEED: Dict[str, Any] = {
     # self-serve free trial: signing up on the website starts it at once
     # (no Super Admin approval); off = every sign-up waits for approval
     "auto_approve": True,
+    # keyword / discovery search during the trial
+    "keyword_search_enabled": True,
+    "keyword_max_keywords": 1,
+    "keyword_max_candidates": 20,
+    "keyword_recent_posts": 10,
 }
 
 TOKEN_COSTS_SEED: Dict[str, int] = {
@@ -43,6 +48,10 @@ TOKEN_COSTS_SEED: Dict[str, int] = {
     "collect": 5,      # collecting more posts / comments for a page / post
     "ai_call": 1,      # one AI analysis of a comment
     "export": 5,       # one CSV export
+    # keyword / discovery search — charged per stage actually executed
+    "discover": 5,     # one keyword searched on one platform
+    "enrich": 1,       # one profile's details fetched (cache hits are free)
+    "sample": 1,       # one profile's recent posts fetched (free when already known)
 }
 
 _SEEDS = {"demo": DEMO_CONFIG_SEED, "token_costs": TOKEN_COSTS_SEED}
@@ -52,8 +61,10 @@ _DEMO_NUMERIC = {
     "duration_days": (1, 365), "tokens": (0, 10_000_000), "max_searches": (0, 100_000),
     "posts_per_search": (1, 1000), "comments_per_post": (1, 5000),
     "max_leads": (0, 10_000_000), "max_users": (1, 1000),
+    "keyword_max_keywords": (0, 100), "keyword_max_candidates": (0, 10_000),
+    "keyword_recent_posts": (1, 200),
 }
-_DEMO_BOOL = {"ai_enabled", "exports_enabled", "auto_approve"}
+_DEMO_BOOL = {"ai_enabled", "exports_enabled", "auto_approve", "keyword_search_enabled"}
 KNOWN_PLATFORMS = ("facebook", "instagram", "youtube", "linkedin")
 
 _cache: Dict[str, Any] = {}

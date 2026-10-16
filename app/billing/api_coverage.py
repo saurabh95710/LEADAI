@@ -169,6 +169,10 @@ def renewal_amount(db, sub: Dict[str, Any], amount: float) -> float:
 ACTION_API_SHARE: Dict[str, Dict[str, float]] = {
     "search": {"apify": 0.6, "gemini": 0.4},
     "collect": {"apify": 1.0},
+    # keyword / discovery search stages are pure Apify work
+    "discover": {"apify": 1.0},
+    "enrich": {"apify": 1.0},
+    "sample": {"apify": 1.0},
 }
 
 

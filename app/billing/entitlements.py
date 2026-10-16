@@ -96,6 +96,13 @@ def demo_plan_from_org(org: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]
         features += ["ai_analysis", "lead_scoring"]
     if cfg.get("exports_enabled"):
         features.append("csv_export")
+    # keyword search keys came later: a trial approved before them uses the
+    # current trial seed for any key its snapshot lacks
+    from app.lifecycle.config import DEMO_CONFIG_SEED
+    kw = {k: cfg.get(k, DEMO_CONFIG_SEED.get(k)) for k in (
+        "keyword_search_enabled", "keyword_max_keywords", "keyword_max_candidates", "keyword_recent_posts")}
+    if kw["keyword_search_enabled"]:
+        features.append("keyword_search")
     return {
         "id": "demo", "name": "Free trial", "slug": "demo", "is_demo": True,
         "price_monthly": 0.0, "price_yearly": 0.0, "currency": "USD",
@@ -110,6 +117,9 @@ def demo_plan_from_org(org: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]
             "monthly_comments": UNLIMITED,
             "monthly_ai_analyses": UNLIMITED if cfg.get("ai_enabled") else 0,
             "monthly_exports": UNLIMITED if cfg.get("exports_enabled") else 0,
+            "keyword_max_keywords": int(kw["keyword_max_keywords"] or 0),
+            "keyword_max_candidates": int(kw["keyword_max_candidates"] or 0),
+            "keyword_recent_posts": int(kw["keyword_recent_posts"] or 0),
         },
     }
 

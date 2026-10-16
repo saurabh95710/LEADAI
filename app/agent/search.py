@@ -683,13 +683,16 @@ def collect_page_posts(page_id: str, max_posts: int = 20,
         if isinstance(e, ScrapeError):
             logger.info(f"[Agent] Posts failed for page {page_id} errorType={e.error_type} "
                         f"runId={e.error.get('runId')} datasetId={e.error.get('datasetId')}")
+            from app.connectors.error_explain import short_reason
             db.facebook_pages.update_one({"_id": page["_id"]}, {"$set": {
-                "posts_status": "error", "posts_error": e.error["message"],
+                "posts_status": "error", "posts_error": short_reason(e, platform=platform, stage="posts"),
                 "posts_error_meta": e.error, "updated_at": utcnow()}})
             return {"status": "error", **e.error}
         logger.info(f"[Agent] Posts failed for page {page_id}: {e}")
+        from app.connectors.error_explain import short_reason
         db.facebook_pages.update_one({"_id": page["_id"]}, {"$set": {
-            "posts_status": "error", "posts_error": str(e), "updated_at": utcnow()}})
+            "posts_status": "error", "posts_error": short_reason(e, platform=platform, stage="posts"),
+            "posts_error_technical": str(e)[:500], "updated_at": utcnow()}})
         return {"status": "error", "error": str(e)}
 
     last = getattr(connector, "last_call", None) or {}
@@ -831,13 +834,18 @@ def collect_post_comments(post_id: str, max_comments: int = 200,
         if isinstance(e, ScrapeError):
             logger.info(f"[Agent] Comments failed for post {post_id} errorType={e.error_type} "
                         f"runId={e.error.get('runId')} datasetId={e.error.get('datasetId')}")
+            from app.connectors.error_explain import short_reason
             db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
-                "comments_status": "error", "comments_error": e.error["message"],
+                "comments_status": "error",
+                "comments_error": short_reason(e, platform=post.get("platform") or platform, stage="comments"),
                 "comments_error_meta": e.error, "updated_at": utcnow()}})
             return {"status": "error", **e.error}
         logger.info(f"[Agent] Comments failed for post {post_id}: {e}")
+        from app.connectors.error_explain import short_reason
         db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
-            "comments_status": "error", "comments_error": str(e), "updated_at": utcnow()}})
+            "comments_status": "error",
+            "comments_error": short_reason(e, platform=post.get("platform") or platform, stage="comments"),
+            "comments_error_technical": str(e)[:500], "updated_at": utcnow()}})
         return {"status": "error", "error": str(e)}
 
     last = getattr(connector, "last_call", None) or {}

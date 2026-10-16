@@ -44,6 +44,8 @@ sessions/password (/api/auth/*).
   GET/POST /support/tickets, GET /support/tickets/{id},
   POST /support/tickets/{id}/messages, POST /support/tickets/{id}/status
   GET/PATCH /profile                  own name + notification preferences
+  GET  /api-limits                    own keys, LeadAI tokens, plan meters, LeadAI services
+  POST /api-limits/refresh            check own Apify / Gemini keys now (rate-limited, audited)
 """
 import asyncio
 import logging
@@ -2627,6 +2629,47 @@ async def change_api_coverage(body: ApiCoverageBody, request: Request,
     res = await change_coverage(db, ctx.organization_id, requested, actor=ctx.audit_user(),
                                 request_meta=request_meta(request))
     return {"success": True, **res, "integrations": await coverage_summary(db, ctx.organization_id)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# API usage & limits (app/limits): own keys, tokens, plan meters, LeadAI services
+# ═══════════════════════════════════════════════════════════════════════════
+
+_LIMITS_REFRESH_PER_WINDOW, _LIMITS_REFRESH_WINDOW = 3, 300
+_limits_refresh_limiter = None
+
+
+def _limits_limiter():
+    global _limits_refresh_limiter
+    if _limits_refresh_limiter is None:
+        from app.auth.rate_limit import RateLimiter
+        _limits_refresh_limiter = RateLimiter("org_api_limits_refresh", _LIMITS_REFRESH_PER_WINDOW,
+                                              _LIMITS_REFRESH_WINDOW)
+    return _limits_refresh_limiter
+
+
+@router.get("/api-limits")
+async def org_api_limits(ctx: TenantContext = Depends(require_portal())):
+    """Usage and limits of this organization only: its own Apify / Gemini keys
+    (when it brings its own), LeadAI tokens, plan meters, and a level + plain
+    message for each LeadAI service it depends on (never LeadAI's numbers)."""
+    from app.limits.views import org_admin_view
+    return await asyncio.to_thread(org_admin_view, ctx.organization_id)
+
+
+@router.post("/api-limits/refresh")
+async def refresh_org_api_limits(request: Request, ctx: TenantContext = Depends(require_portal())):
+    """Check the organization's own keys now (3 per 5 minutes per organization)."""
+    from app.limits.views import refresh_org
+    limiter = _limits_limiter()
+    if not limiter.consume(str(ctx.organization_id)):
+        raise HTTPException(status_code=429, detail={
+            "code": "RATE_LIMITED", "retry_after": limiter.retry_after(str(ctx.organization_id)),
+            "message": "Checked a moment ago. Try again in a few minutes."})
+    res = await asyncio.to_thread(refresh_org, ctx.organization_id)
+    await _audit(ctx, request, "api_limits.refreshed", "settings", resource_type="organization",
+                 resource_id=ctx.organization_id, details={"own_keys": [s.get("provider") for s in res["own_keys"]]})
+    return res
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -181,8 +181,9 @@ def classify_source(module: str, message: str) -> str:
 
 def extract_event(message: str) -> str:
     """Extract a concise event summary from the message."""
-    # Remove bracketed prefixes for cleaner display
-    cleaned = re.sub(r'\[[\w]+\]\s*', '', message).strip()
+    # Remove bracketed prefixes for cleaner display ([module] [request_id=…] [Apify][REQ] …)
+    cleaned = re.sub(r'^\s*(?:\[[^\]]*\]\s*)+', '', message)
+    cleaned = re.sub(r'\[[\w]+\]\s*', '', cleaned).strip()
     # Take first sentence or up to 120 chars
     first_sentence = re.split(r'[.!]\s', cleaned, maxsplit=1)
     event = first_sentence[0] if first_sentence else cleaned
@@ -268,30 +269,126 @@ def group_multiline(lines: List[str]) -> List[str]:
 
     for line in lines:
         stripped = line.rstrip("\n")
-        if not stripped:
-            if buffer is not None:
-                buffer += "\n"
+        if not stripped.strip():
             continue
-
-        level = extract_level(stripped)
-        if level in ("ERROR", "WARNING", "CRITICAL"):
+        # A new entry starts only where a line looks like one ("HH:MM:SS LEVEL",
+        # "[LEVEL]", JSON). Everything else — traceback lines, "During handling
+        # of the above exception…", the final "SomeError: …" line, wrapped text —
+        # belongs to the entry above it instead of showing as its own UNKNOWN row.
+        if buffer is None or is_entry_start(stripped):
             if buffer is not None:
                 grouped.append(buffer)
             buffer = stripped
-        elif buffer is not None:
-            # Indented continuation line (stack trace)
-            if stripped.startswith(" ") or stripped.startswith("Traceback"):
-                buffer += "\n" + stripped
-            else:
-                grouped.append(buffer)
-                buffer = stripped
         else:
-            grouped.append(stripped)
+            buffer += "\n" + stripped
 
     if buffer is not None:
         grouped.append(buffer)
 
     return grouped
+
+
+# ── Plain-language explanation ────────────────────────────────────────────────
+# What a Super Admin reads first: what happened, what to do, where in the app.
+
+_ENTRY_START = re.compile(
+    r'^(?:\d{2}:\d{2}:\d{2}\s+(?:DEBUG|INFO|WARNING|ERROR|CRITICAL)\b'
+    r'|\[(?:DEBUG|INFO|WARNING|ERROR|CRITICAL)\]|\{)'
+)
+# the final "SomeError: message" line(s) of a Python traceback
+_EXC_LINE = re.compile(r'^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*):\s?(.*)$')
+_NOT_EXC = ("Traceback", "During handling", "The above exception", "future", "For more information",
+            "Task exception", "Exception in", "Error in")
+_FRAME = re.compile(r'File "([^"]+)", line (\d+), in (\S+)')
+_PREFIX = re.compile(r'^\s*(?:\[[^\]]*\]\s*)+')
+
+
+def is_entry_start(line: str) -> bool:
+    """A new log entry starts with "HH:MM:SS LEVEL", "[LEVEL]" or a JSON object;
+    every other line belongs to the entry above it (traceback, wrapped text)."""
+    return bool(_ENTRY_START.match(line))
+
+
+def final_exception(block: str) -> Optional[Dict[str, str]]:
+    """The last "ErrorType: message" line of a traceback block, if any."""
+    found = None
+    for line in block.split("\n")[1:]:
+        if not line or line[0].isspace() or line.startswith(_NOT_EXC):
+            continue
+        m = _EXC_LINE.match(line)
+        if m and re.search(r'(Error|Exception|Timeout|Cancelled|Reconnect|gaierror|Failure|Exit|Interrupt|Warning)', m.group(1)):
+            found = {"type": m.group(1), "message": m.group(2).strip()}
+    return found
+
+
+def app_location(block: str) -> str:
+    """Where in LeadAI's own code it happened: the last frame under app/."""
+    where = ""
+    for path, line, func in _FRAME.findall(block):
+        norm = path.replace("\\", "/")
+        if "site-packages" in norm or "/app/" not in norm:
+            continue
+        rel = norm[norm.rindex("/app/") + 1:]
+        where = f"{rel} line {line} ({func})"
+    return where
+
+
+_DB = re.compile(r'ServerSelectionTimeoutError|NetworkTimeout|AutoReconnect|ConnectionFailure|'
+                 r'getaddrinfo failed|LifetimeTimeout|No replica set members|No primary available|'
+                 r'mongodb\.net|_OperationCancelled|MongoClient|resolution lifetime expired|'
+                 r'topology has no reachable servers', re.I)
+
+
+def explain(level: str, message: str, error: Optional[Dict[str, str]], module: str) -> Dict[str, str]:
+    """{summary, hint} in plain words for the common situations; the summary
+    falls back to the cleaned message."""
+    text = " ".join(filter(None, [message, (error or {}).get("type"), (error or {}).get("message")]))
+    m = re.search(r'slow request (\w+) (\S+) -> (\d+) in (\d+) ?ms', text)
+    if m:
+        secs = int(m.group(4)) / 1000
+        return {"summary": f"Slow page: {m.group(1)} {m.group(2)} took {secs:.1f} s",
+                "hint": "Usually the database or an outside service answered slowly. An occasional one is "
+                        "normal; many in a row mean the server or the database is overloaded or far away."}
+    if "InvalidOperation" in text and "after close" in text:
+        return {"summary": "A background task used the database while the app was shutting down",
+                "hint": "Harmless during a restart. If it happens while the app is running, restart it."}
+    if _DB.search(text):
+        dns = re.search(r'getaddrinfo failed|LifetimeTimeout|resolution lifetime|Errno 11001', text, re.I)
+        ssl = re.search(r'SSL handshake|handshake operation timed out', text, re.I)
+        why = ("the server couldn't look up the database address (internet or DNS problem)" if dns else
+               "the secure connection to the database timed out" if ssl else
+               "the database didn't answer in time")
+        return {"summary": f"Couldn't reach the database (MongoDB): {why}",
+                "hint": "Check the server's internet connection, that the MongoDB Atlas cluster is running, and "
+                        "that it allows this server's IP address (Atlas → Network Access). LeadAI retries by itself; "
+                        "if it keeps happening, pages and searches will fail until the connection is back."}
+    if re.search(r'ConnectionResetError|forcibly closed', text):
+        return {"summary": "A network connection was closed unexpectedly",
+                "hint": "Usually a short network blip; it's retried. Many of these point to an unstable connection."}
+    if re.search(r'SMTPAuthenticationError|rejected SMTP_USER', text):
+        return {"summary": "The mail server rejected the email login",
+                "hint": "Check the email user name and password in Global Settings → Email & alerts."}
+    if re.search(r'\bSMTP\w*Error|smtplib', text):
+        return {"summary": "An email couldn't be sent",
+                "hint": "See Global Settings → Email & alerts for the mail server status and send a test email."}
+    if re.search(r'RESOURCE_EXHAUSTED|quota', text, re.I) and re.search(r'gemini|generativelanguage|\bAI\b', text, re.I):
+        return {"summary": "Gemini (AI) quota reached",
+                "hint": "AI analysis waits or falls back to keyword rules. See Super Admin → API limits."}
+    if re.search(r'ApifyError|ScrapeError|\[Apify\]', text) or module.startswith("app.connectors"):
+        detail = (error or {}).get("message") or _PREFIX.sub("", message)
+        return {"summary": "Apify (scraping) problem: " + detail[:160],
+                "hint": "See Super Admin → API limits and Apify jobs for the run and what Apify said."}
+    if re.search(r'httpx\.(ConnectTimeout|ReadTimeout|ConnectError|RemoteProtocolError)|ReadTimeout|ConnectTimeout', text):
+        return {"summary": "An outside service didn't answer (connection problem)",
+                "hint": "Usually temporary. If it repeats, check the service's status and the server's internet."}
+    if re.search(r'Session \w+ idle .*expired', message):
+        return {"summary": "A signed-in session ended after being idle", "hint": ""}
+    if error:
+        return {"summary": f"Unexpected error: {error['type'].split('.')[-1]}"
+                           + (f" — {error['message'][:140]}" if error.get("message") else ""),
+                "hint": "Something in the app failed unexpectedly. 'Where' shows the place in LeadAI's code; "
+                        "send the full details to your developer if it keeps happening."}
+    return {"summary": extract_event(message), "hint": ""}
 
 
 # ── Main parser ───────────────────────────────────────────────────────────────
@@ -306,9 +403,15 @@ def parse_log_line(line: str) -> Dict[str, Any]:
         if not raw:
             return {"raw": "", "level": "EMPTY", "message": ""}
 
-        level = extract_level(raw)
-        timestamp = extract_timestamp(raw)
-        module = extract_module(raw)
+        first = raw.split("\n", 1)[0]
+        # a leftover piece of a traceback whose first line is older than the
+        # loaded lines (the file is read from the end)
+        tail_error = None if is_entry_start(first) else final_exception("\n" + raw)
+        partial = bool(tail_error) or (not is_entry_start(first) and (
+            first[:1].isspace() or first.startswith(("Traceback", "During handling", "The above exception"))))
+        level = extract_level(first)
+        timestamp = extract_timestamp(first)
+        module = extract_module(first)
 
         # Extract message (everything after "LEVEL  module: ")
         message = raw
@@ -342,11 +445,36 @@ def parse_log_line(line: str) -> Dict[str, Any]:
             result.update(structured)
 
         # Include stack trace for multiline blocks
+        error = None
         if "\n" in raw:
             parts = raw.split("\n", 1)
-            result["message"] = redact_secrets(parts[0])
+            result["message"] = redact_secrets(parts[0] if not m and not timestamp else message.split("\n", 1)[0])
             result["stack_trace"] = redact_secrets(parts[1])
+            error = final_exception(raw)
+            if error:
+                result["error_type"] = error["type"]
+                result["error_message"] = redact_secrets(error["message"])
+            where = app_location(raw)
+            if where:
+                result["where"] = where
 
+        # the beginning of this entry is older than the loaded lines
+        error = error or tail_error
+        if tail_error and not result.get("error_type"):
+            result["error_type"] = tail_error["type"]
+            result["error_message"] = redact_secrets(tail_error["message"])
+        if partial:
+            if level == "UNKNOWN":
+                result["level"] = "ERROR" if error else "INFO"
+            result["partial"] = True
+
+        info = explain(result["level"], result["message"], error, module)
+        summary = info["summary"] or result["event"]
+        if partial:
+            summary += " (start of this entry is older than the lines loaded)"
+        result["summary"] = redact_secrets(summary)
+        if info["hint"]:
+            result["hint"] = info["hint"]
         return result
 
     except Exception:

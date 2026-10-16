@@ -470,6 +470,22 @@ def ensure_indexes():
         _create_index_safe(db.password_resets, [("expires_at", ASCENDING)],
                            expireAfterSeconds=0, name="pw_resets_expires_at_ttl")
         _create_index_safe(db.email_outbox, [("status", ASCENDING), ("created_at", DESCENDING)])
+        # API usage & limits monitor (app/limits): latest status per scope/provider
+        # (_id = "<scope>:<provider>"), 30-day history, alert dedupe
+        _create_index_safe(db.api_limit_status, [("kind", ASCENDING), ("scope", ASCENDING)])
+        _create_index_safe(db.api_limit_status, [("organization_id", ASCENDING)], sparse=True)
+        _create_index_safe(db.api_limit_history, [("scope", ASCENDING), ("provider", ASCENDING),
+                                                  ("at", ASCENDING)])
+        _create_index_safe(db.api_limit_history, [("at", ASCENDING)],
+                           expireAfterSeconds=30 * 24 * 3600, name="api_limit_history_at_ttl_30d")
+        _create_index_safe(db.api_limit_alerts, [("scope", ASCENDING), ("provider", ASCENDING),
+                                                 ("metric", ASCENDING), ("recovered_at", ASCENDING)])
+        _create_index_safe(db.api_limit_alerts, [("notified_at", ASCENDING)],
+                           expireAfterSeconds=180 * 24 * 3600, name="api_limit_alerts_ttl_180d")
+        _create_index_safe(db.ai_requests, [("key_source", ASCENDING), ("status", ASCENDING),
+                                            ("created_at", DESCENDING)])
+        _create_index_safe(db.sms_outbox, [("limit_hit", ASCENDING), ("created_at", DESCENDING)], sparse=True)
+        _create_index_safe(db.email_outbox, [("limit_hit", ASCENDING), ("created_at", DESCENDING)], sparse=True)
         _create_index_safe(db.payment_events, [("subscription_id", ASCENDING), ("created_at", ASCENDING)])
         _create_index_safe(db.subscriptions, [("checkout_session_id", ASCENDING)], sparse=True)
         _create_index_safe(db.role_permissions, [("kind", ASCENDING), ("role", ASCENDING)], unique=True)
@@ -491,6 +507,24 @@ def ensure_indexes():
 
         _create_index_safe(db.search_presets, [("organization_id", ASCENDING), ("created_at", DESCENDING)])
         _create_index_safe(db.search_presets, [("organization_id", ASCENDING), ("platform", ASCENDING), ("created_at", DESCENDING)])
+        _create_index_safe(db.search_presets, [("organization_id", ASCENDING), ("kind", ASCENDING), ("created_at", DESCENDING)])
+
+        # ── Keyword / discovery search (app/discovery) ──────────────────
+        # one candidate per run + platform + profile = discovery dedupe
+        _create_index_safe(db.discovery_candidates, [("search_run_id", ASCENDING), ("platform", ASCENDING),
+                                                     ("profile_id", ASCENDING)], unique=True)
+        _create_index_safe(db.discovery_candidates, [("search_run_id", ASCENDING), ("status", ASCENDING),
+                                                     ("platform", ASCENDING)])
+        _create_index_safe(db.discovery_candidates, [("search_run_id", ASCENDING), ("stage_reached", ASCENDING)])
+        _create_index_safe(db.discovery_candidates, [("organization_id", ASCENDING), ("created_at", DESCENDING)])
+        _create_index_safe(db.discovery_candidates, [("user_id", ASCENDING), ("created_at", DESCENDING)])
+        # shared profile cache; the TTL index deletes rows once expires_at passes
+        _create_index_safe(db.discovery_profile_cache, [("platform", ASCENDING), ("profile_id", ASCENDING)],
+                           unique=True)
+        _create_index_safe(db.discovery_profile_cache, [("expires_at", ASCENDING)], expireAfterSeconds=0,
+                           name="discovery_cache_expires_at_ttl")
+        _create_index_safe(db.search_history, [("organization_id", ASCENDING), ("search_type", ASCENDING),
+                                               ("created_at", DESCENDING)])
 
         _create_index_safe(db.token_balances, [("updated_at", DESCENDING)])
 

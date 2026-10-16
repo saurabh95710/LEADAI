@@ -14,6 +14,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import Response
 from app.db.mongo import ensure_indexes
 from app.api.routes.search import router as search_router
+from app.api.routes.keyword_search import router as keyword_search_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.admin import router as admin_router
 from app.api.routes.comment_filters import router as comment_filters_router
@@ -37,6 +38,8 @@ from app.api.routes.super_admin_lifecycle import router as super_admin_lifecycle
 from app.api.routes.notifications import router as notifications_router
 from app.api.routes.org_admin import router as org_admin_router
 from app.api.routes.super_admin_platform import router as super_admin_platform_router
+from app.api.routes.super_admin_limits import router as super_admin_limits_router
+from app.api.routes.super_admin_limits import staff_router as admin_limits_router
 from app.api.routes.super_admin_messaging import router as super_admin_messaging_router
 from app.api.routes.super_admin_payments import router as super_admin_payments_router
 from app.api.routes.me import router as me_router
@@ -187,6 +190,12 @@ async def _run_startup_tasks():
                 await asyncio.to_thread(migrate_self_serve_trial, _sdb())
             except Exception as e:
                 logger.warning("Self-serve trial settings migration skipped: %s", e)
+            # keyword search: paid plans gain the feature + limits, trial settings the keys (once)
+            try:
+                from app.billing.plans import migrate_keyword_search_plans
+                await asyncio.to_thread(migrate_keyword_search_plans, _sdb())
+            except Exception as e:
+                logger.warning("Keyword search plan migration skipped: %s", e)
             from app.cms.models import ensure_cms_indexes, migrate_trial_copy, seed_cms_defaults
             await ensure_cms_indexes(adb)
             await seed_cms_defaults(adb)
@@ -254,9 +263,18 @@ async def lifespan(app: FastAPI):
     if not os.environ.get("PYTEST_CURRENT_TEST"):
         queue_worker = start_queue_worker()
 
+    # API usage & limits monitor: its own loop (first pass after ~60 s, then
+    # every max(5, api_limits.check_minutes) minutes); never in tests
+    limits_loop = None
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        from app.limits.service import start_limits_loop
+        limits_loop = start_limits_loop()
+
     yield
 
     sweeper.cancel()
+    if limits_loop:
+        limits_loop.cancel()
     if queue_worker:
         stop_queue_worker()
     if startup_task and not startup_task.done():
@@ -468,6 +486,7 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app.include_router(search_router)
+app.include_router(keyword_search_router)
 app.include_router(auth_router)
 app.include_router(comment_filters_router)
 app.include_router(settings_router)
@@ -487,6 +506,8 @@ app.include_router(super_admin_lifecycle_router)
 app.include_router(notifications_router)
 app.include_router(org_admin_router)
 app.include_router(super_admin_platform_router)
+app.include_router(super_admin_limits_router)
+app.include_router(admin_limits_router)
 app.include_router(super_admin_messaging_router)
 app.include_router(super_admin_payments_router)
 app.include_router(me_router)

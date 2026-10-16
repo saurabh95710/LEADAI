@@ -100,9 +100,11 @@ def _send_twilio(to: str, body: str) -> str:
     r = httpx.post(f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json",
                    data=data, auth=(sid, token), timeout=15)
     if r.status_code >= 300:
-        raise RuntimeError(f"Twilio HTTP {r.status_code}: {(r.json() or {}).get('message', '')[:160]}"
-                           if r.headers.get("content-type", "").startswith("application/json")
-                           else f"Twilio HTTP {r.status_code}")
+        if r.headers.get("content-type", "").startswith("application/json"):
+            data = r.json() or {}
+            code = f" (code {data['code']})" if data.get("code") else ""
+            raise RuntimeError(f"Twilio HTTP {r.status_code}{code}: {str(data.get('message', ''))[:160]}")
+        raise RuntimeError(f"Twilio HTTP {r.status_code}")
     return str((r.json() or {}).get("sid") or "")
 
 
@@ -115,7 +117,8 @@ def _send_fast2sms(to: str, body: str) -> str:
     data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
     if r.status_code >= 300 or not data.get("return"):
         msg = data.get("message")
-        raise RuntimeError(f"Fast2SMS HTTP {r.status_code}: {msg if isinstance(msg, str) else ''}"[:200])
+        code = f" (code {data['status_code']})" if data.get("status_code") else ""
+        raise RuntimeError(f"Fast2SMS HTTP {r.status_code}{code}: {msg if isinstance(msg, str) else ''}"[:200])
     return str(data.get("request_id") or "")
 
 
@@ -175,11 +178,29 @@ def send_sms(to: Optional[str], body: str, *, kind: str = "generic", organizatio
     except Exception as e:
         status, error = "failed", str(e)[:300]
         logger.warning("[sms] send failed to %s via %s: %s", mask_phone(e164), provider, e)
+    limit_hit = status == "failed" and _is_balance_error(error or "")
     if db is not None and oid is not None:
         try:
-            db[COLLECTION].update_one({"_id": oid}, {"$set": {
-                "status": status, "error": error, "provider_id": pid or None,
-                "sent_at": utcnow() if status == "sent" else None}})
+            sets: Dict[str, Any] = {"status": status, "error": error, "provider_id": pid or None,
+                                    "sent_at": utcnow() if status == "sent" else None}
+            if limit_hit:
+                sets["limit_hit"] = True
+            db[COLLECTION].update_one({"_id": oid}, {"$set": sets})
         except Exception:
             pass
+    if limit_hit:
+        try:
+            from app.limits.service import record_sms_error
+            record_sms_error(provider, error or "")
+        except Exception as e:  # the monitor never breaks sending
+            logger.debug("sms limit note failed: %s", e)
     return status
+
+
+def _is_balance_error(text: str) -> bool:
+    """Fast2SMS 416 (insufficient balance) / Twilio 20005, 30002 (suspended)."""
+    try:
+        from app.limits.checkers import is_sms_limit_error
+        return is_sms_limit_error(text)
+    except Exception:
+        return False

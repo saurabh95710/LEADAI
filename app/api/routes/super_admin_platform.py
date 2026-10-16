@@ -1097,8 +1097,15 @@ def _search_row(doc: Dict[str, Any], orgs: Dict[str, str]) -> Dict[str, Any]:
         "completed_at": _clean(doc.get("completed_at")),
         "apify_run_id": doc.get("apify_run_id") or info.get("runId") or info.get("run_id"),
         "actor_id": info.get("actorId") or info.get("actor_id") or info.get("actor"),
-        "usage_usd": info.get("usageTotalUsd") or info.get("usage_usd"),
+        "usage_usd": _scrape_usage_usd(info),
     }
+
+
+def _scrape_usage_usd(info: Dict[str, Any]) -> Any:
+    """Apify cost of a search from its ``scrape_info``: the numeric
+    usageTotalUsd (else a numeric usageUsd / usage_usd); never an object."""
+    from app.limits.costs import scrape_info_cost
+    return scrape_info_cost(info)
 
 
 def _search_query(organization_id, user_id, status, platform, q, start, end, apify_only) -> Dict[str, Any]:
@@ -1198,7 +1205,7 @@ async def search_chain(run_id: str, ctx: TenantContext = Depends(SUPER)):
                      "actor_id": info.get("actorId") or info.get("actor_id") or info.get("actor"),
                      "dataset_id": info.get("datasetId") or info.get("dataset_id"),
                      "status": info.get("status") or doc.get("status"),
-                     "usage_usd": info.get("usageTotalUsd") or info.get("usage_usd"),
+                     "usage_usd": _scrape_usage_usd(info),
                      "items": info.get("items") or info.get("item_count")})
     failures = [_clean(n) async for n in db.notifications.find(
         {"type": {"$in": ["apify_failure", "system_error"]}, "data.search_run_id": run_id},
@@ -1711,15 +1718,49 @@ async def _db_ping(db) -> Tuple[bool, Optional[float]]:
         return False, None
 
 
+async def _apify_usage_usd(db, since: datetime) -> float:
+    """Apify spend since ``since``: recorded actor runs (apify_jobs) plus older
+    searches that have no recorded runs (numeric scrape_info only)."""
+    from app.limits.costs import apify_spend
+    try:
+        return float((await apify_spend(db, since))["total"])
+    except Exception:
+        return 0.0
+
+
+def _limit_brief(provider: str) -> Optional[Dict[str, Any]]:
+    """Last API-limit status of LeadAI's ``provider`` (level + message), if checked."""
+    try:
+        from app.limits.store import get_status, public
+        st = public(get_status("platform", provider))
+    except Exception:
+        st = None
+    if not st:
+        return None
+    return {"level": st.get("level"), "message": st.get("message"), "checked_at": st.get("checked_at"),
+            "link": "/superadmin#/api-limits"}
+
+
+def _sms_block() -> Dict[str, Any]:
+    """SMS gateway setup (never a secret) + today's sending vs the daily cap."""
+    try:
+        from app.messaging.sms import provider_status
+        st = provider_status()
+    except Exception:
+        st = {}
+    return {"provider": st.get("provider") or None, "configured": bool(st.get("configured")),
+            "missing": st.get("missing") or [], "daily_limit": st.get("daily_limit"),
+            "per_number_daily_limit": st.get("per_number_daily_limit"), "sent_today": st.get("sent_today"),
+            "setup_link": "/superadmin#/messaging", "limits": _limit_brief("sms")}
+
+
 async def _integrations(db) -> Dict[str, Any]:
     from app.admin.settings import get_actor_id, get_apify_token, get_setting
     from app.config import get_settings
     cfg = get_settings()
     since = utcnow() - timedelta(hours=24)
     apify_q = {"$or": [{"scrape_info": {"$exists": True}}, {"provider": "apify"}]}
-    usage = await _agg(db.search_history, [
-        {"$match": {"created_at": {"$gte": utcnow() - timedelta(days=30)}, "scrape_info": {"$exists": True}}},
-        {"$group": {"_id": None, "usd": {"$sum": "$scrape_info.usageTotalUsd"}, "n": {"$sum": 1}}}])
+    usage_usd_30d = await _apify_usage_usd(db, utcnow() - timedelta(days=30))
     try:
         from app.billing.provider import payments_status
         pay = payments_status()
@@ -1740,8 +1781,9 @@ async def _integrations(db) -> Dict[str, Any]:
             "jobs_24h": await _count(db.search_history, {**apify_q, "created_at": {"$gte": since}}),
             "failures_24h": await _count(db.search_history, {**apify_q, "status": {"$in": list(_FAILED)},
                                                              "created_at": {"$gte": since}}),
-            "usage_usd_30d": round(float((usage[0].get("usd") if usage else 0) or 0), 4),
+            "usage_usd_30d": usage_usd_30d,
             "manage_link": "/superadmin#/apify",
+            "limits": _limit_brief("apify"),
         },
         "ai": {
             "provider": "gemini",
@@ -1751,6 +1793,7 @@ async def _integrations(db) -> Dict[str, Any]:
             "requests_24h": await _count(db.ai_requests, {"created_at": {"$gte": since}}),
             "failures_24h": ai_failed,
             "manage_link": "/superadmin#/ai",
+            "limits": _limit_brief("gemini"),
         },
         "payments": {
             "provider": provider,                       # the provider taking new payments
@@ -1770,13 +1813,36 @@ async def _integrations(db) -> Dict[str, Any]:
             "smtp_auth_configured": _env_set("SMTP_USER"),
             "public_base_url_configured": _env_set("PUBLIC_BASE_URL"),
             "outbox": outbox,
+            "limits": _limit_brief("email"),
         },
+        "sms": _sms_block(),
         "storage": {
             "exports": await _count(db.exports, {}),
             "media_files": await _count(db.website_media, {}),
         },
         "database": {"connected": ping_ok, "latency_ms": latency},
     }
+
+
+def _limits_component() -> Dict[str, Any]:
+    """Health line for LeadAI's own API limits (Apify, Gemini, email, SMS)."""
+    from app.limits.model import worst
+    try:
+        from app.limits.views import platform_statuses
+        rows = [s for s in platform_statuses() if s.get("provider") != "payments"]
+    except Exception:
+        rows = []
+    if not rows:
+        return {"key": "api_limits", "label": "API usage & limits", "status": "ok",
+                "detail": "Not checked yet", "link": "/superadmin#/api-limits"}
+    lv = worst(s.get("level") or "unknown" for s in rows)
+    bad = [f"{s.get('label')}: {s.get('level')}" for s in rows
+           if s.get("level") in ("warning", "critical", "error", "exhausted")]
+    status = {"exhausted": "err", "critical": "warn", "error": "warn", "warning": "warn"}.get(lv, "ok")
+    return {"key": "api_limits", "label": "API usage & limits", "status": status,
+            "detail": "; ".join(bad) if bad else "Within limits", "levels": {s["provider"]: s.get("level")
+                                                                             for s in rows},
+            "link": "/superadmin#/api-limits"}
 
 
 @router.get("/integrations")
@@ -1825,6 +1891,7 @@ async def platform_health(ctx: TenantContext = Depends(SUPER)):
          "detail": f"{integ['payments']['provider']} provider"},
         {"key": "email", "label": "Email", "status": "ok" if integ["email"]["smtp_configured"] else "warn",
          "detail": "SMTP configured" if integ["email"]["smtp_configured"] else "SMTP not configured — emails queue only"},
+        _limits_component(),
         {"key": "jobs", "label": "Background jobs", "status": "warn" if stale else "ok",
          "detail": f"{running} running" + (f", {stale} stale (>30 min)" if stale else "")},
         {"key": "failed_jobs", "label": "Failed jobs (24h)", "status": "warn" if failed_24h else "ok",

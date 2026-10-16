@@ -71,6 +71,7 @@ DEFAULT_PLANS: List[Dict[str, Any]] = [
             "ai_analysis",
             "lead_scoring",
             "csv_export",
+            "keyword_search",
         ],
         "limits": {
             "monthly_searches": 50,
@@ -108,6 +109,7 @@ DEFAULT_PLANS: List[Dict[str, Any]] = [
             "lead_scoring",
             "advanced_filters",
             "csv_export",
+            "keyword_search",
             "team_management",
         ],
         "limits": {
@@ -146,6 +148,7 @@ DEFAULT_PLANS: List[Dict[str, Any]] = [
             "lead_scoring",
             "advanced_filters",
             "csv_export",
+            "keyword_search",
             "team_management",
             "api_access",
             "webhooks",
@@ -186,6 +189,7 @@ DEFAULT_PLANS: List[Dict[str, Any]] = [
             "lead_scoring",
             "advanced_filters",
             "csv_export",
+            "keyword_search",
             "team_management",
             "api_access",
             "webhooks",
@@ -219,6 +223,20 @@ PLAN_LIMIT_SEED: Dict[str, Dict[str, int]] = {
     "enterprise": {"monthly_tokens": 200000, "posts_per_search": 200, "comments_per_post": 500,
                    "max_leads": 1000000, "storage_mb": 102400},
 }
+# Keyword / discovery search limits per paid tier (keywords per search,
+# profiles discovered per search across platforms, recent posts analyzed per
+# profile). The Global Settings caps (keyword.max_*) still apply on top.
+KEYWORD_LIMIT_SEED: Dict[str, Dict[str, int]] = {
+    "starter":    {"keyword_max_keywords": 3,  "keyword_max_candidates": 100,  "keyword_recent_posts": 20},
+    "pro":        {"keyword_max_keywords": 5,  "keyword_max_candidates": 250,  "keyword_recent_posts": 30},
+    "business":   {"keyword_max_keywords": 10, "keyword_max_candidates": 500,  "keyword_recent_posts": 50},
+    "enterprise": {"keyword_max_keywords": 10, "keyword_max_candidates": 500,  "keyword_recent_posts": 50},
+}
+# a paid plan created by an operator (not one of the defaults) gets the entry tier
+KEYWORD_LIMIT_FALLBACK: Dict[str, int] = dict(KEYWORD_LIMIT_SEED["starter"])
+for _slug, _kw in KEYWORD_LIMIT_SEED.items():
+    PLAN_LIMIT_SEED[_slug] = {**PLAN_LIMIT_SEED.get(_slug, {}), **_kw}
+
 for _p in DEFAULT_PLANS:
     _p["limits"] = {**PLAN_LIMIT_SEED.get(_p["slug"], {}), **_p.get("limits", {})}
 
@@ -227,12 +245,14 @@ PLAN_LIMIT_KEYS = (
     "monthly_tokens", "monthly_searches", "posts_per_search", "comments_per_post",
     "monthly_posts", "monthly_comments", "monthly_ai_analyses", "monthly_exports",
     "team_members", "max_leads", "storage_mb",
+    "keyword_max_keywords", "keyword_max_candidates", "keyword_recent_posts",
 )
 
 
 # Human labels for feature keys (website, billing and admin screens share these)
 FEATURE_LABELS: Dict[str, str] = {
     "url_search": "URL Search Agent",
+    "keyword_search": "Keyword discovery search",
     "facebook": "Facebook",
     "instagram": "Instagram",
     "youtube": "YouTube",
@@ -424,6 +444,54 @@ async def ensure_default_plans(db=None) -> None:
         invalidate_plan_cache()
     except Exception as e:
         logger.warning(f"Error ensuring default plans: {e}")
+
+
+KEYWORD_PLANS_MIGRATION = "keyword_search_plans_v1"
+
+
+def migrate_keyword_search_plans(db) -> int:
+    """Once per database: give every active PAID plan the "keyword_search"
+    feature and its keyword limits where missing (an operator's own values are
+    kept), and give the stored free-trial settings the new keyword keys.
+    Later Super Admin changes stick: a marker in ``migrations`` stops it
+    running again. Returns the number of plans changed."""
+    if db is None or db.migrations.find_one({"_id": KEYWORD_PLANS_MIGRATION}):
+        return 0
+    changed = 0
+    for plan in db.plans.find({"status": "active"}):
+        try:
+            paid = float(plan.get("price_monthly") or 0) > 0 or float(plan.get("price_yearly") or 0) > 0
+        except (TypeError, ValueError):
+            paid = False
+        if not paid:
+            continue
+        limits = plan.get("limits") or {}
+        seed = KEYWORD_LIMIT_SEED.get(plan.get("slug") or "", KEYWORD_LIMIT_FALLBACK)
+        sets: Dict[str, Any] = {f"limits.{k}": v for k, v in seed.items() if k not in limits}
+        update: Dict[str, Any] = {}
+        if sets:
+            update["$set"] = {**sets, "updated_at": utcnow()}
+        if "keyword_search" not in (plan.get("features") or []):
+            update["$addToSet"] = {"features": "keyword_search"}
+        if update:
+            db.plans.update_one({"_id": plan["_id"]}, update)
+            changed += 1
+    try:  # stored free-trial settings: add the new keyword keys (values kept)
+        from app.lifecycle.config import COLLECTION, DEMO_CONFIG_SEED, clear_cache
+        doc = db[COLLECTION].find_one({"_id": "demo"})
+        if doc is not None:
+            stored = doc.get("value") or {}
+            missing = {f"value.{k}": v for k, v in DEMO_CONFIG_SEED.items()
+                       if k.startswith("keyword_") and k not in stored}
+            if missing:
+                db[COLLECTION].update_one({"_id": "demo"}, {"$set": missing})
+                clear_cache("demo")
+    except Exception as e:
+        logger.warning("keyword trial settings migration skipped: %s", e)
+    db.migrations.update_one({"_id": KEYWORD_PLANS_MIGRATION},
+                             {"$set": {"done_at": utcnow(), "plans_changed": changed}}, upsert=True)
+    invalidate_plan_cache()
+    return changed
 
 
 async def get_all_plans(active_only: bool = True, db=None) -> List[Dict[str, Any]]:

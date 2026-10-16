@@ -25,6 +25,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Marketing center with private file uploads, categories, per-partner visibility, email templates and download tracking.
   - Coupon and fraud notifications.
   - Partner API: an index endpoint, notifications readable with an API key, and key usage tracking.
+- **API usage & limits monitor** (`docs/API_LIMITS.md`):
+  - **What's watched:**
+    - Apify (monthly spend and compute units from Apify's API) for LeadAI's key and every customer's own key.
+    - Gemini requests per minute and per day, and input tokens per minute, counted against limits copied from AI Studio.
+    - Emails per day against a daily limit; mail-server "limit reached" replies are detected.
+    - SMS daily count, Twilio balance, and Fast2SMS wallet and remaining SMS.
+    - Payment set-up.
+    - Each organization's tokens and plan limits.
+  - **Live errors are noticed at once:** Apify 402, Gemini 429/402, SMTP limit replies, Twilio suspension, Fast2SMS low balance.
+  - **Levels:** warning (80%), critical (95%) and used up, with a "back to normal" notice. Each is announced once per period.
+  - **Who is told:**
+    - Super Admins: every level, plus email at critical.
+    - Organization admins: their own keys and plan, and LeadAI services they depend on.
+    - Users: when something they need is used up.
+
+    Personal and organization notification preferences are respected. The plan near-limit notices, which existed but were never sent, are now sent.
+  - **New screens:** Super Admin → API limits (cards with meters, reset time, history, organizations worst-first, Check now); SMS on Integrations; limits on Health; Org Admin → API usage & limits with a dashboard banner; a Limits card and blocked-search banner in the customer app.
+  - **Settings:** Global Settings → Email & alerts → API limit alerts, plus the Gemini limits on the AI engine tab.
+  - **Fixed:**
+    - The Super Admin Integrations page always showed $0 Apify cost (it read a field that doesn't exist).
+    - The AI overview's "last 24 hours" range showed 30 days.
+- **Keyword search** (`docs/KEYWORD_SEARCH.md`): type keywords, pick platforms, and LeadAI finds matching business profiles, pages, channels and companies.
+  - **Stages:** discovery → profile details → recent posts → comments. Profiles failing the filters are dropped before any money is spent on their posts or comments.
+  - **Filters:**
+    - Followers (min / max), total posts, average and total comments over the last N posts, engagement rate, active within N days.
+    - Business only, has contact info, location, verified, excluded words.
+    - Missing data shows as "unsupported" or "unknown", never as a silent pass or fail; Strict mode rejects instead.
+  - **Results:** every candidate is stored with its measured values and the exact rejection reasons. Filters can be re-applied without scraping, and **Continue** fetches newly passing profiles.
+  - **Cost:**
+    - Tokens are charged per stage actually run (`discover`, `enrich`, `sample`, then `collect`), with a cost estimate and confirmation before starting.
+    - Optional token budget; graceful stop when tokens run out.
+    - 24-hour profile cache; own Apify keys never fall back to LeadAI's.
+  - **Limits:** per plan and per free trial (keywords, candidates, recent posts). Global Settings → Search limits → Keyword search holds the switches, caps, default filters, cache time and actor IDs. LinkedIn is off by default.
+  - **APIs:** `/api/keyword-search` (app) and `/api/v1/searches/keyword` (API key).
+  - **Customer app:** a Keyword search tab with filter presets and a Guide step.
+  - **Filters narrow the Apify search and results show only matches:** the location (places separated by commas, `all` / `any` must match, whole-word so "kota" never matches "Dakota") and the new **Business type contains** filter are sent with the search (Facebook / LinkedIn `locations`, Instagram / YouTube search text, YouTube channel-search limits) and recorded as `discovery_queries`; results open on the passing profiles, with a rejection summary and one-click filter fixes when none pass; Language is hidden (no platform measures it).
+- **Fixed: every URL search ran twice on the server.** The request thread ran it and the queue worker picked up the same job a second later, so each search called Apify twice. The job is now recorded as already taken by the thread, and the worker only resumes it if that process dies.
+- **Fixed: `POST /api/v1/search` skipped every check.** API searches now go through the same rules as the app: feature and platform switches, URL validation, plan limits, monthly quota and token charges. They also appear in search history.
 - **Payments with Razorpay and Stripe, and a working mail server setup** (`docs/PAYMENTS_AND_EMAIL.md`):
   - **Razorpay is complete:**
     - Checkout creates a real Razorpay order and opens Razorpay's payment window (UPI, cards, net banking, wallets).

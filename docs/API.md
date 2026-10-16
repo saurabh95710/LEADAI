@@ -84,9 +84,84 @@ Start a URL scraping and lead discovery job.
 }
 ```
 
+- `max_posts` and `max_comments_per_post` are optional (the platform defaults apply). A value above the plan's limit is refused (`402 PLAN_LIMIT`).
+- The same rules as the app apply: the feature and platform switches, URL validation (`422`), plan limits, the monthly search quota and token charges (`402 TOKENS_EXHAUSTED` / `QUOTA_EXCEEDED`).
+- The run appears in the organization's search history with `source: "api"`.
+
 #### `GET /api/v1/search/{run_id}`
 Check status and metrics of a search run.
-- **Scope required**: `search:read`
+- **Scope required**: `search:read` (keys with `search:create` can read too)
+
+#### `POST /api/v1/searches/keyword`
+Start a keyword (discovery) search: find profiles for keywords, filter them, and collect comments only from those that pass. See [KEYWORD_SEARCH.md](KEYWORD_SEARCH.md).
+- **Scope required**: `search:create`
+- **Request Body**:
+```json
+{
+  "keywords": ["villa", "real estate Goa"],
+  "platforms": ["instagram", "facebook"],
+  "filters": {
+    "min_followers": 5000,
+    "recent_posts_to_analyze": 10,
+    "min_avg_comments": 3,
+    "active_within_days": 60,
+    "has_contact_info": true,
+    "location_keyword": "Kota, Rajasthan",
+    "location_match": "all",
+    "category_keyword": "software, IT services",
+    "exclude_keywords": ["jobs"]
+  },
+  "strict": false,
+  "limits": {"max_candidates": 100, "recent_posts": 10, "comments_per_post": 30},
+  "confirm": true,
+  "max_tokens": 400
+}
+```
+- Every filter is optional:
+  - numbers: `min_followers`, `max_followers`, `min_posts`, `recent_posts_to_analyze`, `min_avg_comments`, `min_total_comments`, `min_engagement_rate` (%), `active_within_days`;
+  - true/false: `business_account_only`, `has_contact_info`, `verified_only`;
+  - text: `location_keyword` (places separated by commas, most specific first), `location_match` (`all` — default, every place — or `any`), `category_keyword` (business types separated by commas; one must match);
+  - list: `exclude_keywords`;
+  - `language` is still accepted for compatibility but no platform can measure it (always unsupported).
+
+  Location and business type are also sent to the Apify search where the actor supports it (Facebook / LinkedIn `locations`, Instagram / YouTube search text, the YouTube channel-search actor's subscriber / video / verified / country inputs); see [KEYWORD_SEARCH.md](KEYWORD_SEARCH.md#what-is-sent-to-apify).
+
+  Unknown keys and invalid values return `422` with the field. Limits above the plan are lowered to the plan's maximum.
+- `confirm: true` is required; without it the response is `409 CONFIRM_REQUIRED` with the cost estimate. `max_tokens` is an optional hard budget.
+- Response: `{run_id, status: "running", estimate, message}`. Run ids start with `KW_API_`.
+- Errors:
+  - `402`: plan, quota or tokens.
+  - `403`: feature or platform switched off, or not in the plan.
+  - `422`: invalid filters or request.
+  - `429`: rate limit, or too many searches running.
+
+#### `GET /api/v1/searches/keyword/{run_id}`
+Status of a keyword search.
+- **Scope required**: `search:read` or `search:create`
+- Response:
+  - `status`: `running`, `completed`, `error` or `cancelled`.
+  - `phase`: `discovery`, `enrichment`, `sampling`, `deep_scrape`, `completed`, `stopped_tokens`, `stopped_budget`, and so on.
+  - `stages{...}`: each stage's state.
+  - `stage_counts{discovered, enriched, sampled, passed, rejected, needs_sampling, errors, comments_scraped, leads}`.
+  - `tokens_charged{...}` and `platform_errors{...}`.
+  - `discovery_queries[{platform, keyword, query_text, locations[], extra_inputs{}}]`: what each keyword search sent to Apify.
+  - `passed_count` and `rejection_summary[{filter, label, count, outcome, message}]`: the most common reasons profiles were rejected, e.g. `{"filter": "location_keyword", "count": 26, "message": "location: 'Rajasthan' not found"}` (`outcome` is `unknown` for values strict mode rejected because they were missing).
+
+#### `GET /api/v1/searches/keyword/{run_id}/candidates`
+Every profile found, with why it passed or was rejected. Without `status` every status is returned; the app lists `status=passed` by default.
+- **Scope required**: `search:read` or `search:create`
+- Query: `status` (`passed`, `rejected`, `needs_sampling`, `error`, `pending`), `platform`, `sort` (`followers`, `engagement`, `avg_comments`, `newest`), `page`, `page_size` (up to 100).
+- Each item has:
+  - `status`, `metrics{followers, posts_count, avg_comments, total_comments, engagement_rate, last_post_at, ...}`;
+  - `reasons[{filter, outcome: pass|fail|unsupported|unknown, message, value, threshold}]`, e.g. `"followers 800 < min 5000"`;
+  - `unsupported[]` and `unknown[]`;
+  - `profile` (name, URL, bio, contacts).
+
+#### `POST /api/v1/searches/keyword/{run_id}/reapply`
+Re-check the stored profiles with different filters, without scraping or charging.
+- **Scope required**: `search:create`
+- Body: `{filters, strict}`.
+- Response: `{counts, changed, continue_cost, notes}`. Profiles that now pass but whose posts were never fetched become `needs_sampling`; fetch them with `POST /api/keyword-search/{run_id}/continue` from the app.
 
 ---
 
@@ -107,6 +182,21 @@ Requires an authenticated tenant session cookie.
 | `POST` | `/api/search/{run_id}/cancel`| Request immediate cancellation of a running search | `search.cancel` |
 | `DELETE` | `/api/search/{run_id}` | Delete a search run and all associated data | `search.cancel` |
 
+### Keyword search ([KEYWORD_SEARCH.md](KEYWORD_SEARCH.md))
+Keyword runs also appear in `/api/search/history`, and the pages that pass are browsable with the normal pages, posts and comments endpoints.
+
+| Method | Endpoint | Description | Permission |
+|---|---|---|---|
+| `GET` | `/api/keyword-search/capabilities` | Filters, what each platform supports, defaults, this organization's caps and token prices | `search.view` |
+| `POST` | `/api/keyword-search/estimate` | Worst-case tokens per stage and rough Apify cost for a request | `search.create` |
+| `POST` | `/api/keyword-search` | Start (`confirm: true` required) | `search.create` |
+| `GET` | `/api/keyword-search/{run_id}` | Status, stages, counts, tokens charged, `discovery_queries` (what was sent to Apify), `passed_count`, `rejection_summary` | `search.view` |
+| `GET` | `/api/keyword-search/{run_id}/candidates` | Candidates with reasons and metrics (filter, sort, paginate) | `search.view` |
+| `POST` | `/api/keyword-search/{run_id}/reapply` | Re-check with new filters (no scraping, free) | `search.create` |
+| `POST` | `/api/keyword-search/{run_id}/continue` | Fetch the profiles that now need posts (`confirm: true`; charged) | `search.create` |
+| `POST` | `/api/keyword-search/{run_id}/cancel` | Stop; results so far are kept | `search.cancel` |
+| `GET` / `POST` / `DELETE` | `/api/keyword-search/presets[/{id}]` | Saved filter presets (own and shared) | `search.view` / `search.create` |
+
 ### Leads & Comments
 | Method | Endpoint | Description | Permission |
 |---|---|---|---|
@@ -124,6 +214,16 @@ Requires an authenticated tenant session cookie.
 | `GET` | `/api/leads/export/xlsx` | Export leads as sanitized Excel spreadsheet XML | `exports.create` |
 
 ---
+
+### API usage & limits ([API_LIMITS.md](API_LIMITS.md))
+| Method | Endpoint | Description | Permission |
+|---|---|---|---|
+| `GET` | `/api/me/api-limits` | Tokens, plan limits, whether searches and AI are available, issues with what to do | any member |
+| `GET` | `/api/org-admin/api-limits` | Own keys' limits, tokens, plan, LeadAI services status | org owner / admin |
+| `POST` | `/api/org-admin/api-limits/refresh` | Re-check own keys (3 per 5 min) | org owner / admin |
+| `GET` | `/api/super-admin/api-limits` | Every service's limits + organizations worst-first | Super Admin |
+| `POST` | `/api/super-admin/api-limits/refresh` | Check now: `{scope: platform \| all \| <org id>}` (5/min) | Super Admin |
+| `GET` | `/api/super-admin/api-limits/history` | Up to 30 days of checks per service | Super Admin |
 
 ## 3. Organization Admin API (`/api/org-admin/*`)
 

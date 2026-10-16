@@ -221,16 +221,37 @@ def send_email(to: str, subject: str, body: str, *, kind: str = "generic",
         logger.info("[email] queued (%s) to %s: %s", kind, to, subject)
         return "queued"
     status, error = "sent", None
+    limit_hit, raw_error, smtp_code = False, "", None
     try:
         deliver(build_message(to, subject, body), cfg)
     except Exception as e:
         status, error = "failed", friendly_smtp_error(e)
+        raw_error, smtp_code = str(e)[:300], getattr(e, "smtp_code", None)
+        limit_hit = _is_limit_reply(raw_error, smtp_code)
+        if limit_hit:
+            error = f"The mail server's sending limit was reached: {raw_error[:200]}"
         logger.warning("[email] send failed to %s: %s", to, e)
     if db is not None and oid is not None:
         try:
-            db[COLLECTION].update_one({"_id": oid}, {"$set": {
-                "status": status, "error": error,
-                "sent_at": utcnow() if status == "sent" else None}})
+            sets = {"status": status, "error": error, "sent_at": utcnow() if status == "sent" else None}
+            if limit_hit:
+                sets["limit_hit"] = True
+            db[COLLECTION].update_one({"_id": oid}, {"$set": sets})
         except Exception:
             pass
+    if limit_hit:
+        try:
+            from app.limits.service import record_email_error
+            record_email_error(raw_error, smtp_code)
+        except Exception as e:  # the monitor never breaks sending
+            logger.debug("email limit note failed: %s", e)
     return status
+
+
+def _is_limit_reply(text: str, code: Any = None) -> bool:
+    """A "sending limit reached" reply (550 5.4.5, 452 4.5.3, 421 4.7.x ...)."""
+    try:
+        from app.limits.checkers import is_smtp_limit_error
+        return is_smtp_limit_error(text, code if isinstance(code, int) else None)
+    except Exception:
+        return False

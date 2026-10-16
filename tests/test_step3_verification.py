@@ -182,13 +182,27 @@ def _seed_tree(db, org_id, uid, email, tag):
     key = str(db.api_keys.insert_one({
         **common, "name": f"Key {tag}", "prefix": f"lai_live_{tag}", "key_hash": f"hash_{tag}",
         "scopes": ["leads:read"], "status": "active", "created_at": NOW}).inserted_id)
+    kw_run = f"KW{tag}{ObjectId()}"
+    db.search_history.insert_one({**common, "run_id": kw_run, "search_type": "keyword", "status": "completed",
+                                  "query": f"{tag} keyword", "url_search": False,
+                                  "keyword_search": {"keywords": [f"{tag} keyword"], "platforms": ["instagram"],
+                                                     "filters": {"recent_posts_to_analyze": 10}, "strict": False,
+                                                     "limits": {"max_candidates": 10}},
+                                  "stages": {"discovery": "done"}, "created_at": NOW})
+    db.discovery_candidates.insert_one({**common, "search_run_id": kw_run, "platform": "instagram",
+                                        "profile_id": tag, "url": f"https://www.instagram.com/{tag}",
+                                        "name": f"Profile {tag}", "status": "passed",
+                                        "stage_reached": "sampled", "reasons": [], "metrics": {},
+                                        "profile": {"platform": "instagram", "name": f"Profile {tag}"},
+                                        "created_at": NOW})
     invoice = f"INV-{tag}-{ObjectId()}"
     db.invoices.insert_one({"organization_id": common["organization_id"], "number": invoice, "status": "paid",
                             "total": 99.0, "currency": "USD", "description": f"Subscription {tag}",
                             "invoice_date": NOW, "paid_at": NOW, "created_at": NOW})
     return {"run": run_id, "page": page, "post": post, "comment": comment, "lead": lead,
             "export": export, "ticket": ticket, "notification": notification, "preset": preset,
-            "scan": scan, "rule": rule, "webhook": webhook, "key": key, "invoice": invoice}
+            "scan": scan, "rule": rule, "webhook": webhook, "key": key, "invoice": invoice,
+            "kw_run": kw_run}
 
 
 def _seed_billing(db, org_id, tag, status="pending_payment", plan="pro"):
@@ -319,10 +333,13 @@ def _param_values(w, owner_key, rec_key, sub_key, cs_key, inv_key):
         "webhook_id": rec["webhook"],
         "key_id": rec["key"],
         "number": rec["invoice"],
+        "kw_run": rec["kw_run"],
     }
 
 
 def _fill(path, values):
+    if path.startswith("/api/keyword-search/") and "kw_run" in values:
+        values = {**values, "run_id": values["kw_run"]}   # keyword routes take keyword runs
     return re.sub(r"\{(\w+)\}", lambda m: values[m.group(1)], path)
 
 

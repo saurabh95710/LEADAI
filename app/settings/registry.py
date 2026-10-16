@@ -217,6 +217,19 @@ SETTINGS: List[SettingSpec] = [
     _s("ai.temperature", "ai", "Gemini analysis", "float",
        label="Creativity (temperature)", min=0, max=2,
        description="Lower = more consistent answers. 0.1 is recommended for lead scoring."),
+    _s("ai.gemini.requests_per_minute", "ai", "Gemini analysis", "int",
+       label="Requests per minute limit", min=0, max=1000000,
+       description="Your Gemini key's requests-per-minute limit, from Google AI Studio → Rate "
+                   "limits. Google has no way to ask for it, so LeadAI counts its own requests "
+                   "and warns before this runs out. 0 = not watched."),
+    _s("ai.gemini.requests_per_day", "ai", "Gemini analysis", "int",
+       label="Requests per day limit", min=0, max=100000000,
+       description="Your Gemini key's requests-per-day limit (Google AI Studio → Rate limits). "
+                   "The day resets at midnight Pacific time. 0 = not watched."),
+    _s("ai.gemini.input_per_minute", "ai", "Gemini analysis", "int",
+       label="Input tokens per minute limit", min=0, max=1000000000,
+       description="Your Gemini key's input-tokens-per-minute limit (Google AI Studio → Rate "
+                   "limits). 0 = not watched."),
     _s("business.default_industry", "ai", "Business context", "str",
        label="Default industry",
        description="Industry key used for organizations that haven't chosen one "
@@ -328,6 +341,81 @@ SETTINGS: List[SettingSpec] = [
        description="Ask users to confirm before starting a search much bigger than "
                    "the defaults above."),
 
+    # ── Keyword search (app/discovery) ───────────────────────────────────
+    _s("features.keyword_search.enabled", "limits", "Keyword search", "bool",
+       label="Keyword search", is_public=True,
+       description="Let users find new profiles by keyword (needs the Keyword search plan "
+                   "feature too). Off = keyword searches are refused."),
+    _s("keyword.platform.instagram.enabled", "limits", "Keyword search", "bool",
+       label="Instagram discovery", is_public=True,
+       description="Let keyword searches look for Instagram profiles."),
+    _s("keyword.platform.facebook.enabled", "limits", "Keyword search", "bool",
+       label="Facebook discovery", is_public=True,
+       description="Let keyword searches look for Facebook Pages."),
+    _s("keyword.platform.youtube.enabled", "limits", "Keyword search", "bool",
+       label="YouTube discovery", is_public=True,
+       description="Let keyword searches look for YouTube channels."),
+    _s("keyword.platform.linkedin.enabled", "limits", "Keyword search", "bool",
+       label="LinkedIn discovery", is_public=True,
+       description="Let keyword searches look for LinkedIn companies. Uses a third-party "
+                   "actor, and LinkedIn's terms forbid scraping: turn on only if you accept "
+                   "that risk."),
+    _s("keyword.max_keywords", "limits", "Keyword search", "int",
+       label="Most keywords per search", min=1, max=100, is_public=True,
+       description="Plans can allow fewer, never more."),
+    _s("keyword.max_candidates", "limits", "Keyword search", "int",
+       label="Most profiles per search", min=1, max=10000, is_public=True,
+       description="Profiles one keyword search may discover across all its platforms. "
+                   "Plans can allow fewer, never more."),
+    _s("keyword.max_recent_posts", "limits", "Keyword search", "int",
+       label="Most recent posts analyzed", min=1, max=200, is_public=True,
+       description="Recent posts checked per profile for comments and engagement. Plans can "
+                   "allow fewer, never more."),
+    _s("keyword.cache_ttl_hours", "limits", "Keyword search", "int",
+       label="Reuse profile data for (hours)", min=0, max=720,
+       description="A profile fetched by any search is reused for this long without a new "
+                   "Apify call (and without charging). 0 = never reuse."),
+    _s("keyword.default.min_followers", "limits", "Keyword search", "int",
+       label="Suggested minimum followers", min=0, max=1000000000, is_public=True,
+       description="Pre-filled in the search form; users can change it."),
+    _s("keyword.default.min_posts", "limits", "Keyword search", "int",
+       label="Suggested minimum posts", min=0, max=10000000, is_public=True,
+       description="Pre-filled in the search form; users can change it."),
+    _s("keyword.default.recent_posts", "limits", "Keyword search", "int",
+       label="Suggested recent posts to analyze", min=1, max=200, is_public=True,
+       description="Pre-filled in the search form, and used when a search doesn't say."),
+    _s("keyword.default.min_avg_comments", "limits", "Keyword search", "int",
+       label="Suggested minimum average comments", min=0, max=1000000, is_public=True,
+       description="Pre-filled in the search form; users can change it."),
+    _s("keyword.default.active_within_days", "limits", "Keyword search", "int",
+       label="Suggested posted within (days)", min=1, max=3650, is_public=True,
+       description="Pre-filled in the search form; users can change it."),
+    _s("discovery.actor.instagram.search", "limits", "Keyword search", "str",
+       label="Instagram search actor",
+       description="Apify actor that finds Instagram profiles by keyword.",
+       placeholder="apify/instagram-search-scraper"),
+    _s("discovery.actor.instagram.posts", "limits", "Keyword search", "str",
+       label="Instagram posts actor",
+       description="Apify actor that reads more recent Instagram posts than the search returns.",
+       placeholder="apify/instagram-post-scraper"),
+    _s("discovery.actor.facebook.search", "limits", "Keyword search", "str",
+       label="Facebook search actor",
+       description="Apify actor that finds Facebook Pages by keyword.",
+       placeholder="apify/facebook-search-scraper"),
+    _s("discovery.actor.youtube.channel_search", "limits", "Keyword search", "str",
+       label="YouTube channel search actor",
+       description="Optional Apify actor that finds YouTube channels by keyword. Empty = "
+                   "search videos with the main YouTube actor and keep their channels."),
+    _s("discovery.actor.youtube.channel", "limits", "Keyword search", "str",
+       label="YouTube channel details actor",
+       description="Apify actor that reads a channel's subscribers, video count and "
+                   "verified badge.",
+       placeholder="streamers/youtube-channel-scraper"),
+    _s("discovery.actor.linkedin.search", "limits", "Keyword search", "str",
+       label="LinkedIn company search actor",
+       description="Apify actor that finds LinkedIn companies by keyword.",
+       placeholder="harvestapi/linkedin-company-search"),
+
     # ── Platforms & features ─────────────────────────────────────────────
     _s("platform.facebook.enabled", "platforms", "Platforms", "bool",
        label="Facebook", description="Let users search Facebook. Off = Facebook links are refused."),
@@ -395,6 +483,46 @@ SETTINGS: List[SettingSpec] = [
        label="Footer line",
        description="Added as the last paragraph of every email the platform sends "
                    "(e.g. your address)."),
+
+    _s("api_limits.enabled", "notifications", "API limit alerts", "bool",
+       label="Watch API usage and limits",
+       description="Check the usage and limits of Apify, Gemini, email, SMS and every "
+                   "organization's tokens and plan in the background, and tell the people "
+                   "affected before something runs out. Off = no background checks or alerts."),
+    _s("api_limits.check_minutes", "notifications", "API limit alerts", "int",
+       label="Check every (minutes)", min=5, max=1440,
+       description="How often the limits are checked (the background pass runs every 15 "
+                   "minutes, so smaller values act like 15). Apify recommends 5–15 minutes."),
+    _s("api_limits.warn_percent", "notifications", "API limit alerts", "int",
+       label="Warn at (%)", min=1, max=99,
+       description="A first warning is sent when a limit is this full."),
+    _s("api_limits.critical_percent", "notifications", "API limit alerts", "int",
+       label="Urgent at (%)", min=1, max=100,
+       description="An urgent alert (with email) is sent when a limit is this full. At 100% "
+                   "everyone affected is told the limit is reached."),
+    _s("api_limits.notify_org_admins", "notifications", "API limit alerts", "bool",
+       label="Tell organization admins",
+       description="When one of LeadAI's own services is almost used up, tell the admins of "
+                   "the organizations that use it (no numbers, just what it means for them)."),
+    _s("api_limits.notify_users", "notifications", "API limit alerts", "bool",
+       label="Tell users when something stops",
+       description="When a limit is reached, show the users of the affected organizations an "
+                   "in-app notice (never an email). Their own notification choices apply."),
+    _s("api_limits.email_admins", "notifications", "API limit alerts", "bool",
+       label="Email urgent alerts",
+       description="Email the Super Admin and organization admins when a limit is almost or "
+                   "fully used up. Off = in-app notices only."),
+    _s("sms.min_balance", "notifications", "API limit alerts", "float",
+       label="Warn when the SMS balance is below", min=0, max=100000000,
+       description="In the SMS account's own currency: Twilio USD, Fast2SMS INR. Below this a "
+                   "warning is sent, below half of it an urgent alert; at zero texts stop. "
+                   "0 = off (only an empty balance alerts)."),
+    _s("email.daily_limit", "notifications", "API limit alerts", "int",
+       label="Mailbox daily sending limit", min=0, max=10000000,
+       description="How many emails your mail server lets you send in 24 hours, so LeadAI can "
+                   "warn before it refuses more. Typical: Gmail 500, Google Workspace 2,000, "
+                   "Hostinger 1,000 or 3,000 (hPanel → Emails → your mailbox → View limits). "
+                   "0 = not watched."),
 
     # ══ Operations ═══════════════════════════════════════════════════════
     _s("security.login_protection", "security", "Sign-in protection", "bool",
@@ -523,11 +651,16 @@ GROUP_INFO: Dict[Tuple[str, str], str] = {
     ("detection", "What to skip"): "Skipped comments cost nothing: no AI call is made.",
     ("limits", "Posts per search"): "Users can ask for less, never more than the maximum.",
     ("limits", "Comments per post"): "Users can ask for less, never more than the maximum.",
+    ("limits", "Keyword search"): "Find new profiles by keyword, then collect their comments "
+                                  "like a link search. Plans can allow less, never more than "
+                                  "these maximums.",
     ("notifications", "Automatic emails"): "Platform-wide switches over each organization's "
                                            "own notification settings.",
     ("notifications", "Email sender"): "Applies to every email: sign-up, password reset, "
                                        "alerts and messages. The product name replaces "
                                        "\"LeadAI\" in all of them.",
+    ("notifications", "API limit alerts"): "Warnings before Apify, Gemini, email, SMS, tokens "
+                                           "or a plan run out. See them in API usage & limits.",
     ("maintenance", "Automation"): "Review what would change first in Subscriptions → "
                                    "Lifecycle automation.",
 }
@@ -864,12 +997,28 @@ async def build_public_config(get: Optional[Callable[[str], Any]] = None,
         },
         "features": {
             "url_search": bool(g("features.url_search.enabled", True)),
+            "keyword_search": bool(g("features.keyword_search.enabled", True)),
             "exports": bool(g("features.exports.enabled", True)),
             "demo_registration": bool(g("features.demo_registration.enabled", True)),
             "ai_analysis": bool(g("ai.enabled", True)),
         },
         # the user app asks before a search much bigger than the defaults
         "cost": {"warn_before_expensive": bool(g("cost.warn_before_expensive", True))},
+        # keyword search: switches (each ANDed with the platform switch), caps
+        # and the suggested filter values the search form pre-fills
+        "keyword_search": {
+            "enabled": bool(g("features.keyword_search.enabled", True)),
+            "platforms": {p: bool(g(f"keyword.platform.{p}.enabled")) and bool(g(f"platform.{p}.enabled"))
+                          for p in ("instagram", "facebook", "youtube", "linkedin")},
+            "caps": {"max_keywords": int(g("keyword.max_keywords") or 5),
+                     "max_candidates": int(g("keyword.max_candidates") or 200),
+                     "max_recent_posts": int(g("keyword.max_recent_posts") or 30)},
+            "defaults": {"min_followers": int(g("keyword.default.min_followers") or 0),
+                         "min_posts": int(g("keyword.default.min_posts") or 0),
+                         "recent_posts_to_analyze": int(g("keyword.default.recent_posts") or 10),
+                         "min_avg_comments": int(g("keyword.default.min_avg_comments") or 0),
+                         "active_within_days": int(g("keyword.default.active_within_days") or 90)},
+        },
         "trial": _trial_summary(),
         "maintenance": {
             "enabled": bool(g("maintenance.enabled", False)),

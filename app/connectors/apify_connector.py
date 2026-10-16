@@ -46,8 +46,46 @@ def set_run_context(**ctx: Any) -> None:
     _RUN_CONTEXT.set({k: (str(v) if v is not None else None) for k, v in ctx.items()})
 
 
+def _number(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def usage_total_usd(run: Any) -> Optional[float]:
+    """The run's total cost in USD as a plain float (BSON-safe).
+
+    apify_client 3.x: ``Run.usage_total_usd`` (alias usageTotalUsd) is the
+    total; ``Run.usage_usd`` is a per-resource breakdown object (RunUsageUsd)
+    that must never be stored as-is. A numeric usageUsd (older clients / raw
+    dicts) is accepted; a breakdown is summed as a last resort."""
+    if run is None:
+        return None
+    total = _number(_rget(run, "usageTotalUsd"))
+    if total is not None:
+        return total
+    raw = _rget(run, "usageUsd")
+    n = _number(raw)
+    if n is not None:
+        return n
+    if raw is not None:
+        try:
+            parts = raw.model_dump() if hasattr(raw, "model_dump") else dict(raw)
+            vals = [_number(v) for v in parts.values()]
+            nums = [v for v in vals if v is not None]
+            return round(sum(nums), 6) if nums else None
+        except Exception:
+            return None
+    return None
+
+
 def _record_actor_run(actor_id: str, label: str, started: float, run: Any = None,
-                      error: Optional["ScrapeError"] = None) -> None:
+                      error: Optional["ScrapeError"] = None, token_source: Optional[str] = None) -> None:
     """Best-effort ``apify_jobs`` record of one actor run (never raises)."""
     ctx = _RUN_CONTEXT.get()
     if not ctx or not ctx.get("organization_id"):
@@ -70,7 +108,10 @@ def _record_actor_run(actor_id: str, label: str, started: float, run: Any = None
                        else str(_rget(run, "status") or "succeeded").lower()),
             "error": str(error)[:500] if error is not None else None,
             "error_type": getattr(error, "error_type", None),
-            "usage_usd": _rget(run, "usageUsd") if run is not None else None,
+            # plain floats only (the Run model's usageUsd is a breakdown object)
+            "usage_usd": usage_total_usd(run),
+            "usage_total_usd": usage_total_usd(run),
+            "token_source": token_source,
             "duration_seconds": round(finished - started, 1),
             "created_at": utcnow(), "finished_at": utcnow()})
     except Exception as e:  # recording must never break scraping
@@ -322,6 +363,18 @@ class ApifyConnector:
         record_key_failure(org_id, "apify", code, msg)
         return msg
 
+    def _note_limit(self, exc: Exception, status: Optional[int], admins_notified: bool = False) -> None:
+        """Out of credit / usage limit / token rejected: tell the API limits
+        monitor at once (LeadAI's token → platform scope, an organization's
+        own token → that organization). Never raises."""
+        try:
+            from app.limits.service import record_apify_error
+            org_id = self.organization_id or ((_RUN_CONTEXT.get() or {}).get("organization_id"))
+            record_apify_error(org_id, getattr(self, "token_source", ""), status,
+                               getattr(exc, "type", None), str(exc)[:500], admins_notified=admins_notified)
+        except Exception as err:  # pragma: no cover - monitoring is best effort
+            logger.debug("apify limit note failed: %s", err)
+
     def _get_client(self):
         if self._client is None:
             if not self.token:
@@ -373,8 +426,11 @@ class ApifyConnector:
                     raise
                 billing = _explain_error(e)
                 status = getattr(e, "status_code", None)
-                if getattr(self, "token_source", "") == "organization" and (
-                        billing or (isinstance(e, ApifyApiError) and status in (401, 402, 403))):
+                own_failure = getattr(self, "token_source", "") == "organization" and (
+                    bool(billing) or (isinstance(e, ApifyApiError) and status in (401, 402, 403)))
+                # own_failure -> _own_key_failure tells the organization's admins below
+                self._note_limit(e, status, admins_notified=own_failure)
+                if own_failure:
                     # the organization's OWN Apify key: stop now (no retry, never
                     # LeadAI's key) and tell its admins what to fix
                     msg = self._own_key_failure(status, bool(billing))
@@ -405,9 +461,16 @@ class ApifyConnector:
                 "runId": _rget(run, "id"),
                 "datasetId": _rget(run, "defaultDatasetId"),
                 "status": _rget(run, "status"),
-                "usageUsd": _rget(run, "usageUsd"),
+                # plain floats only: usageTotalUsd = total cost; usageUsd kept
+                # only when the client gave a number (it is a breakdown object
+                # in apify_client 3.x and can't be stored)
+                "usageTotalUsd": usage_total_usd(run),
             }
-            _record_actor_run(actor_id, label, started, run=run)
+            raw_usage = _number(_rget(run, "usageUsd"))
+            if raw_usage is not None:
+                self.last_call["usageUsd"] = raw_usage
+            _record_actor_run(actor_id, label, started, run=run,
+                              token_source=getattr(self, "token_source", None))
             return run
         assert last_error is not None
         _record_actor_run(actor_id, label, started, error=last_error)

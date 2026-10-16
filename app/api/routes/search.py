@@ -408,6 +408,9 @@ async def delete_search_run(run_id: str, request: Request,
             _scoped(ctx, "facebook_posts", {"page_ref": {"$in": page_ids}}))
     if page_ids:
         await db.facebook_pages.delete_many(page_filter)
+    if run.get("search_type") == "keyword":    # keyword search candidates of this run
+        counts["candidates"] = (await db.discovery_candidates.delete_many(
+            _scoped(ctx, "discovery_candidates", {"search_run_id": run_id}))).deleted_count
     await db.search_history.delete_one(run_filter)
     await _audit(ctx, request, "search.deleted", "search",
                  resource_type="search_run", resource_id=run_id, details=counts)
@@ -444,6 +447,133 @@ async def get_search_run(run_id: str, request: Request,
 # URL-BASED SEARCH - paste a Facebook/Instagram/YouTube/LinkedIn URL
 # ─────────────────────────────────────────────────────────────────────────────
 
+async def admit_url_search(ctx: TenantContext, request: Request, *, url: str,
+                           max_posts: int | None = None,
+                           max_comments_per_post: int | None = None,
+                           comment_filter: dict | None = None,
+                           business_context: dict | None = None,
+                           run_id: str | None = None,
+                           source: str = "app") -> dict[str, Any]:
+    """Every check a new URL search must pass, then start it. Shared by the
+    app (session) and the public API (API key) so neither can skip a rule:
+    feature + platform switches, URL validation, concurrency, admin and plan
+    caps, platform entitlement, tokens, monthly search quota, the run record,
+    and the audit trail."""
+    from app.admin.settings import effective_limits, get_bool, is_platform_enabled
+    from app.social.url_detector import UrlError, detect_social_url
+    from app.social.url_search import UrlSearchThread
+
+    db = _db_or_503()
+    if not get_bool("features.url_search.enabled"):
+        raise HTTPException(
+            status_code=403,
+            detail={"success": False, "errorType": "feature_disabled",
+                    "message": "New searches are currently disabled by the administrator."})
+
+    try:
+        platform, canonical = detect_social_url(url)
+    except UrlError as e:
+        raise HTTPException(status_code=422, detail={
+            "success": False, "errorType": e.kind, "message": e.message})
+    except Exception as e:
+        raise HTTPException(status_code=422, detail={
+            "success": False, "errorType": "invalid", "message": f"Invalid URL: {e}"})
+
+    if not is_platform_enabled(platform):
+        raise HTTPException(
+            status_code=403,
+            detail={"success": False, "errorType": "platform_disabled",
+                    "message": f"Searching {platform} is currently disabled by the administrator."})
+
+    run_id = run_id or new_url_run_id()
+    await _audit(ctx, request, "search.url_submitted", "search",
+                 resource_type="search_run", resource_id=run_id,
+                 details={"url": canonical, "platform": platform})
+
+    # admin-controlled defaults + hard caps — enforcement lives server-side
+    lim = effective_limits()
+    if lim.get("stop_on_limit"):
+        try:
+            running = await db.search_history.count_documents(
+                {"status": "running",
+                 "organization_id": org_match(ctx.organization_id)})
+            if running >= _MAX_CONCURRENT_RUNS_PER_ORG:
+                raise HTTPException(
+                    status_code=429,
+                    detail={"success": False, "errorType": "cost_limit",
+                            "message": "Too many concurrent jobs. Wait for running jobs to finish."})
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+    requested_posts, requested_comments = max_posts, max_comments_per_post
+    max_posts = min(max_posts or lim["max_posts_default"], lim["max_posts_cap"])
+    max_comments_per_post = min(
+        max_comments_per_post or lim["max_comments_per_post_default"],
+        lim["max_comments_per_post_cap"], lim["global_max_comments"])
+    max_posts, max_comments_per_post = await _apply_plan_caps(
+        ctx, max_posts, max_comments_per_post, requested_posts, requested_comments)
+
+    # ── SaaS Entitlement & Quota Enforcement ──────────────────────────────
+    from app.billing.entitlements import EntitlementService
+    await EntitlementService.enforce_quota_and_consume(
+        organization_id=ctx.organization_id,
+        feature_key=platform,
+        metric=None,
+        user_id=ctx.user_id,
+        db=db,
+    )
+    # Tokens first: a TOKENS_EXHAUSTED refusal must not use up a monthly
+    # search. If the search quota then refuses, the tokens are refunded.
+    await _charge_tokens(ctx, "search", run_id)
+    try:
+        await EntitlementService.enforce_quota_and_consume(
+            organization_id=ctx.organization_id,
+            feature_key="url_search",
+            metric="monthly_searches",
+            quantity=1,
+            user_id=ctx.user_id,
+            source=f"url_search_{platform}",
+            db=db,
+        )
+    except HTTPException:
+        await _refund_tokens(ctx, "search", run_id, "search quota refused")
+        raise
+
+    await db.search_history.insert_one(stamp(ctx, {
+        "run_id": run_id, "query": url, "intent": {
+            "keyword": url, "type": "url", "platform": platform,
+            "canonical_url": canonical, "limit": max_posts,
+            "max_comments_per_post": max_comments_per_post},
+        "business_context": business_context,
+        "comment_filter": comment_filter,
+        "limit": max_posts, "provider": "apify", "url_search": True, "source": source,
+        "status": "running", "phase": "queued", "message": "Starting URL search...",
+        "pages_found": 0, "pages_stored": 0,
+        "created_at": utcnow(), "completed_at": None,
+    }))
+    _start(f"url_search:{run_id}",
+           UrlSearchThread(run_id, canonical, max_posts,
+                           max_comments_per_post,
+                           organization_id=ctx.organization_id,
+                           created_by=ctx.email,
+                           user_id=ctx.user_id).run)
+    await _audit(ctx, request, "search.started", "search",
+                 resource_type="search_run", resource_id=run_id,
+                 details={"url": canonical, "platform": platform,
+                          "max_posts": max_posts,
+                          "max_comments_per_post": max_comments_per_post,
+                          "business_context": business_context,
+                          "comment_filter": (comment_filter or {}).get("mode"),
+                          "source": source})
+    return {
+        "run_id": run_id, "status": "running", "platform": platform,
+        "canonical_url": canonical,
+        "message": f"{platform} search started — the page appears in the results below "
+                   "when it is fetched",
+    }
+
+
 @router.post("/url/search")
 async def start_url_search(
     request: Request,
@@ -476,68 +606,12 @@ async def start_url_search(
     ``filter_mode=all`` (default) sets no per-run filter, so the admin's
     active rule applies when one is configured (otherwise every comment is
     processed)."""
-    from app.admin.settings import effective_limits, get_bool, is_platform_enabled
-    from app.social.url_detector import UrlError, detect_social_url
-    from app.social.url_search import UrlSearchThread
-
-    db = _db_or_503()
-
     # Per-user rate limit
     if not _check_api_rate(ctx.user_id):
         raise HTTPException(
             status_code=429,
             detail={"success": False, "errorType": "rate_limit",
                     "message": "Too many requests. Please wait a moment."})
-
-    if not get_bool("features.url_search.enabled"):
-        raise HTTPException(
-            status_code=403,
-            detail={"success": False, "errorType": "feature_disabled",
-                    "message": "New searches are currently disabled by the administrator."})
-
-    try:
-        platform, canonical = detect_social_url(url)
-    except UrlError as e:
-        raise HTTPException(status_code=422, detail={
-            "success": False, "errorType": e.kind, "message": e.message})
-    except Exception as e:
-        raise HTTPException(status_code=422, detail={
-            "success": False, "errorType": "invalid", "message": f"Invalid URL: {e}"})
-
-    if not is_platform_enabled(platform):
-        raise HTTPException(
-            status_code=403,
-            detail={"success": False, "errorType": "platform_disabled",
-                    "message": f"Searching {platform} is currently disabled by the administrator."})
-
-    run_id = new_url_run_id()
-    await _audit(ctx, request, "search.url_submitted", "search",
-                 resource_type="search_run", resource_id=run_id,
-                 details={"url": canonical, "platform": platform})
-
-    # admin-controlled defaults + hard caps — enforcement lives server-side
-    lim = effective_limits()
-    if lim.get("stop_on_limit"):
-        try:
-            running = await db.search_history.count_documents(
-                {"status": "running",
-                 "organization_id": org_match(ctx.organization_id)})
-            if running >= _MAX_CONCURRENT_RUNS_PER_ORG:
-                raise HTTPException(
-                    status_code=429,
-                    detail={"success": False, "errorType": "cost_limit",
-                            "message": "Too many concurrent jobs. Wait for running jobs to finish."})
-        except HTTPException:
-            raise
-        except Exception:
-            pass
-    requested_posts, requested_comments = max_posts, max_comments_per_post
-    max_posts = min(max_posts or lim["max_posts_default"], lim["max_posts_cap"])
-    max_comments_per_post = min(
-        max_comments_per_post or lim["max_comments_per_post_default"],
-        lim["max_comments_per_post_cap"], lim["global_max_comments"])
-    max_posts, max_comments_per_post = await _apply_plan_caps(
-        ctx, max_posts, max_comments_per_post, requested_posts, requested_comments)
 
     # Comment Filter layer: explicit per-run config stored on the run doc.
     # filter_mode=all stores nothing extra — the run then follows the admin's
@@ -562,32 +636,6 @@ async def start_url_search(
             ("any", "all", "category", "advanced") else "any",
         }
 
-    # ── SaaS Entitlement & Quota Enforcement ──────────────────────────────
-    from app.billing.entitlements import EntitlementService
-    await EntitlementService.enforce_quota_and_consume(
-        organization_id=ctx.organization_id,
-        feature_key=platform,
-        metric=None,
-        user_id=ctx.user_id,
-        db=db,
-    )
-    # Tokens first: a TOKENS_EXHAUSTED refusal must not use up a monthly
-    # search. If the search quota then refuses, the tokens are refunded.
-    await _charge_tokens(ctx, "search", run_id)
-    try:
-        await EntitlementService.enforce_quota_and_consume(
-            organization_id=ctx.organization_id,
-            feature_key="url_search",
-            metric="monthly_searches",
-            quantity=1,
-            user_id=ctx.user_id,
-            source=f"url_search_{platform}",
-            db=db,
-        )
-    except HTTPException:
-        await _refund_tokens(ctx, "search", run_id, "search quota refused")
-        raise
-
     # Business context for AI lead analysis and intent scoring
     biz_ctx: dict[str, Any] = {}
     if industry and industry.strip():
@@ -600,37 +648,9 @@ async def start_url_search(
     if clean_kws:
         biz_ctx["keywords"] = clean_kws
 
-    await db.search_history.insert_one(stamp(ctx, {
-        "run_id": run_id, "query": url, "intent": {
-            "keyword": url, "type": "url", "platform": platform,
-            "canonical_url": canonical, "limit": max_posts,
-            "max_comments_per_post": max_comments_per_post},
-        "business_context": biz_ctx or None,
-        "comment_filter": comment_filter or None,
-        "limit": max_posts, "provider": "apify", "url_search": True,
-        "status": "running", "phase": "queued", "message": "Starting URL search...",
-        "pages_found": 0, "pages_stored": 0,
-        "created_at": utcnow(), "completed_at": None,
-    }))
-    _start(f"url_search:{run_id}",
-           UrlSearchThread(run_id, canonical, max_posts,
-                           max_comments_per_post,
-                           organization_id=ctx.organization_id,
-                           created_by=ctx.email,
-                           user_id=ctx.user_id).run)
-    await _audit(ctx, request, "search.started", "search",
-                 resource_type="search_run", resource_id=run_id,
-                 details={"url": canonical, "platform": platform,
-                          "max_posts": max_posts,
-                          "max_comments_per_post": max_comments_per_post,
-                          "business_context": biz_ctx or None,
-                          "comment_filter": (comment_filter or {}).get("mode")})
-    return {
-        "run_id": run_id, "status": "running", "platform": platform,
-        "canonical_url": canonical,
-        "message": f"{platform} search started — the page appears in the results below "
-                   "when it is fetched",
-    }
+    return await admit_url_search(
+        ctx, request, url=url, max_posts=max_posts, max_comments_per_post=max_comments_per_post,
+        comment_filter=comment_filter or None, business_context=biz_ctx or None)
 
 
 @router.get("/url/search/{run_id}/report")

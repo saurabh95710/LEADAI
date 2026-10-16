@@ -13,6 +13,8 @@
   GET   /api/me/leads.csv         CSV of the same leads (same filters), quota-metered
   GET   /api/me/exports           own export history (paginated, filter, sort)
   POST  /api/me/exports/client-log  audit an in-browser table CSV download
+  GET   /api/me/api-limits        what I can do now (search / AI), tokens and plan
+                                  meters left, and why not — no provider internals
 
 Every endpoint resolves the caller through ``get_org_context`` /
 ``require_org_permission`` and ANDs ``scope_query(..., force_own=True)`` onto
@@ -74,7 +76,8 @@ NOTIFICATION_PREFERENCES: Dict[str, Dict[str, Any]] = {
     "usage_warnings": {"label": "Token, usage & free trial warnings", "default": True,
                        "types": ("high_token_usage", "tokens_low", "demo_expiring",
                                  "demo_expired", "quota_warning", "usage_threshold",
-                                 "usage_warning")},
+                                 "usage_warning", "api_limit_warning", "api_limit_critical",
+                                 "api_limit_exhausted", "api_limit_recovered")},
     # stored for compatibility; nothing is sent under these yet, so they are
     # not offered in the portals ("hidden")
     "weekly_summary": {"label": "Weekly summary email", "default": True, "types": ("weekly_summary",),
@@ -511,6 +514,84 @@ async def my_token_ledger(page: int = Query(1, ge=1), page_size: int = Query(20,
     return {"success": True, "items": items, **_page_meta(total, page, page_size)}
 
 
+@router.get("/api-limits")
+async def my_api_limits(ctx: TenantContext = Depends(get_org_context)):
+    """Can I search / use AI right now, what is left, and what to do — in plain
+    words. Organization-wide meters every member may see; nothing about
+    LeadAI's or the organization's provider accounts beyond "paused"."""
+    db = _db()
+    usage = await _org_usage(ctx, db)
+    costs = _token_costs()
+    blockers = _blockers(usage, costs, ctx.organization_status)
+    caps = _search_caps(usage)
+    from app.limits.checkers import _org_warn
+    from app.limits.model import level_for_percent, thresholds
+    from app.limits.views import plan_meter_levels, service_issues
+    from app.services.tenant_api_keys import _org_sync
+
+    org = await asyncio.to_thread(_org_sync, ctx.organization_id)
+    warn_pct = _org_warn(org)
+    services = await asyncio.to_thread(service_issues, ctx.organization_id)
+    meters = plan_meter_levels((usage.get("metrics") or {}), warn_pct)
+    warn, crit = thresholds(warn_pct)
+    admin = ctx.org_role in ("owner", "admin")
+    tokens = usage.get("tokens") or None
+    token_view = None
+    if tokens:
+        allocated = int(tokens.get("allocated") or 0)
+        used = int(tokens.get("used") or 0)
+        pct = round(used * 100.0 / allocated, 1) if allocated else None
+        lv = "exhausted" if tokens.get("expired") else level_for_percent(pct, warn, crit)
+        if costs.get("search") and int(tokens.get("remaining") or 0) < int(costs["search"]):
+            lv = "exhausted"
+        token_view = {"allocated": allocated, "used": used, "remaining": int(tokens.get("remaining") or 0),
+                      "percent": pct, "expires_at": tokens.get("expires_at"),
+                      "expired": bool(tokens.get("expired")), "level": lv,
+                      "search_cost": costs.get("search")}
+    issues: List[Dict[str, Any]] = []
+    for b in blockers:
+        issues.append({"level": "danger", "code": b["code"], "message": b["message"],
+                       "action": "upgrade" if admin else "contact_admin"})
+    for key in ("search", "ai"):
+        issue = services.get(key)
+        if issue:
+            issues.append(dict(issue))
+    if token_view and token_view["level"] in ("warning", "critical") and not any(
+            i["code"] in ("TOKENS_EXHAUSTED", "TOKENS_EXPIRED") for i in issues):
+        issues.append({"level": "warning", "code": "TOKENS_LOW",
+                       "message": f"Only {token_view['remaining']:,} of {token_view['allocated']:,} tokens left.",
+                       "action": "upgrade" if admin else "contact_admin"})
+    for key in ("monthly_searches", "monthly_ai_analyses"):
+        m = meters.get(key)
+        if not m or m["level"] == "ok" or (key == "monthly_searches" and any(
+                i["code"] == "QUOTA_EXCEEDED" for i in issues)):
+            continue
+        reached = m["level"] == "exhausted"
+        issues.append({"level": "danger" if reached else "warning",
+                       "code": f"{key.upper()}_{'REACHED' if reached else 'LOW'}",
+                       "message": (f"{m['label']}: limit reached ({m['used']:,}/{m['limit']:,})." if reached else
+                                   f"{m['label']}: {m['remaining']:,} of {m['limit']:,} left."),
+                       "action": "upgrade" if admin else "contact_admin"})
+    try:
+        from app.admin.settings import get_setting
+        ai_on = bool(get_setting("ai.enabled"))
+    except Exception:
+        ai_on = True
+    ai_meter = meters.get("monthly_ai_analyses") or {}
+    searches = meters.get("monthly_searches") or {}
+    return {
+        "success": True,
+        "can_search": not blockers and not services.get("search"),
+        "can_analyze": ai_on and not services.get("ai") and ai_meter.get("level") != "exhausted",
+        "tokens": token_view,
+        "plan": {"name": ((usage.get("plan") or {}).get("name")),
+                 "period_end": (usage.get("period") or {}).get("end"), "metrics": meters},
+        "searches_left": searches.get("remaining") if searches else None,
+        "leads_limit": caps.get("max_leads"),
+        "issues": issues,
+    }
+
+
 # ── dashboard summary ───────────────────────────────────────────────────────
 
 def _lead_view(doc: Dict[str, Any], ctx: TenantContext) -> Dict[str, Any]:
@@ -538,6 +619,10 @@ def _search_view(doc: Dict[str, Any]) -> Dict[str, Any]:
         "error": d.get("error"), "pages_stored": d.get("pages_stored"),
         "limit": d.get("limit"), "max_comments_per_post": intent.get("max_comments_per_post"),
         "created_at": d.get("created_at"), "completed_at": d.get("completed_at"),
+        "search_type": d.get("search_type") or "url",
+        "platforms": list((d.get("keyword_search") or {}).get("platforms") or []),
+        "keywords": list((d.get("keyword_search") or {}).get("keywords") or []),
+        "stage_counts": d.get("stage_counts") if d.get("search_type") == "keyword" else None,
     }
 
 
@@ -666,7 +751,8 @@ async def my_searches(
     if status:
         query["status"] = status
     if platform:
-        query["$or"] = [{"platform": platform}, {"intent.platform": platform}]
+        query["$or"] = [{"platform": platform}, {"intent.platform": platform},
+                        {"keyword_search.platforms": platform}]
     query = scope_query(ctx, query, **_OWN)
     total = await db.search_history.count_documents(query)
     items = []

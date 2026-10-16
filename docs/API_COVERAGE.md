@@ -83,6 +83,9 @@ One page (`/super-admin#/provider-keys`) for both kinds of keys.
   - **Both:** the organization's admins are notified, at most once every 6 hours, and the error is shown on the API keys page.
 - **Per-organization pauses:** a customer's rate-limited or rejected Gemini key pauses AI for that organization only. LeadAI's shared circuit breaker only guards LeadAI's own key.
 - **Platform tokens** count only what LeadAI pays for. A search is 60% Apify and 40% Gemini; collecting posts is 100% Apify. The share that runs on the customer's own keys is not charged.
+- **Keyword search** ([KEYWORD_SEARCH.md](KEYWORD_SEARCH.md)): every stage (discovery, profile details, recent posts, comments) uses the organization's own Apify key when its coverage is "own", and never LeadAI's.
+  - A missing or rejected own key stops the search before anything runs.
+  - The `discover`, `enrich` and `sample` token actions are 100% Apify, so they cost an own-key organization 0 tokens.
 
 ## Endpoints
 

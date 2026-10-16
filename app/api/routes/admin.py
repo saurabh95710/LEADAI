@@ -1531,40 +1531,30 @@ async def env_change_password(body: EnvPasswordRequest):
 
 @router.get("/usage", dependencies=[Depends(require_viewer)])
 async def usage(days: int = Query(30, ge=1, le=365)):
-    """Apify usage from REAL run metadata stored on search runs."""
+    """Apify usage from REAL run metadata: the recorded actor runs
+    (``apify_jobs.usage_total_usd``), older searches from their numeric
+    ``scrape_info`` (app/limits/costs.py)."""
+    from app.limits.costs import apify_spend
     db = await _db()
     since = datetime.now(timezone.utc) - timedelta(days=days)
-    per_actor: Dict[str, Dict[str, Any]] = {}
-    total_cost = 0.0
-    runs_with_usage = 0
-    cursor = db.search_history.find({
-        "created_at": {"$gte": since},
-        "scrape_info": {"$exists": True},
-    })
-    async for run in cursor:
-        info = run.get("scrape_info") or {}
-        actor = info.get("actorId") or "unknown"
-        usage_usd = info.get("usageUsd")
-        entry = per_actor.setdefault(actor, {"runs": 0, "cost": 0.0})
-        entry["runs"] += 1
-        if usage_usd is not None:
-            try:
-                cost = float(usage_usd)
-                entry["cost"] += cost
-                total_cost += cost
-                runs_with_usage += 1
-            except (TypeError, ValueError):
-                pass
+    spend = await apify_spend(db, since)
+    per_actor: Dict[str, Dict[str, Any]] = spend["per_actor"]
+    total_cost = spend["total"]
+    runs_with_usage = spend["runs_with_usage"]
+    # readable names instead of Apify's internal ids (looked up once, remembered)
+    from app.db.mongo import get_sync_db
+    from app.limits.actor_names import describe_actors
+    names = await asyncio.to_thread(describe_actors, get_sync_db(), list(per_actor))
     actors = []
     for actor, entry in sorted(per_actor.items(),
                                key=lambda kv: kv[1]["cost"], reverse=True):
-        actors.append({"actor": actor, **entry})
+        actors.append({"actor": actor, **(names.get(actor) or {}), **entry})
     return {
         "days": days,
         "actors": actors,
         "total_cost": round(total_cost, 4),
         "runs_with_usage": runs_with_usage,
-        "note": ("Cost figures come from Apify run metadata (usageUsd). "
+        "note": ("Cost figures come from Apify run metadata (usageTotalUsd). "
                  "Runs without usage data are excluded from cost totals."),
     }
 

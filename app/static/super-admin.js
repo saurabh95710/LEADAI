@@ -103,6 +103,13 @@
   }
   /** Non-status tag (e.g. "Super Admin", "Default"): tone is one of the STATUS_TONE tones. */
   function badge(label, tone) { return '<span class="status-pill ' + (TONE_CLASS[tone] || 'tone-info') + '">' + esc(label) + '</span>'; }
+  // API usage & limits levels (app/limits): one pill for the API limits page, Integrations and Health
+  var LIMIT_LEVEL = { ok: ['OK', 'success'], warning: ['Warning', 'warning'], critical: ['Critical', 'danger'], exhausted: ['Limit reached', 'danger'],
+    error: ['Error', 'danger'], unknown: ['Unknown', 'muted'], not_configured: ['Not set up', 'neutral'] };
+  function limitPill(level) {
+    var m = LIMIT_LEVEL[level] || LIMIT_LEVEL.unknown;
+    return '<span class="status-pill ' + TONE_CLASS[m[1]] + '" data-limit-level="' + esc(level || 'unknown') + '">' + esc(m[0]) + '</span>';
+  }
   function roleLabel(r) { return { owner: 'Admin (Owner)', admin: 'Admin', manager: 'Manager', member: 'User', viewer: 'Viewer' }[r] || titleCase(r); }
 
   // ── API ───────────────────────────────────────────────────
@@ -344,12 +351,14 @@
       '<div class="sa-chart-table" id="' + tid + '" hidden><table class="sa-table"><thead><tr><th>' + esc(un[2]) + '</th><th class="num">' + esc(o.money ? 'Amount' : 'Value') + '</th></tr></thead><tbody>' +
       values.map(function (v, i) { return '<tr><td>' + esc(lbl(labels[i])) + '</td><td class="num">' + esc(fmt(v)) + '</td></tr>'; }).join('') + '</tbody></table></div></figure>';
   }
+  // AI costs are often fractions of a cent: keep 4 decimals below $1 so they don't read $0.00
+  function aiUsd(v) { v = Number(v) || 0; return v > 0 && v < 1 ? '$' + v.toFixed(4) : fmtMoney(v, 'USD'); }
   function barList(items, o) {
     o = o || {};
     if (!items.length) return emptyState(o.emptyTitle || 'No data', o.emptyDesc || '');
     var max = Math.max.apply(null, items.map(function (i) { return i.value; }).concat([1]));
     return '<ul class="sa-barlist">' + items.map(function (i) {
-      var val = o.money ? fmtMoney(i.value, o.currency) : fmtN(i.value);
+      var val = o.format ? o.format(i.value) : o.money ? fmtMoney(i.value, o.currency) : fmtN(i.value);
       return '<li title="' + esc(i.label + ': ' + val) + '"><span class="lbl">' + esc(i.label) + '</span>' +
         '<div class="sa-bar" aria-hidden="true"><i style="width:' + Math.max(2, i.value * 100 / max).toFixed(1) + '%"></i></div>' +
         '<span class="sa-mono">' + esc(val) + '</span></li>';
@@ -3066,7 +3075,7 @@
           '<div class="sa-grid sa-2 sa-section"><div class="sa-card"><h3>Requests over time</h3>' + (series.length ? lineChart(series.map(function (x) { return pick(x, ['requests', 'count', 'total']); }), series.map(function (x) { return x.date || x._id || ''; }), { title: 'AI requests' }) : emptyState('No AI calls in this range')) + '</div>' +
           '<div class="sa-card"><h3>Usage by model</h3>' + barList((m.usage_by_model || []).map(function (x) { return { label: x.model || x._id || 'unknown', value: pick(x, ['requests', 'count']) }; }), { emptyTitle: 'No model usage' }) + '</div>' +
           '<div class="sa-card"><h3>Usage by organization</h3>' + barList((m.usage_by_org || []).map(function (x) { return { label: x.organization_name || x.organization_id, value: x.requests || 0 }; }), { emptyTitle: 'No organization usage' }) + '</div>' +
-          '<div class="sa-card" data-section="ai-cost"><h3>Cost by organization (USD)</h3>' + barList((m.usage_by_org || []).map(function (x) { return { label: x.organization_name || x.organization_id, value: x.cost || 0 }; }), { emptyTitle: 'No cost recorded', money: true, currency: 'USD' }) + '</div></div>';
+          '<div class="sa-card" data-section="ai-cost"><h3>Cost by organization (USD)</h3>' + barList((m.usage_by_org || []).map(function (x) { return { label: x.organization_name || x.organization_id, value: x.cost || 0 }; }), { emptyTitle: 'No cost recorded', money: true, currency: 'USD', format: aiUsd }) + '</div></div>';
         bindCharts(el);
       } else if (key === 'prompts') {
         var groups = (await api('/api/super-admin/ai/prompts')).groups || {};
@@ -4007,18 +4016,39 @@
   //  INTEGRATIONS / HEALTH / FLAGS / MAINTENANCE / REPORTS
   // ════════════════════════════════════════════════════════
   function yes(v, okLabel, badLabel) { return v ? pill('active', okLabel || 'Configured') : pill('warn', badLabel || 'Not configured'); }
+  /** "Usage & limits" line of an Integrations card: the last API-limit check of that provider (#/api-limits). */
+  function limitsRow(l, label) {
+    var link = ' <a class="sa-link sa-small" href="#/api-limits">API limits →</a>';
+    if (!l) return '<dt>' + esc(label || 'Usage & limits') + '</dt><dd><span class="sa-muted">Not checked yet</span>' + link + '</dd>';
+    return '<dt>' + esc(label || 'Usage & limits') + '</dt><dd>' + limitPill(l.level) + link + (l.message ? '<div class="sa-small sa-muted">' + esc(l.message) + (l.checked_at ? ' · checked ' + esc(ago(l.checked_at)) : '') + '</div>' : '') + '</dd>';
+  }
+  function smsCard(sms) {
+    sms = sms || {};
+    var missing = sms.missing || [], sent = Number(sms.sent_today || 0), cap = Number(sms.daily_limit || 0);
+    var pct = cap ? Math.min(100, sent * 100 / cap) : 0;
+    var setup = internalLink(sms.setup_link) || '#/messaging';
+    return '<div class="sa-card"><h3>SMS <a class="sa-link" href="' + esc(setup) + '">' + (sms.configured ? 'Manage →' : 'Set up →') + '</a></h3><dl class="sa-kv">' +
+      '<dt>Provider</dt><dd>' + (sms.provider ? esc(titleCase(sms.provider)) : '<span class="sa-muted">None chosen</span>') + '</dd>' +
+      '<dt>Setup</dt><dd>' + yes(sms.configured, 'Configured', sms.provider ? 'Incomplete' : 'Not configured — texts are only queued') +
+      (missing.length ? '<div class="sa-small sa-muted">Missing: <span class="sa-mono">' + esc(missing.join(', ')) + '</span></div>' : '') + '</dd>' +
+      '<dt>Sent today</dt><dd>' + (cap ? fmtN(sent) + ' of ' + fmtN(cap) + ' <span class="sa-muted">(daily limit)</span><div class="sa-bar ' + (pct >= 100 ? 'bad' : pct >= 80 ? 'warn' : '') + '" role="meter" aria-label="Texts sent today" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + Math.round(pct) + '" aria-valuetext="' + esc(fmtN(sent) + ' of ' + fmtN(cap) + ' texts sent today') + '" style="margin-top:6px;max-width:260px"><i style="width:' + pct.toFixed(1) + '%"></i></div>'
+        : fmtN(sent) + ' <span class="sa-muted">· no daily limit set</span>') + '</dd>' +
+      (sms.per_number_daily_limit ? '<dt>Per number / day</dt><dd>' + fmtN(sms.per_number_daily_limit) + '</dd>' : '') +
+      limitsRow(sms.limits, 'Balance & limits') + '</dl>' +
+      (!sms.configured ? '<p class="sa-small sa-muted">Without an SMS provider, welcome texts and sign-in alerts are queued but never delivered. <a class="sa-link" href="' + esc(setup) + '">Set up SMS →</a></p>' : '') + '</div>';
+  }
   async function viewIntegrations(root) {
     var i = (await api('/api/super-admin/integrations')).integrations;
     var ap = i.apify, ai = i.ai, pay = i.payments, em = i.email;
     root.innerHTML = header('Integrations', 'Connection status only — secret values are never sent to the browser.') + '<div class="sa-grid sa-2">' +
       '<div class="sa-card"><h3>Apify <a class="sa-link" href="#/apify">Manage →</a></h3><dl class="sa-kv"><dt>API token</dt><dd>' + yes(ap.configured) + ' <a class="sa-link sa-small" href="#/provider-keys">Replace or test →</a></dd><dt>Last connection test</dt><dd>' + (ap.last_test_ok == null ? '<span class="sa-muted">never</span>' : pill(ap.last_test_ok ? 'active' : 'failed', ap.last_test_ok ? 'Passed' : 'Failed')) + ' <span class="sa-small sa-muted">' + esc(ap.last_test_at ? fmtDT(ap.last_test_at) : '') + '</span></dd>' +
-      '<dt>Jobs (24h)</dt><dd>' + fmtN(ap.jobs_24h) + ' · <span style="color:' + (ap.failures_24h ? 'var(--danger-text)' : 'inherit') + '">' + fmtN(ap.failures_24h) + ' failed</span></dd><dt>Usage (30d)</dt><dd>$' + esc(Number(ap.usage_usd_30d || 0).toFixed(2)) + '</dd>' +
+      '<dt>Jobs (24h)</dt><dd>' + fmtN(ap.jobs_24h) + ' · <span style="color:' + (ap.failures_24h ? 'var(--danger-text)' : 'inherit') + '">' + fmtN(ap.failures_24h) + ' failed</span></dd><dt>Usage (30d)</dt><dd>$' + esc(Number(ap.usage_usd_30d || 0).toFixed(2)) + '</dd>' + limitsRow(ap.limits) +
       Object.keys(ap.actors).map(function (p) { return '<dt>' + esc(titleCase(p)) + '</dt><dd><span class="sa-mono">' + esc(ap.actors[p] || '—') + '</span> ' + (ap.platforms_enabled[p] ? pill('active', 'On') : pill('disabled', 'Off')) + '</dd>'; }).join('') + '</dl></div>' +
-      '<div class="sa-card"><h3>AI provider <a class="sa-link" href="#/ai">AI management →</a></h3><dl class="sa-kv"><dt>Provider</dt><dd>' + esc(titleCase(ai.provider)) + '</dd><dt>API key</dt><dd>' + yes(ai.configured) + (String(ai.provider || '').toLowerCase() === 'gemini' ? ' <a class="sa-link sa-small" href="#/provider-keys">Replace or test →</a>' : '') + '</dd><dt>AI enabled</dt><dd>' + yes(ai.enabled, 'Enabled', 'Disabled') + '</dd><dt>Model</dt><dd class="sa-mono">' + esc(ai.model) + '</dd><dt>Calls (24h)</dt><dd>' + fmtN(ai.requests_24h) + ' · ' + fmtN(ai.failures_24h) + ' failed</dd></dl></div>' +
+      '<div class="sa-card"><h3>AI provider <a class="sa-link" href="#/ai">AI management →</a></h3><dl class="sa-kv"><dt>Provider</dt><dd>' + esc(titleCase(ai.provider)) + '</dd><dt>API key</dt><dd>' + yes(ai.configured) + (String(ai.provider || '').toLowerCase() === 'gemini' ? ' <a class="sa-link sa-small" href="#/provider-keys">Replace or test →</a>' : '') + '</dd><dt>AI enabled</dt><dd>' + yes(ai.enabled, 'Enabled', 'Disabled') + '</dd><dt>Model</dt><dd class="sa-mono">' + esc(ai.model) + '</dd><dt>Calls (24h)</dt><dd>' + fmtN(ai.requests_24h) + ' · ' + fmtN(ai.failures_24h) + ' failed</dd>' + limitsRow(ai.limits) + '</dl></div>' +
       '<div class="sa-card"><h3>Payment provider <a class="sa-link" href="#/settings?tab=payments">Set up →</a></h3><dl class="sa-kv"><dt>Active provider</dt><dd>' + pill(pay.provider === 'mock' ? 'warn' : 'active', pay.provider === 'mock' ? 'Mock (test only)' : titleCase(pay.provider)) + '</dd><dt>Razorpay keys</dt><dd>' + yes(pay.razorpay_key_configured) + '</dd><dt>Razorpay webhook secret</dt><dd>' + yes(pay.razorpay_webhook_secret_configured) + '</dd><dt>Stripe secret key</dt><dd>' + yes(pay.stripe_key_configured) + '</dd><dt>Stripe webhook secret</dt><dd>' + yes(pay.stripe_webhook_secret_configured) + '</dd><dt>BILLING_WEBHOOK_SECRET</dt><dd>' + yes(pay.billing_webhook_secret_configured) + '</dd><dt>Failed payments (7d)</dt><dd>' + fmtN(pay.failed_payments_7d) + '</dd></dl>' +
       (pay.provider === 'mock' ? '<p class="sa-small sa-muted">The test-only mock page is used because no Razorpay or Stripe keys are set, so no real money is collected. <a class="sa-link" href="#/settings?tab=payments">Set up payments →</a></p>' : '') + '</div>' +
       '<div class="sa-card"><h3>Email <a class="sa-link" href="#/settings?tab=notifications">Set up →</a> <a class="sa-link" href="#/notifications?tab=outbox">Outbox →</a></h3><dl class="sa-kv"><dt>SMTP host</dt><dd>' + yes(em.smtp_configured, 'Configured', 'Not configured — queue only') + '</dd><dt>SMTP auth</dt><dd>' + yes(em.smtp_auth_configured) + '</dd><dt>PUBLIC_BASE_URL</dt><dd>' + yes(em.public_base_url_configured, 'Set', 'Not set — links are relative') + '</dd>' +
-      '<dt>Outbox</dt><dd>' + fmtN(em.outbox.queued) + ' queued · ' + fmtN(em.outbox.sent) + ' sent · ' + fmtN(em.outbox.failed) + ' failed</dd></dl></div>' +
+      '<dt>Outbox</dt><dd>' + fmtN(em.outbox.queued) + ' queued · ' + fmtN(em.outbox.sent) + ' sent · ' + fmtN(em.outbox.failed) + ' failed</dd>' + limitsRow(em.limits, 'Sending limit') + '</dl></div>' + smsCard(i.sms) +
       '<div class="sa-card"><h3>Storage</h3><dl class="sa-kv"><dt>Exports</dt><dd>' + fmtN(i.storage.exports) + '</dd><dt>Website media files</dt><dd>' + fmtN(i.storage.media_files) + '</dd></dl></div>' +
       '<div class="sa-card"><h3>Database <a class="sa-link" href="#/database">Details →</a></h3><dl class="sa-kv"><dt>Connection</dt><dd>' + yes(i.database.connected, 'Connected', 'Unreachable') + '</dd><dt>Ping latency</dt><dd>' + esc(i.database.latency_ms == null ? '—' : i.database.latency_ms + ' ms') + '</dd></dl></div></div>' +
       '<p class="sa-small sa-muted sa-section">The Apify and Gemini keys LeadAI provides to customers are replaced and tested on <a href="#/provider-keys">API keys</a>. Other secrets are edited only on the guard-password protected <a href="#/environment">Environment</a> page.</p>';
@@ -4047,7 +4077,7 @@
 
   // health component -> the module that owns it
   var HEALTH_GO = { api: '#/health?section=platform-checks', database: '#/database', apify: '#/ops/agent?tab=apify', ai: '#/ai?range=24h', payments: '#/payments',
-    email: '#/notifications?tab=outbox', jobs: '#/ops/agent?tab=searches&status=running', failed_jobs: '#/jobs?tab=failed', errors: '#/logs?level=ERROR' };
+    email: '#/notifications?tab=outbox', api_limits: '#/api-limits', jobs: '#/ops/agent?tab=searches&status=running', failed_jobs: '#/jobs?tab=failed', errors: '#/logs?level=ERROR' };
   var CHECK_LABEL = { mongo: 'MongoDB', apify: 'Apify', gemini: 'Gemini', logs: 'Log file', maintenance: 'Maintenance', recent_errors: 'Failed jobs (24h)' };
   var CHECK_GO = { mongo: '#/database', apify: '#/apify', gemini: '#/ai?tab=analysis', logs: '#/logs', maintenance: '#/maintenance', recent_errors: '#/jobs?tab=failed' };
   /** The platform-console health checks (GET /api/admin/health): every staff role may read them. */
@@ -5062,7 +5092,7 @@
     ['Operations', [['ops/agent', 'URL Search Agent', 'bolt']]],
     ['Intelligence', [['ai', 'AI Management', 'brain', null, 'viewer'], ['industries', 'Industries', 'layers'], ['analytics', 'Analytics', 'chart', null, 'viewer']]],
     ['Governance', [['notifications', 'Notifications', 'bell', 'notif'], ['audit', 'Audit Logs', 'list', null, 'viewer'], ['security', 'Security Center', 'lock', null, 'viewer'], ['roles', 'Roles & Permissions', 'key']]],
-    ['Platform', [['website', 'Website / CMS', 'globe'], ['integrations', 'Integrations', 'plug'], ['health', 'System Health', 'heart', null, 'viewer'], ['flags', 'Feature Flags', 'flag', null, 'viewer'], ['reports', 'Reports / Exports', 'download'], ['maintenance', 'Maintenance', 'tool', null, 'viewer']]]
+    ['Platform', [['website', 'Website / CMS', 'globe'], ['integrations', 'Integrations', 'plug'], ['api-limits', 'API limits', 'activity', 'apilimits', 'viewer'], ['health', 'System Health', 'heart', null, 'viewer'], ['flags', 'Feature Flags', 'flag', null, 'viewer'], ['reports', 'Reports / Exports', 'download'], ['maintenance', 'Maintenance', 'tool', null, 'viewer']]]
   ];
   var CORE_GROUPS = MENU.map(function (g) { return g[0]; });
   var ROUTES = {
@@ -5290,7 +5320,7 @@
       }).join('') : '<div class="sa-pop-note">All systems normal — no active alerts.</div>');
     pop.innerHTML = (sup ? '<div class="sa-pop-head"><span>Notifications</span><button type="button" class="sa-link" id="bellAll">Mark all read</button></div>' +
       (items.length ? items.map(function (n, i) {
-        return '<button type="button" class="sa-pop-item" data-n="' + i + '"><span class="sa-dot ' + (n.read ? '' : n.severity === 'danger' ? 'err' : 'warn') + '" style="margin-top:6px" aria-hidden="true"></span><span style="min-width:0"><b>' + esc(n.title) + '</b><small>' + esc(short(n.message, 90)) + ' · ' + esc(ago(n.created_at)) + '</small></span></button>';
+        return '<button type="button" class="sa-pop-item" data-n="' + i + '"><span class="sa-dot ' + (n.read ? '' : n.type === 'api_limit_recovered' ? 'ok' : n.severity === 'danger' ? 'err' : n.severity === 'info' ? 'info' : n.severity === 'success' ? 'ok' : 'warn') + '" style="margin-top:6px" aria-hidden="true"></span><span style="min-width:0"><b>' + esc(n.title) + '</b><small>' + esc(short(n.message, 90)) + ' · ' + esc(ago(n.created_at)) + '</small></span></button>';
       }).join('') : '<div class="sa-pop-note">You are all caught up.</div>') : '') + alertHtml +
       (sup ? '<a class="sa-pop-item" href="#/notifications" style="justify-content:center;font-weight:600">Open notification center</a>' : (ROUTES.operations ? '<a class="sa-pop-item" href="#/operations" style="justify-content:center;font-weight:600">Open operations overview</a>' : ''));
     $$('[data-n]', pop).forEach(function (b) { b.onclick = async function () {
@@ -5562,6 +5592,7 @@
         : 'The platform\'s sign-in security settings, and just above, the audit log: every important change anyone makes, with who, what and when.'),
       { nav: 'health', target: '.sa-group[data-g="Platform"]', placement: 'right', optional: true, when: function () { return !!$('.sa-group[data-g="Platform"]'); }, title: 'Platform',
         body: (sup ? 'Website / CMS edits the public website: pages, FAQ, testimonials and the contact inbox. Integrations, ' : '') + 'System health (with the live checks of the database, Apify, Gemini and failed jobs), feature flags and maintenance mode live here' + (sup ? ', with reports and exports.' : '.') },
+      gNavStep('api-limits', 'API usage & limits', 'How much of Apify, Gemini, email and SMS LeadAI has used, and which customers are close to their own key, token or plan limits. You are warned before anything runs out; a number here counts what is critical or used up.', { wait: 1500 }),
       gNavStep('logs', 'System', 'The database (collections, sizes, indexes) and the application logs, with filters, auto-refresh and export.', { wait: 1500 }),
       gNavStep('settings', 'Settings', 'Global settings (branding, appearance, limits, notifications, SEO, security and more, with version history) and the guard-password protected Environment page.', { wait: 1500 }),
       { target: '#saProfile', placement: 'bottom', title: 'Your account',
@@ -5757,7 +5788,7 @@
     /** minimum role of a route key (menu item [4] or route [3]) */
     routeRole: routeRole,
     /** shared pieces of the core pages, so modules link to / embed them instead of re-implementing them */
-    icon: ICON_SVG, setTitle: setTitle, timeline: timeline, reportUrl: reportUrl, revealSection: revealSection, pageLink: pageLink,
+    icon: ICON_SVG, limitPill: limitPill, setTitle: setTitle, timeline: timeline, reportUrl: reportUrl, revealSection: revealSection, pageLink: pageLink,
     searchesList: searchesList, leadsList: leadsList, chainDrawer: chainDrawer, auditList: auditList, auditDrawer: auditDrawer,
     sessionsList: sessionsList, flagsEditor: flagsEditor, PLATFORM_OPTS: PLATFORM_OPTS, LEAD_STATUSES: LEAD_STATUSES,
     /** addIcon(name, svgInnerMarkup): an icon for menu items / kpi({icon}) (24×24 stroke paths) */

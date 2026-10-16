@@ -299,12 +299,15 @@
 
   // ════════════════ USAGE & COST ════════════════
   var DAYS = [7, 30, 90, 365];
+  // what people read for an actor: what LeadAI uses it for, else its Apify title / name, else the id
+  function actorLabel(a) { return a.actor_label || a.actor_title || a.actor_name || a.actor; }
+
   async function viewUsage(root, q) {
     var days = DAYS.indexOf(+q.days) >= 0 ? +q.days : 30;
     var d = await api(A + '/usage?days=' + days);
     var acts = d.actors || [];
     var avg = d.runs_with_usage ? d.total_cost / d.runs_with_usage : null;
-    root.innerHTML = tourHead(K.header('Usage & cost', 'Apify usage added up from the real run metadata stored on each search run (usageUsd). Nothing is estimated.',
+    root.innerHTML = tourHead(K.header('Usage & cost', 'What each Apify actor (scraping tool) cost, added up from the real cost Apify reported for every run. Nothing is estimated.',
       badge(usd(d.total_cost) + ' total · ' + fmtN(d.runs_with_usage) + ' runs with usage', d.total_cost > 0 ? 'warning' : 'muted') +
       '<label class="sr-only" for="egDays">Period</label><select class="form-select eg-hsel" id="egDays">' + DAYS.map(function (n) { return '<option value="' + n + '"' + (n === days ? ' selected' : '') + '>Last ' + n + ' days</option>'; }).join('') + '</select>'), 'head-usage') +
       '<div class="alert alert-info"><div class="alert-body">' + esc(d.note || '') + '</div></div>' +
@@ -314,7 +317,7 @@
       K.kpi('Actors', fmtN(acts.length), 'see the registry', { href: '#/actors', icon: 'cpu' }) +
       K.kpi('Average per run', avg == null ? '—' : usd(avg), 'runs with usage only', { icon: 'tag' }) + '</div>' +
       '<div class="sa-card sa-section"><h3>Cost by actor <span class="sa-small sa-muted">last ' + days + ' days</span></h3>' +
-      (acts.length ? K.barList(acts.map(function (a) { return { label: a.actor + ' · ' + fmtN(a.runs) + ' runs · ' + (a.cost > 0 ? usd(a.cost) : 'cost not reported'), value: a.runs }; }))
+      (acts.length ? K.barList(acts.map(function (a) { return { label: actorLabel(a) + ' · ' + fmtN(a.runs) + ' runs · ' + (a.cost > 0 ? usd(a.cost) : 'cost not reported'), value: a.runs }; }))
         : K.emptyState('No usage', 'No Apify runs with usage data in this period.')) + '</div>' +
       '<div class="sa-card sa-section"><h3>By actor</h3><div data-list></div></div>';
     $('#egDays', root).onchange = function () { K.go('#/usage?days=' + this.value); };
@@ -322,7 +325,10 @@
     K.listView($('[data-list]', root), { data: function () { return Promise.resolve(acts); }, key: 'eng_usage', exportName: 'usage', sort: '-cost',
       filters: [{ key: 'q', label: 'Search actor…' }],
       columns: [
-        { label: 'Actor', sort: 'actor', render: function (a) { return '<span class="sa-mono">' + esc(a.actor) + '</span>'; }, csv: function (a) { return a.actor; } },
+        { label: 'Actor', sort: 'actor_label', render: function (a) {
+          var sub = [a.actor_name, a.actor_name && a.actor_title && a.actor_title !== actorLabel(a) ? a.actor_title : null].filter(Boolean).join(' · ');
+          return '<b>' + esc(actorLabel(a)) + '</b><div class="sa-small sa-muted">' + (sub ? esc(sub) + ' · ' : '') + '<span class="sa-mono" title="Apify actor id">' + esc(a.actor) + '</span></div>';
+        }, csv: function (a) { return actorLabel(a) + (a.actor_name ? ' (' + a.actor_name + ')' : '') + ' [' + a.actor + ']'; } },
         { label: 'Runs', sort: 'runs', cls: 'num', render: function (a) { return fmtN(a.runs); }, csv: function (a) { return a.runs; } },
         { label: 'Cost (USD)', sort: 'cost', cls: 'num', render: function (a) { return a.cost > 0 ? usd(a.cost) : badge('not reported', 'muted'); }, csv: function (a) { return a.cost; } },
         { label: 'Share', sort: 'cost', cls: 'num', render: function (a) { return total > 0 ? (a.cost * 100 / total).toFixed(1) + '%' : '—'; } }],
@@ -750,10 +756,12 @@
       sel.innerHTML = '<option value="">' + all + '</option>' + list.map(function (x) { return '<option' + (x === cur ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
     }
     function rowHtml(e, i) {
-      var msg = e.event || e.message || '';
+      // what happened, in plain words (the server explains common errors); raw text on hover / in the detail
+      var msg = e.summary || e.event || e.message || '';
+      var extra = e.stack_trace ? ' <span class="sa-small sa-muted">· details</span>' : '';
       return '<div class="eg-lrow" role="button" tabindex="0" data-i="' + i + '" aria-label="' + esc((e.level || '') + ' ' + (e.timestamp || '') + ': ' + K.short(msg, 80)) + '">' +
         '<span class="t">' + esc(e.timestamp || '—') + '</span><span>' + levelBadge(e.level) + '</span><span class="mod" title="' + esc(e.module || '') + '">' + esc((e.module || '').split('.').pop() || '—') + '</span>' +
-        '<span class="msg" title="' + esc(K.short(e.message || '', 400)) + '">' + esc(K.short(msg, 120)) + '</span><span class="src">' + sourceBadge(e.source) + '</span></div>';
+        '<span class="msg" title="' + esc(K.short(e.message || '', 400)) + '">' + esc(K.short(msg, 140)) + extra + '</span><span class="src">' + sourceBadge(e.source) + '</span></div>';
     }
     function renderRows() {
       box.innerHTML = (win.start > 0 ? '<div class="eg-older"><button type="button" class="btn btn-secondary btn-xs" id="lgOlder">Load ' + fmtN(Math.min(LOG_PAGE, win.start)) + ' older entries</button></div>' : '') +
@@ -812,11 +820,15 @@
     function clearFilters() { $('#lgQ', root).value = ''; $('#lgLevel', root).value = ''; $('#lgSource', root).value = ''; $('#lgModule', root).value = ''; apply(); }
     function openDetail(e) {
       if (!e) return;
-      var f = [['Timestamp', e.timestamp], ['Level', e.level], ['Module', e.module], ['Source', e.source], ['Event', e.event], ['Error type', e.error_type], ['Error code', e.error_code],
+      var f = [['Timestamp', e.timestamp], ['Level', e.level], ['Module', e.module], ['Source', e.source], ['Where in LeadAI', e.where], ['Error type', e.error_type], ['Error message', e.error_message], ['Error code', e.error_code],
         ['Platform', e.platform], ['Run ID', e.run_id], ['Request ID', e.request_id], ['Job ID', e.job_id], ['Endpoint', e.endpoint], ['HTTP method', e.http_method],
         ['HTTP status', e.http_status], ['Duration', e.duration], ['Collection', e.collection]].filter(function (x) { return x[1] != null && x[1] !== ''; });
       K.openModal({ title: 'Log detail — ' + (e.level || 'Unknown'), size: 'lg', submitLabel: null, cancelLabel: 'Close',
-        body: '<dl class="sa-kv">' + f.map(function (x) {
+        body: '<div class="alert alert-' + (/ERROR|CRITICAL/.test(e.level || '') ? 'danger' : e.level === 'WARNING' ? 'warning' : 'info') + '"><div class="alert-body">' +
+          '<b>What happened:</b> ' + esc(e.summary || e.event || e.message || '') +
+          (e.hint ? '<br><b>What to do:</b> ' + esc(e.hint) : '') +
+          (e.where ? '<br><b>Where:</b> <span class="sa-mono">' + esc(e.where) + '</span>' : '') + '</div></div>' +
+          '<h4 class="eg-h4">Technical details</h4><dl class="sa-kv">' + f.map(function (x) {
           var v = x[0] === 'Run ID' ? '<a class="sa-link" href="#/jobs/' + encodeURIComponent(x[1]) + '">' + esc(x[1]) + '</a>' : x[0] === 'Level' ? levelBadge(x[1]) : x[0] === 'Source' ? sourceBadge(x[1]) : esc(String(x[1]));
           return '<dt>' + esc(x[0]) + '</dt><dd class="' + (/ID|Endpoint|Module/.test(x[0]) ? 'sa-mono' : '') + '">' + v + '</dd>';
         }).join('') + '</dl>' +
@@ -838,7 +850,7 @@
         var d = await api(A + '/logs' + qs(Object.assign({ lines: 5000, structured: 'true' }, filters())));
         var all = d.entries || [];
         if (!all.length) { toast('No logs to export', 'warning'); return; }
-        var cols = ['timestamp', 'level', 'module', 'source', 'event', 'message', 'error_type', 'run_id', 'raw'];
+        var cols = ['timestamp', 'level', 'module', 'source', 'summary', 'hint', 'where', 'message', 'error_type', 'error_message', 'run_id', 'raw'];
         downloadCsv('leadai-logs-' + new Date().toISOString().slice(0, 10) + '.csv', cols, all.map(function (e) { return cols.map(function (c) { return e[c] == null ? '' : e[c]; }); }));
         toast('Exported ' + fmtN(all.length) + ' log entries' + (d.total > all.length ? ' (the first ' + fmtN(all.length) + ' of ' + fmtN(d.total) + ')' : ''));
       } catch (err) { toast('Export failed: ' + err.message, 'error'); }

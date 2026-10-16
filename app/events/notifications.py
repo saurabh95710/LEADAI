@@ -13,7 +13,10 @@ notification be marked read per person.
 Super Admin event types: demo_requested, demo_approved, registration,
 payment_received, subscription_awaiting_approval, subscription_activated,
 payment_failed, organization_suspended, high_token_usage, apify_failure,
-system_error, security_event.
+system_error, security_event, api_limit_warning | api_limit_critical |
+api_limit_exhausted | api_limit_recovered (API usage & limits monitor,
+app/limits/alerts.py — also sent to org admins / users of affected
+organizations, under the "usage_warnings" preference).
 
 Organization notification settings (``organizations.settings``) are honoured
 here, in one place, so every emitter gets the same behaviour:
@@ -33,6 +36,7 @@ here, in one place, so every emitter gets the same behaviour:
     email is not sent for any organization (the in-app notice still is).
 """
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.db.models import utcnow
@@ -47,6 +51,8 @@ SUPER_ADMIN_TYPES = (
     "subscription_awaiting_approval", "subscription_activated", "payment_failed",
     "organization_suspended", "high_token_usage", "apify_failure",
     "system_error", "security_event", "contact_message",
+    # API usage & limits monitor (app/limits/alerts.py)
+    "api_limit_warning", "api_limit_critical", "api_limit_exhausted", "api_limit_recovered",
 )
 
 
@@ -80,6 +86,10 @@ ORG_SETTING_FOR_TYPE: Dict[str, str] = {
     "quota_warning": "notify_usage_warnings",
     "tokens_low": "notify_usage_warnings",
     "high_token_usage": "notify_usage_warnings",
+    "api_limit_warning": "notify_usage_warnings",
+    "api_limit_critical": "notify_usage_warnings",
+    "api_limit_exhausted": "notify_usage_warnings",
+    "api_limit_recovered": "notify_usage_warnings",
     "leads_found": "notify_on_leads",
     "new_leads": "notify_on_leads",
     "lead_assigned": "notify_lead_assigned",
@@ -308,6 +318,10 @@ def audience_query(*, is_super_admin: bool, user_id: Optional[str],
 
 
 def _iso(v):
+    """ISO time with its zone: Mongo returns naive UTC datetimes, which
+    browsers would otherwise read as local time ("6h ago" for a new notice)."""
+    if isinstance(v, datetime) and v.tzinfo is None:
+        v = v.replace(tzinfo=timezone.utc)
     return v.isoformat() if hasattr(v, "isoformat") else v
 
 

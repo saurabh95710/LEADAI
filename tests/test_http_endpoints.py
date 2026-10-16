@@ -57,6 +57,12 @@ def _make_async_db_mock():
 
 @pytest.fixture
 def client():
+    # import the app (and everything it imports) BEFORE the database is patched:
+    # a module first imported inside the patch window keeps the mock for good
+    # (e.g. the queue's cancel check would then see every later run as cancelled)
+    import app.main  # noqa: F401
+    import app.queue.service  # noqa: F401
+
     mock_sync_db = _build_sync_db_mock()
     mock_async_db = _make_async_db_mock()
 

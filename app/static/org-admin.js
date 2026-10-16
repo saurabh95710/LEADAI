@@ -159,6 +159,7 @@
     table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 10v10"/>',
     x: '<path d="M18 6L6 18M6 6l12 12"/>',
     chevron: '<path d="M9 6l6 6-6 6"/>',
+    gauge: '<path d="M3.3 17a10 10 0 1 1 17.4 0"/><path d="M12 14l4-4"/><circle cx="12" cy="14" r="1.3"/>',
     key: '<circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3L20 3M16 7l3 3M14 9l2 2"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   };
@@ -683,7 +684,7 @@
   // ════════════════════════════════════════════════════════════════════
   const NAV = [
     { group: 'Overview', items: [['dashboard', 'Dashboard', 'home']] },
-    { group: 'Organization', items: [['organization', 'Organization', 'building'], ['team', 'Team', 'users'], ['integrations', 'API keys & plan', 'key']] },
+    { group: 'Organization', items: [['organization', 'Organization', 'building'], ['team', 'Team', 'users'], ['integrations', 'API keys & plan', 'key'], ['api-limits', 'API usage & limits', 'gauge']] },
     { group: 'LeadAI', items: [['search', 'URL Search', 'search'], ['searches', 'Searches', 'list'], ['pages', 'Pages', 'file'], ['posts', 'Posts', 'message'], ['comments', 'Comments', 'chat']] },
     { group: 'Lead management', items: [['leads', 'All leads', 'target'], ['leads/assigned', 'Assigned leads', 'userCheck'], ['pipeline', 'Lifecycle', 'flow'], ['rules', 'Keyword library', 'filter']] },
     { group: 'Operations', items: [['apify', 'Apify jobs', 'cpu'], ['analytics', 'Analytics & reports', 'chart'], ['exports', 'Exports', 'download']] },
@@ -772,10 +773,11 @@
   // ── Dashboard ──────────────────────────────────────────────────────
   ROUTES.dashboard = {
     async render(v) {
-      const [d, bizSum, trial] = await Promise.all([
+      const [d, bizSum, trial, lim] = await Promise.all([
         api('/api/org-admin/overview'),
         api('/api/org-admin/business-summary').catch(() => ({ success: false })),
         isTrialOrg() ? getTrial() : null,
+        api('/api/org-admin/api-limits', { noGate: true }).catch(() => null),
       ]);
       if (!v.alive()) return;
       const sub = d.subscription || {};
@@ -784,7 +786,7 @@
       const metrics = (d.usage && d.usage.metrics) || {};
       const meterNames = { monthly_searches: 'Searches', team_members: 'Users', monthly_exports: 'Exports', monthly_ai_analyses: 'AI analyses', monthly_posts: 'Posts', monthly_comments: 'Comments' };
       const trialAlert = trial ? `<div class="alert alert-${trial.expired ? 'danger' : 'info'}">${ico(trial.expired ? 'alert' : 'info', 'alert-icon')}<div class="alert-body"><div class="alert-title">${trial.expired ? 'Your free trial has ended' : 'You are on the free trial · ' + esc(trialLeft(trial))}</div>${esc(trialEnds(trial))}. ${trial.expired ? 'Choose a plan to keep running searches.' : 'Choose a plan any time to keep going without a break.'}${can('org_billing.view') ? '<div class="alert-actions"><a href="#subscription">See plans</a></div>' : ''}</div></div>` : '';
-      const alertHtml = trialAlert + (d.alerts || []).map(a => `<div class="alert alert-${attr(a.severity === 'danger' ? 'danger' : a.severity === 'info' ? 'info' : 'warning')}">${ico('alert', 'alert-icon')}<div class="alert-body">${esc(a.message)}</div></div>`).join('');
+      const alertHtml = trialAlert + limitsBanner(lim) + (d.alerts || []).map(a => `<div class="alert alert-${attr(a.severity === 'danger' ? 'danger' : a.severity === 'info' ? 'info' : 'warning')}">${ico('alert', 'alert-icon')}<div class="alert-body">${esc(a.message)}</div></div>`).join('');
       const stat = (href, icon, lbl, value, meta) => `<a class="oa-card oa-stat" href="${attr(href)}"><span class="oa-stat-label">${ico(icon)}${esc(lbl)}</span><span class="oa-stat-value">${num(value)}</span><span class="oa-stat-meta">${meta}</span></a>`;
       const miniRuns = (list, empty) => list.length ? `<ul class="oa-feed">${list.map(r => `<li class="${r.status === 'error' || r.status === 'failed' ? 'fail' : ''}"><div class="oa-feed-main"><a class="oa-link" href="#searches/${attr(r.run_id)}">${esc(r.url || r.run_id)}</a><div class="oa-small oa-muted">${esc(r.user_email || '')} · ${pill(r.status)} ${r.error ? '· ' + esc(String(r.error).slice(0, 90)) : ''}</div></div>${timeTag(r.created_at)}</li>`).join('')}</ul>` : `<p class="oa-muted oa-small">${esc(empty)}</p>`;
 
@@ -1198,6 +1200,121 @@
       renderIntegrations(v, st);
     },
   };
+
+  // ── API usage & limits (GET /api/org-admin/api-limits) ─────────────
+  // Own Apify / Gemini keys (numbers), LeadAI tokens and plan meters, and a
+  // plain status for each LeadAI service the organization depends on.
+  const LIM_LV = { ok: ['ok', 'OK'], warning: ['pending', 'Warning'], critical: ['failed', 'Critical'], exhausted: ['failed', 'Limit reached'],
+    error: ['failed', 'Needs attention'], unknown: ['unknown', 'Unknown'], not_configured: ['none', 'Not set up'] };
+  const LIM_RANK = { not_configured: 0, unknown: 1, ok: 2, warning: 3, critical: 4, error: 5, exhausted: 6 };
+  const limPill = (lv) => { const m = LIM_LV[lv] || LIM_LV.unknown; return pill(m[0], m[1]); };
+  const LIM_BAD = (lv) => lv === 'warning' || lv === 'critical' || lv === 'exhausted' || lv === 'error';
+  function limUntil(v) {
+    const d = toDate(v); if (!d) return '';
+    const s = Math.round((d.getTime() - Date.now()) / 1000);
+    if (s <= 0) return 'now';
+    if (s < 5400) return 'in ' + Math.max(1, Math.round(s / 60)) + ' min';
+    if (s < 172800) return 'in ' + Math.round(s / 3600) + ' h';
+    return 'in ' + Math.round(s / 86400) + ' days';
+  }
+  const LIM_CUR = /^(USD|INR|EUR|GBP|AUD|CAD|SGD|AED|JPY)$/;
+  const limMoney = (v, unit) => { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: unit, maximumFractionDigits: Number(v) % 1 ? 2 : 0 }).format(Number(v) || 0); } catch (_) { return num(v) + ' ' + unit; } };
+  const limAmt = (v, unit) => v == null ? '—' : (LIM_CUR.test(unit || '') ? limMoney(v, unit) : num(v) + (unit ? ' ' + unit : ''));
+  const limPair = (u, l, unit) => LIM_CUR.test(unit || '') ? limMoney(u, unit) + ' / ' + limMoney(l, unit) : num(u) + ' / ' + num(l) + (unit ? ' ' + unit : '');
+  /** One meter (role=meter + text equivalent); informational meters are small and never coloured. */
+  function limMeter(m, st) {
+    const info = !!m.informational, has = m.limit != null && m.used != null;
+    const pct = m.percent != null ? Number(m.percent) : (has && m.limit ? m.used * 100 / m.limit : 0);
+    const lv = info ? '' : (m.level || (pct >= 100 ? 'exhausted' : pct >= 95 ? 'critical' : pct >= 80 ? 'warning' : 'ok'));
+    const cls = info ? 'info' : lv === 'warning' ? 'warn' : (lv === 'critical' || lv === 'exhausted' || lv === 'error') ? 'danger' : '';
+    const pctTxt = Math.round(pct * 10) / 10 + '%';
+    const val = has ? limPair(m.used, m.limit, m.unit) : m.remaining != null && m.used == null ? limAmt(m.remaining, m.unit) + ' left' : limAmt(m.used, m.unit);
+    const words = `${m.label}: ${has ? limAmt(m.used, m.unit) + ' of ' + limAmt(m.limit, m.unit) + ' used (' + pctTxt + ')' : val}`;
+    const src = m.source === 'provider_api' ? 'From ' + (st.provider === 'apify' ? 'Apify' : st.provider === 'gemini' ? 'Google' : 'the provider') : m.source === 'configured' ? 'Your setting' : 'Counted by LeadAI';
+    const foot = [`<span class="oa-lim-src">${esc(src)}</span>`, m.resets_at ? `<span title="${attr(fmtDate(m.resets_at, true))}">resets ${esc(limUntil(m.resets_at))}</span>` : '', has ? `<span>${esc(pctTxt)} used</span>` : ''].filter(Boolean);
+    return `<div class="oa-meter oa-lim-meter${info ? ' is-info' : ''}"><div class="oa-meter-top"><span>${esc(m.label)}${info ? ' <span class="oa-muted">(for information)</span>' : ''}</span><b${has ? ' aria-hidden="true"' : ''}>${esc(val)}</b></div>
+      ${has ? `<div class="oa-bar ${cls}" role="meter" aria-label="${attr(m.label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(Math.max(0, Math.min(100, pct)))}" aria-valuetext="${attr(words)}"><span style="width:${Math.max(0, Math.min(100, pct)).toFixed(1)}%"></span></div>` : `<span class="sr-only">${esc(words)}</span>`}
+      <div class="oa-lim-foot">${foot.join('')}</div></div>`;
+  }
+  const LIM_BLOCK = {
+    daily: (b) => 'Daily quota used up — resumes at 00:00 Pacific' + (b.until ? ' (' + limUntil(b.until) + ')' : ''),
+    minute: (b) => 'Per-minute quota hit — resumes ' + (b.until ? limUntil(b.until) : 'shortly'),
+    rate: (b) => 'Rate-limited by Google — resumes ' + (b.until ? limUntil(b.until) : 'shortly'),
+    credit: () => 'Prepaid credit used up — resumes once credit is added in Google AI Studio → Billing',
+    billing: () => 'Billing is off for your Google project — resumes once billing is turned on',
+    auth: () => 'Google rejected your key — replace it under API keys & plan',
+    region: () => 'Gemini is not available in the region the request came from — AI analysis resumes once that is solved',
+  };
+  function limCard(st, title) {
+    const lv = st.level || 'unknown';
+    const bk = st.block && st.block.kind;
+    const b = bk ? `<div class="alert alert-${bk === 'minute' || bk === 'rate' ? 'warning' : 'danger'} oa-lim-note">${ico('alert', 'alert-icon')}<div class="alert-body"><b>${esc((LIM_BLOCK[bk] || (() => 'Paused by Google'))(st.block))}</b>${st.block.until ? `<div class="oa-small">Until ${esc(fmtDate(st.block.until, true))}</div>` : ''}</div></div>` : '';
+    const evExp = st.event && toDate(st.event.expires_at);
+    const ev = st.event && st.event.message && !(evExp && evExp.getTime() <= Date.now()) && st.event.message !== st.message ? `<div class="alert alert-warning oa-lim-note">${ico('alert', 'alert-icon')}<div class="alert-body"><b>Last error</b> <span class="oa-small oa-muted">· ${esc(ago(st.event.at))}</span><div>${esc(st.event.message)}</div></div></div>` : '';
+    const ms = (st.metrics || []).slice().sort((a, c) => (a.informational ? 1 : 0) - (c.informational ? 1 : 0));
+    return `<section class="oa-card oa-lim-card lv-${attr(lv)}" aria-label="${attr((title || st.label) + ': ' + (LIM_LV[lv] || LIM_LV.unknown)[1])}">
+      <div class="oa-card-head"><div><div class="oa-card-title">${esc(title || st.label)}${st.plan_name ? ` <span class="oa-muted" style="font-weight:500">· ${esc(st.plan_name)}</span>` : ''}</div><span class="oa-card-sub">${st.checked_at ? 'Checked ' + esc(ago(st.checked_at)) : 'Not checked yet'}</span></div>${limPill(lv)}</div>
+      ${st.message ? `<p class="oa-lim-msg">${esc(st.message)}</p>` : ''}${b}${ev}
+      ${ms.length ? `<div class="oa-lim-meters">${ms.map(m => limMeter(m, st)).join('')}</div>` : ''}</section>`;
+  }
+  const LIM_HEAD = { ok: ['success', 'Everything is within its limits', 'Your keys, tokens and plan have room left, and LeadAI\'s services are working.'],
+    warning: ['warning', 'Something is getting close to its limit', 'Nothing has stopped yet. See below what is filling up.'],
+    critical: ['danger', 'A limit is almost used up', 'Act soon, or the affected feature stops when it reaches 100%.'],
+    exhausted: ['danger', 'A limit has been reached', 'Something has stopped until it is topped up, upgraded or resets. See below.'],
+    error: ['danger', 'Something needs attention', 'A key or service is not working right now. See below.'],
+    unknown: ['info', 'Not checked yet', 'Some limits have not been read yet.'],
+    not_configured: ['info', 'Not set up', 'Some keys are not set up yet.'] };
+  ROUTES['api-limits'] = {
+    title: () => 'API usage & limits',
+    async render(v) {
+      const d = await api('/api/org-admin/api-limits');
+      if (!v.alive()) return;
+      paintApiLimits(v, d);
+    },
+  };
+  function paintApiLimits(v, d) {
+    const lv = d.level || 'ok', h = LIM_HEAD[lv] || LIM_HEAD.unknown, links = d.links || {};
+    const cov = d.coverage || {}, own = d.own_keys || [], svc = d.services || [];
+    const hashOf = (l, def) => { const m = /#([\w\/-]+)/.exec(l || ''); return '#' + (m ? m[1] : def); };
+    const keyTitle = { apify: 'Your Apify account', gemini: 'Your Gemini key' };
+    const integ = hashOf(links.integrations, 'integrations'), subs = hashOf(links.subscription, 'subscription');
+    v.el.innerHTML = head('API usage & limits', 'How close your organization is to its limits — your own API keys, your LeadAI tokens and your plan — and whether the LeadAI services you rely on are working.',
+      (d.can_refresh ? `<button type="button" class="btn btn-primary" data-lim-check>${ico('refresh')} Check now</button>` : '') +
+      `<a class="btn btn-secondary" href="${attr(integ)}">${ico('key')} API keys &amp; plan</a><a class="btn btn-secondary" href="${attr(subs)}">${ico('card')} Subscription</a>`) +
+      `<div class="alert alert-${h[0]} oa-lim-level" role="status">${ico(lv === 'ok' ? 'info' : 'alert', 'alert-icon')}<div class="alert-body"><div class="alert-title">${esc(h[1])} ${limPill(lv)}</div>${esc(h[2])}</div></div>
+      <p class="oa-small oa-muted oa-lim-status" data-lim-note aria-live="polite"></p>
+      ${svc.length ? `<section class="oa-card oa-lim-svc-card" aria-labelledby="lim-svc-t"><div class="oa-card-head"><div><div class="oa-card-title" id="lim-svc-t">LeadAI services you use</div><span class="oa-card-sub">Run by LeadAI for your organization — our team is alerted when one has a problem.</span></div></div>
+        <ul class="oa-lim-svc">${svc.map(s => `<li><div class="oa-lim-svc-main"><b>${esc(s.label)}</b><span class="oa-small oa-muted">${esc(s.message || '')}</span></div>${limPill(s.level)}</li>`).join('')}</ul></section>` : ''}
+      <h2 class="oa-section-title oa-lim-h">Your own API keys</h2>
+      ${own.length ? `<div class="oa-lim-grid">${own.map(st => limCard(st, keyTitle[st.provider])).join('')}</div>`
+        : `<div class="oa-card"><p class="oa-muted oa-small" style="margin:0">LeadAI provides Apify and Gemini for you, so there is no key of yours to watch. <a class="oa-link" href="${attr(integ)}">Bring your own key to pay less →</a></p></div>`}
+      ${own.length && (cov.apify !== 'own' || cov.gemini !== 'own') ? `<p class="oa-hint" style="margin-top:8px">LeadAI provides ${cov.apify !== 'own' ? 'Apify' : 'Gemini'} for you — its status is under LeadAI services above.</p>` : ''}
+      <h2 class="oa-section-title oa-lim-h">LeadAI tokens &amp; plan</h2>
+      <div class="oa-lim-grid">${d.tokens ? limCard(d.tokens, 'LeadAI tokens') : `<div class="oa-card"><div class="oa-card-title">LeadAI tokens</div><p class="oa-muted oa-small">Your plan is not token-metered.</p></div>`}
+        ${d.plan ? limCard(d.plan, 'Plan limits this period') : `<div class="oa-card"><div class="oa-card-title">Plan limits</div><p class="oa-muted oa-small">Your plan has no monthly limits.</p></div>`}</div>`;
+    const btn = $('[data-lim-check]', v.el);
+    if (btn) btn.onclick = async () => {
+      busy(btn, true, 'Checking…');
+      try {
+        const r = await api('/api/org-admin/api-limits/refresh', { method: 'POST' });
+        if (!v.alive()) return;
+        paintApiLimits(v, r); toast('Your keys were checked.', 'success');
+      } catch (e) {
+        const det = e.data && e.data.detail;
+        const msg = e.status === 429 && det && det.message ? det.message + (det.retry_after ? ` (about ${Math.max(1, Math.ceil(det.retry_after / 60))} min)` : '') : e.message;
+        const n = $('[data-lim-note]', v.el); if (n) n.textContent = msg;
+        toast(msg, 'error');
+      } finally { if (btn.isConnected) busy(btn, false); }
+    };
+  }
+  /** Dashboard: a small banner when something is at warning or worse (best effort). */
+  function limitsBanner(d) {
+    if (!d || !LIM_BAD(d.level)) return '';
+    const items = (d.own_keys || []).concat([d.tokens, d.plan].filter(Boolean)).concat(d.services || [])
+      .filter(x => LIM_BAD(x.level)).sort((a, c) => (LIM_RANK[c.level] || 0) - (LIM_RANK[a.level] || 0));
+    const top = items[0], h = LIM_HEAD[d.level];
+    return `<div class="alert alert-${d.level === 'warning' ? 'warning' : 'danger'}" data-lim-banner>${ico('gauge', 'alert-icon')}<div class="alert-body"><div class="alert-title">${esc(h[1])}</div>${top ? esc(top.label + ': ' + top.message) : ''}${items.length > 1 ? ` <span class="oa-muted">(+${items.length - 1} more)</span>` : ''}<div class="alert-actions"><a href="#api-limits">See API usage &amp; limits</a></div></div></div>`;
+  }
 
   function renderIntegrations(v, st) {
     async function reload() {
@@ -2996,9 +3113,9 @@
         filters: [{ name: 'unread', label: 'Show', type: 'select', all: 'All notifications', options: [['true', 'Unread only']] }],
         columns: [
           { label: 'Notification', render: r => `<b>${esc(r.title)}</b>${r.read ? '' : ' <span class="badge badge-primary">New</span>'}<div class="oa-small oa-muted">${esc(r.message || '')}</div>` },
-          { label: 'Type', render: r => pill(r.severity === 'danger' ? 'failed' : r.severity === 'warning' ? 'pending' : r.severity === 'success' ? 'completed' : 'info', label(r.type)) },
+          { label: 'Type', render: r => pill(r.type === 'api_limit_recovered' ? 'completed' : r.severity === 'danger' ? 'failed' : r.severity === 'warning' ? 'pending' : r.severity === 'success' ? 'completed' : 'info', NOTIF_TYPE[r.type] || label(r.type)) },
           { label: 'When', render: r => timeTag(r.created_at) },
-          { label: '', render: r => r.read ? '' : '<button type="button" class="btn btn-ghost btn-sm" data-act="read">Mark read</button>' },
+          { label: '', render: r => (notifHash(r) !== '#notifications' ? `<a class="btn btn-secondary btn-sm" href="${attr(notifHash(r))}">Open</a> ` : '') + (r.read ? '' : '<button type="button" class="btn btn-ghost btn-sm" data-act="read">Mark read</button>') },
         ],
         empty: { title: 'You\'re all caught up', desc: 'New notifications for your organization will appear here.' },
         async onAction(act, r) { try { await api('/api/notifications/read', { method: 'POST', body: { id: r.id } }); t.reload(); refreshBell(); } catch (e) { toast(e.message, 'error'); } },
@@ -3379,13 +3496,18 @@
     $(pop).hidden = !open; $(btn).setAttribute('aria-expanded', String(open));
     if (open && onOpen) onOpen();
   }
+  // where a notification opens in this portal (its /org-admin#… link, else the notification list)
+  function notifHash(n) { const m = /^\/org-admin(#[\w\/-]+)/.exec(String((n && n.link) || '')); return m ? m[1] : '#notifications'; }
+  function notifTone(n) { return n.type === 'api_limit_recovered' ? 'success' : n.severity === 'danger' ? 'danger' : n.severity === 'warning' ? 'warning' : n.severity === 'success' ? 'success' : 'info'; }
+  const NOTIF_TYPE = { api_limit_warning: 'Limit warning', api_limit_critical: 'Limit almost reached', api_limit_exhausted: 'Limit reached',
+    api_limit_recovered: 'Back to normal', quota_warning: 'Plan limit' };
   async function refreshBell() {
     try {
       const d = await api('/api/notifications?limit=8', { noRedirect: true });
       const c = $('#oa-bell-count'); c.hidden = !d.unread; c.textContent = d.unread > 99 ? '99+' : String(d.unread);
       const nc = $('[data-nav-count]'); if (nc) { nc.hidden = !d.unread; nc.textContent = String(d.unread); }
       $('#oa-bell').setAttribute('aria-label', 'Notifications' + (d.unread ? ` (${d.unread} unread)` : ''));
-      $('#oa-notif-list').innerHTML = (d.items || []).length ? d.items.map(n => `<button type="button" class="oa-pop-item ${n.read ? '' : 'unread'}" data-nid="${attr(n.id)}"><b>${esc(n.title)}</b><small>${esc(n.message || '')}</small><small>${esc(ago(n.created_at))}</small></button>`).join('') : `<div class="oa-state" style="padding:24px">${ico('bell')}<p>No notifications yet.</p></div>`;
+      $('#oa-notif-list').innerHTML = (d.items || []).length ? d.items.map(n => `<button type="button" class="oa-pop-item ${n.read ? '' : 'unread'}" data-nid="${attr(n.id)}" data-link="${attr(notifHash(n))}"><b><span class="oa-sev" data-tone="${attr(notifTone(n))}" aria-hidden="true"></span>${esc(n.title)}</b><small>${esc(n.message || '')}</small><small>${esc(ago(n.created_at))}</small></button>`).join('') : `<div class="oa-state" style="padding:24px">${ico('bell')}<p>No notifications yet.</p></div>`;
     } catch (_) { /* bell is best effort */ }
   }
   function paintUser() {
@@ -3485,7 +3607,7 @@
     $('#oa-notif-list').addEventListener('click', async (e) => {
       const b = e.target.closest('[data-nid]'); if (!b) return;
       try { await api('/api/notifications/read', { method: 'POST', body: { id: b.dataset.nid } }); } catch (_) { /* */ }
-      closePops(); refreshBell(); location.hash = '#notifications';
+      closePops(); refreshBell(); location.hash = b.dataset.link || '#notifications';
     });
     $('#oa-search').onsubmit = (e) => { e.preventDefault(); const q = $('#oa-search-input').value.trim(); if (q) { location.hash = '#find?q=' + encodeURIComponent(q); $('#oa-search').classList.remove('open'); } };
     $('#oa-search-toggle').onclick = () => { const f = $('#oa-search'); f.classList.toggle('open'); if (f.classList.contains('open')) $('#oa-search-input').focus(); };

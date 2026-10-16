@@ -789,17 +789,24 @@ def _call_gemini(system_prompt: str, user_content: str, temperature: float = 0.1
     for attempt in range(retries + 1):
         try:
             resp = client.post(url, json=payload, headers=headers)
-            if own_key and resp.status_code in (400, 401, 403, 429):
-                _own_gemini_failure(organization_id, resp.status_code)
-                raise RuntimeError(f"Your organization's Gemini key returned HTTP {resp.status_code}")
-            if resp.status_code == 429:
-                # open the circuit for 30s to allow per-minute quota to recover
-                _GEMINI_DISABLED_UNTIL = time.time() + 30
+            code = resp.status_code if isinstance(getattr(resp, "status_code", None), int) else 0
+            # quota / billing answers go to the API limits monitor (blocked-until state + alerts)
+            block = None
+            if code in (400, 401, 402, 403, 429):
+                # an own key's failure is also told to its admins by _own_gemini_failure
+                block = _note_gemini_limit(organization_id, key_source, code, resp, admins_notified=own_key)
+            if own_key and code in (400, 401, 402, 403, 429):
+                _own_gemini_failure(organization_id, code, block)
+                raise RuntimeError(f"Your organization's Gemini key returned HTTP {code}")
+            if code == 429:
+                # open the circuit for 30s to allow per-minute quota to recover; a used-up
+                # daily quota keeps it open longer (it only resets at midnight Pacific)
+                _GEMINI_DISABLED_UNTIL = time.time() + (900 if (block or {}).get("kind") == "daily" else 30)
                 _GEMINI_FAILURES_COUNT += 1
                 _GEMINI_LAST_FAILURE = f"429 Rate Limit at {time.strftime('%H:%M:%S')}"
                 logger.warning(f"[Gemini] 429 rate limit, circuit open until "
                                f"{time.strftime('%H:%M:%S', time.localtime(_GEMINI_DISABLED_UNTIL))}")
-                if attempt < retries:
+                if attempt < retries and (block or {}).get("kind") != "daily":
                     wait = backoff[min(attempt, len(backoff) - 1)]
                     time.sleep(wait)
                     continue
@@ -860,12 +867,37 @@ def _call_gemini(system_prompt: str, user_content: str, temperature: float = 0.1
 _ORG_GEMINI_COOLDOWN: Dict[str, float] = {}
 
 
-def _own_gemini_failure(organization_id: Optional[str], status: int) -> None:
+def _note_gemini_limit(organization_id: Optional[str], key_source: str, status: int,
+                       resp: Any, admins_notified: bool = False) -> Optional[Dict[str, Any]]:
+    """Hand a refused Gemini answer to the API limits monitor; returns the
+    parsed block ({kind: daily|minute|rate|credit|billing|auth, until}) or None."""
+    try:
+        try:
+            body = resp.json()
+        except Exception:
+            body = {}
+        from app.limits.service import record_gemini_error
+        src = "platform" if key_source == "platform" else "organization"
+        st = record_gemini_error(organization_id, src, status, body if isinstance(body, dict) else {},
+                                 admins_notified=admins_notified)
+        return (st or {}).get("block")
+    except Exception as e:  # the monitor never breaks analysis
+        logger.debug("gemini limit note failed: %s", e)
+        return None
+
+
+def _own_gemini_failure(organization_id: Optional[str], status: int,
+                        block: Optional[Dict[str, Any]] = None) -> None:
     """An organization's own Gemini key failed: pause it (that org only) and tell its admins."""
     from app.services.tenant_api_keys import record_key_failure
     if organization_id:
-        _ORG_GEMINI_COOLDOWN[str(organization_id)] = time.time() + 60
-    if status == 429:
+        daily = (block or {}).get("kind") == "daily"
+        _ORG_GEMINI_COOLDOWN[str(organization_id)] = time.time() + (900 if daily else 60)
+    if status == 402:
+        code, msg = ("OWN_GEMINI_QUOTA_EXCEEDED",
+                     "Your Google Gemini key is out of prepaid credit. Comments are analysed with rules until "
+                     "credit is added in Google AI Studio → Billing.")
+    elif status == 429:
         code, msg = ("OWN_GEMINI_QUOTA_EXCEEDED",
                      "Your Google Gemini key is out of quota or rate-limited. Comments are analysed with rules "
                      "until Google accepts requests again. Check your quota in Google AI Studio.")
@@ -988,7 +1020,9 @@ def analyze_comment_ai(comment_text: Optional[str], author_name: str = "",
             return {**rule, "analyzed_by": "rules",
                     "reason": rule["reason"] + " (your own Gemini key is missing — rule-based pass)"}
         gemini_key_avail = bool(key)
+        key_scope = "organization" if source == "organization" else "platform"
     else:
+        key_scope = "platform"
         gemini_key_avail = bool(get_envvar_str("GEMINI_API_KEY", settings.gemini_api_key))
 
     if not gemini_key_avail:
@@ -1063,6 +1097,7 @@ def analyze_comment_ai(comment_text: Optional[str], author_name: str = "",
             tokens_out=meta.get("tokens_out", 0),
             latency_ms=meta.get("latency_ms", 0.0),
             status="success",
+            key_source=key_scope,
         )
         return {
             **parsed,
@@ -1087,6 +1122,7 @@ def analyze_comment_ai(comment_text: Optional[str], author_name: str = "",
             prompt_version=prompt_version,
             status="fallback" if rule_fallback else "failure",
             error_message=str(e),
+            key_source=key_scope,
         )
         if not rule_fallback:
             return {**rule, "analyzed_by": "rules",

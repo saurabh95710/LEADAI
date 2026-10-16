@@ -35,6 +35,24 @@ This document details intentional architectural trade-offs, default fallbacks, a
 - Scraping runs rely on Apify actors. If an actor experiences upstream network blocks or platform layout changes, Apify may return empty datasets or actor run errors.
 - LeadAI surfaces these upstream errors as `scrape_failed` with the exact Apify actor run link for administrative inspection.
 
+### Keyword search: data varies by platform
+- Each platform exposes different data, so some filters can't be checked everywhere ([KEYWORD_SEARCH.md](KEYWORD_SEARCH.md) has the full table):
+  - **Facebook and LinkedIn** don't expose a total post count.
+  - **YouTube** has no business-account flag.
+  - **No platform** exposes language.
+  - **Email** isn't available from Instagram, YouTube or LinkedIn; contact info there comes from bio text and links.
+
+  Such filters are shown as "unsupported" and skipped, unless Strict is on.
+- **Counts are snapshots** of what a logged-out visitor sees. Instagram can hide like counts, and pinned posts can make a profile look more recent than it is.
+- **Discovery is capped:**
+  - Instagram returns at most 250 profiles per keyword.
+  - YouTube discovery searches videos and picks out their channels, so a keyword yields fewer channels than videos.
+  - LinkedIn search returns at most about 1,000 companies per query.
+- **Facebook:** discovery uses the search actor's default mode (search engine results). Some pages show limited data to logged-out visitors.
+- **LinkedIn:** discovery relies on a third-party actor and is switched off by default; LinkedIn's terms forbid scraping.
+- **Actor output:** some fields in the actors' output aren't documented (for example whether Facebook native search returns email and followers, and whether YouTube search items carry subscriber counts). Adapters treat a missing field as unknown and fetch details when needed. The first real runs on each platform should be checked.
+- **Cost estimates are worst case** (every candidate passes). Apify prices change; the USD figure is a rough guide.
+
 ### AI Token & API Rate Limits
 - Calls to Google Gemini are subject to per-minute request limits (RPM) and token limits (TPM) imposed by Google Cloud project quotas.
 - For high-volume organizations running multiple simultaneous scans, batch classification jobs will wait for retry backoff if rate limits are exceeded.

@@ -77,6 +77,125 @@ def _url_derived_page(platform: str, url: str, run_id: str,
     }
 
 
+def upsert_post(db, post_json: Dict[str, Any], page_doc: Dict[str, Any], run_id: str,
+                owner: Dict[str, Any]) -> Dict[str, Any]:
+    """Store one normalized post under ``page_doc`` (dedupe by post_url, or the
+    native post_id, per page). Returns the stored post doc. Shared by URL and
+    keyword search so both write identical post documents."""
+    page_id = str(page_doc["_id"])
+    post_json["_id"] = ObjectId()
+    post_json["page_ref"] = page_id
+    post_json["search_run_id"] = run_id
+    post_json["provider"] = page_doc.get("provider") or "apify"
+    post_json.update(owner)
+    post_json["created_at"] = utcnow()
+    post_json["updated_at"] = utcnow()
+    # Deduplicate by post_url per page, and also by native post_id when
+    # available — prevents the same video/post stored under URL variants.
+    dedup_query: Dict[str, Any] = {"post_url": post_json["post_url"], "page_ref": page_id}
+    if post_json.get("post_id"):
+        dedup_query = {"$or": [
+            {"post_url": post_json["post_url"], "page_ref": page_id},
+            {"post_id": post_json["post_id"], "page_ref": page_id},
+        ]}
+    existing = db.facebook_posts.find_one(dedup_query)
+    if existing:
+        # Only update fields that are not None — never overwrite real data
+        # with null from a duplicate/variant record.
+        update = {k: v for k, v in post_json.items()
+                  if v is not None and k not in ("_id", "created_at")}
+        if update:
+            db.facebook_posts.update_one(
+                {"_id": existing["_id"]}, {"$set": update})
+        return {**existing, **post_json, "_id": existing["_id"]}
+    db.facebook_posts.insert_one(post_json)
+    return post_json
+
+
+def upsert_comment(db, comment_json: Dict[str, Any], post: Dict[str, Any], run_id: str,
+                   owner: Dict[str, Any]) -> bool:
+    """Store one normalized comment of ``post``. Every scraped comment is
+    kept; one with a phone number or email is flagged ``has_contact``.
+    Returns True when a new comment was inserted (False = updated a dup)."""
+    from app.pipeline.comment_ai import has_contact_info
+    comment_json["has_contact"] = bool(has_contact_info(comment_json.get("text")))
+    comment_json["post_ref"] = str(post["_id"])
+    comment_json["search_run_id"] = run_id
+    comment_json.update(owner)
+    comment_json["created_at"] = utcnow()
+    comment_json["updated_at"] = utcnow()
+
+    # Multi-key deduplication so comments never overwrite each other
+    existing = None
+    if comment_json.get("comment_id"):
+        existing = db.facebook_comments.find_one({"post_ref": str(post["_id"]), "comment_id": comment_json["comment_id"]})
+    if not existing and comment_json.get("comment_url") and comment_json.get("comment_url") != post.get("post_url"):
+        existing = db.facebook_comments.find_one({"post_ref": str(post["_id"]), "comment_url": comment_json["comment_url"]})
+    if not existing and comment_json.get("text"):
+        existing = db.facebook_comments.find_one({"post_ref": str(post["_id"]), "text": comment_json["text"], "author_name": comment_json.get("author_name")})
+
+    if existing:
+        db.facebook_comments.update_one({"_id": existing["_id"]}, {"$set": {
+            **{k: v for k, v in comment_json.items() if v is not None}, "updated_at": utcnow()}})
+        return False
+    comment_json["_id"] = ObjectId()
+    db.facebook_comments.insert_one(comment_json)
+    return True
+
+
+def filter_and_analyze_post(db, run_id: str, post: Dict[str, Any], stored_for_post: int) -> None:
+    """Comment filter (run config → active rule) then AI analysis of one
+    post's stored comments — the same for URL and keyword search. Comments
+    not matching the filter stay stored but skip the AI stage. Never raises."""
+    try:
+        from app.pipeline.comment_ai import analyze_comments_for_post
+        from app.pipeline import comment_filter as cfilter
+
+        run_doc = db.search_history.find_one({"run_id": run_id})
+        rule = cfilter.resolve_effective_rule(db, run_doc)
+        filter_summary = None
+        comment_refs = None
+        if rule:
+            filter_summary = cfilter.filter_comments_for_post(
+                db, str(post["_id"]), rule,
+                search_run_id=run_id,
+                platform=post.get("platform"))
+            if not cfilter.rule_is_empty(rule):
+                comment_refs = (filter_summary.get("matched_refs")
+                                or [])
+            db.facebook_posts.update_one(
+                {"_id": post["_id"]}, {"$set": {
+                    "keyword_filter": {
+                        "rule_id": filter_summary.get("rule_id"),
+                        "total": filter_summary.get("total", 0),
+                        "matched": filter_summary.get("matched", 0),
+                        "not_matched": filter_summary.get(
+                            "not_matched", 0),
+                        "no_filter": filter_summary.get(
+                            "no_filter", 0),
+                    }, "updated_at": utcnow()}})
+        analyze_comments_for_post(
+            str(post["_id"]), comment_refs=comment_refs,
+            filter_summary=filter_summary)
+        if rule:
+            db.search_history.update_one(
+                {"run_id": run_id}, {"$set": {
+                    "comment_filter_summary": {
+                        "rule_id": filter_summary.get("rule_id"),
+                        "total": filter_summary.get("total",
+                                                    stored_for_post),
+                        "matched": filter_summary.get(
+                            "matched", stored_for_post),
+                        "not_matched": filter_summary.get(
+                            "not_matched", 0),
+                        "no_filter": filter_summary.get(
+                            "no_filter", 0),
+                    }, "updated_at": utcnow()}})
+    except Exception as e:
+        logger.warning(f"[URL SEARCH] AI comment analysis failed for "
+                       f"{post.get('post_url')}: {e}")
+
+
 def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
                    max_comments_per_post: int = 30,
                    organization_id: Optional[str] = None,
@@ -189,9 +308,11 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
         # keep the run alive: page details may be unavailable (actor access /
         # credits / private page) while posts are still scrapeable
         logger.warning("[URL SEARCH] page details for %s failed: %s", platform, e)
+        from app.connectors.error_explain import short_reason
         page_error = {
             "errorType": getattr(e, "error_type", "API_ERROR"),
-            "message": str(e),
+            "message": short_reason(e, platform=platform, stage="page"),
+            "technical": str(e)[:500],
         }
         page_items = []
 
@@ -258,7 +379,10 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
             return cancelled()
         logger.exception("[URL SEARCH] posts scrape failed")
         post_items = []
-        progress(message=f"Posts collection failed: {e}", posts_error=str(e))
+        from app.connectors.error_explain import short_reason
+        reason = short_reason(e, platform=platform, stage="posts")
+        progress(message=f"Posts couldn't be collected: {reason}", posts_error=reason,
+                 posts_error_technical=str(e)[:500])
     for item in post_items:
         if should_abort():
             progress(status="cancelled", phase="cancelled",
@@ -271,34 +395,12 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
             continue
         if not post_json or not post_json.get("post_url"):
             continue
-        post_json["_id"] = ObjectId()
-        post_json["page_ref"] = page_id
-        post_json["search_run_id"] = run_id
-        post_json["provider"] = page_doc.get("provider") or "apify"
-        post_json.update(owner)
-        post_json["created_at"] = utcnow()
-        post_json["updated_at"] = utcnow()
-        # Deduplicate by post_url per page, and also by native post_id when
-        # available — prevents the same video/post stored under URL variants.
-        dedup_query: Dict[str, Any] = {"post_url": post_json["post_url"], "page_ref": page_id}
-        if post_json.get("post_id"):
-            dedup_query = {"$or": [
-                {"post_url": post_json["post_url"], "page_ref": page_id},
-                {"post_id": post_json["post_id"], "page_ref": page_id},
-            ]}
-        existing = db.facebook_posts.find_one(dedup_query)
-        if existing:
-            # Only update fields that are not None — never overwrite real data
-            # with null from a duplicate/variant record.
-            update = {k: v for k, v in post_json.items()
-                      if v is not None and k not in ("_id", "created_at")}
-            if update:
-                db.facebook_posts.update_one(
-                    {"_id": existing["_id"]}, {"$set": update})
-            post_docs.append({**existing, **post_json})
-        else:
-            db.facebook_posts.insert_one(post_json)
-            post_docs.append(post_json)
+        stored = upsert_post(db, post_json, page_doc, run_id, owner)
+        # the same post twice (URL variants / repeated item): keep it once so
+        # its comments are fetched (and paid) once, never overwritten by a re-fetch
+        if any(p["_id"] == stored["_id"] for p in post_docs):
+            continue
+        post_docs.append(stored)
 
     db.facebook_pages.update_one({"_id": page_doc["_id"]}, {"$set": {
         "posts_status": "completed" if post_docs else "empty",
@@ -335,7 +437,6 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
     progress(phase="comments", message="Collecting comments…")
     comment_docs = 0
     if getattr(scraper, "comments_supported", True) and post_docs:
-        from app.pipeline.comment_ai import has_contact_info
         from app.admin.settings import effective_limits
         lim = effective_limits()
         cap = max(500, lim.get("global_max_comments", 500))
@@ -352,6 +453,7 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
                 "comments_status": "running", "comments_error": None,
                 "scraped_comment_count": 0, "comments_started_at": utcnow(),
                 "updated_at": utcnow()}})
+            comments_error = None
             try:
                 raw_comments = scraper.fetch_comments(post["post_url"], per_post,
                                                       should_abort=should_abort)
@@ -361,6 +463,8 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
                              message="Search cancelled by user", completed_at=utcnow())
                     return cancelled()
                 logger.warning(f"[URL SEARCH] comments failed for {post['post_url']}: {e}")
+                from app.connectors.error_explain import short_reason
+                comments_error = short_reason(e, platform=platform, stage="comments")
                 raw_comments = []
             stored_for_post = 0
             for item in raw_comments:
@@ -378,29 +482,7 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
                 # every scraped comment is kept; comments carrying a phone
                 # number or email are flagged (has_contact) so they surface
                 # at the top of the comments view as leads
-                comment_json["has_contact"] = bool(
-                    has_contact_info(comment_json.get("text")))
-                comment_json["post_ref"] = str(post["_id"])
-                comment_json["search_run_id"] = run_id
-                comment_json.update(owner)
-                comment_json["created_at"] = utcnow()
-                comment_json["updated_at"] = utcnow()
-
-                # Multi-key deduplication so comments never overwrite each other
-                existing = None
-                if comment_json.get("comment_id"):
-                    existing = db.facebook_comments.find_one({"post_ref": str(post["_id"]), "comment_id": comment_json["comment_id"]})
-                if not existing and comment_json.get("comment_url") and comment_json.get("comment_url") != post.get("post_url"):
-                    existing = db.facebook_comments.find_one({"post_ref": str(post["_id"]), "comment_url": comment_json["comment_url"]})
-                if not existing and comment_json.get("text"):
-                    existing = db.facebook_comments.find_one({"post_ref": str(post["_id"]), "text": comment_json["text"], "author_name": comment_json.get("author_name")})
-
-                if existing:
-                    db.facebook_comments.update_one({"_id": existing["_id"]}, {"$set": {
-                        **{k: v for k, v in comment_json.items() if v is not None}, "updated_at": utcnow()}})
-                else:
-                    comment_json["_id"] = ObjectId()
-                    db.facebook_comments.insert_one(comment_json)
+                if upsert_comment(db, comment_json, post, run_id, owner):
                     comment_docs += 1
                     stored_for_post += 1
 
@@ -411,61 +493,15 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
             # mark the post completed as soon as comments are stored so the
             # UI can show them immediately — AI analysis below only refines
             db.facebook_posts.update_one({"_id": post["_id"]}, {"$set": {
-                "comments_status": "completed" if stored_for_post else "empty",
+                "comments_status": "completed" if stored_for_post else ("error" if comments_error else "empty"),
+                "comments_error": None if stored_for_post else comments_error,
                 "scraped_comment_count": stored_for_post,
                 "comments_collected_at": utcnow(), "updated_at": utcnow()}})
             # analyze each post's comments through the same AI pipeline used
             # by URL search runs so leads get phone/email/intent/score etc.
             if stored_for_post:
-                try:
-                    from app.pipeline.comment_ai import analyze_comments_for_post
-                    from app.pipeline import comment_filter as cfilter
-
-                    # Keyword Filter layer: run config → active rule. Comments
-                    # not matching stay stored but skip the AI stage.
-                    run_doc = db.search_history.find_one({"run_id": run_id})
-                    rule = cfilter.resolve_effective_rule(db, run_doc)
-                    filter_summary = None
-                    comment_refs = None
-                    if rule:
-                        filter_summary = cfilter.filter_comments_for_post(
-                            db, str(post["_id"]), rule,
-                            search_run_id=run_id,
-                            platform=post.get("platform"))
-                        if not cfilter.rule_is_empty(rule):
-                            comment_refs = (filter_summary.get("matched_refs")
-                                            or [])
-                        db.facebook_posts.update_one(
-                            {"_id": post["_id"]}, {"$set": {
-                                "keyword_filter": {
-                                    "rule_id": filter_summary.get("rule_id"),
-                                    "total": filter_summary.get("total", 0),
-                                    "matched": filter_summary.get("matched", 0),
-                                    "not_matched": filter_summary.get(
-                                        "not_matched", 0),
-                                    "no_filter": filter_summary.get(
-                                        "no_filter", 0),
-                                }, "updated_at": utcnow()}})
-                    analyze_comments_for_post(
-                        str(post["_id"]), comment_refs=comment_refs,
-                        filter_summary=filter_summary)
-                    if rule:
-                        db.search_history.update_one(
-                            {"run_id": run_id}, {"$set": {
-                                "comment_filter_summary": {
-                                    "rule_id": filter_summary.get("rule_id"),
-                                    "total": filter_summary.get("total",
-                                                                stored_for_post),
-                                    "matched": filter_summary.get(
-                                        "matched", stored_for_post),
-                                    "not_matched": filter_summary.get(
-                                        "not_matched", 0),
-                                    "no_filter": filter_summary.get(
-                                        "no_filter", 0),
-                                }, "updated_at": utcnow()}})
-                except Exception as e:
-                    logger.warning(f"[URL SEARCH] AI comment analysis failed for "
-                                   f"{post['post_url']}: {e}")
+                # Keyword Filter layer + AI analysis (shared with keyword search)
+                filter_and_analyze_post(db, run_id, post, stored_for_post)
 
     audit_run("scrape.comments_saved", "scrape", count=comment_docs,
               posts=len(post_docs), page_id=page_id, platform=platform)
@@ -504,7 +540,7 @@ def run_url_search(run_id: str, initial_url: str, max_posts: int = 20,
     audit_run("apify.job_completed", "apify", platform=platform,
               posts=len(post_docs), comments=comment_docs,
               apify_run_id=last_call.get("runId"),
-              usage_usd=last_call.get("usageUsd"))
+              usage_usd=last_call.get("usageTotalUsd", last_call.get("usageUsd")))
     if owner.get("user_id"):
         try:
             from app.events.notifications import notify_user
@@ -555,10 +591,16 @@ class UrlSearchThread(threading.Thread):
         self.user_id = user_id
 
     def run(self):
-        from app.queue.service import complete_job, enqueue_job, fail_job
+        import contextlib
 
+        from app.queue.service import claim_inline_job, complete_job, fail_job, keep_lease_alive
+
+        # The job is recorded already claimed by this thread, so the queue
+        # worker doesn't run it a second time (which paid Apify twice); if
+        # this process dies, the lease lapses and the worker resumes it.
+        owner: Optional[str] = None
         try:
-            enqueue_job(
+            owner = claim_inline_job(
                 "url_search",
                 payload={
                     "run_id": self.run_id,
@@ -574,15 +616,18 @@ class UrlSearchThread(threading.Thread):
                 created_by=self.created_by,
                 user_id=self.user_id,
             )
-        except Exception as q_err:  # noqa: BLE001
-            logger.warning("[URL SEARCH] Could not enqueue durable job: %s", q_err)
+            if owner is None:
+                return                      # already running (or ran) elsewhere
+        except Exception as q_err:  # noqa: BLE001 — no durable record; still run it
+            logger.warning("[URL SEARCH] Could not record durable job: %s", q_err)
 
         try:
-            res = run_url_search(self.run_id, self.url, self.max_posts,
-                                 self.max_comments_per_post,
-                                 organization_id=self.organization_id,
-                                 created_by=self.created_by,
-                                 user_id=self.user_id)
+            with (keep_lease_alive(self.run_id, owner) if owner else contextlib.nullcontext()):
+                res = run_url_search(self.run_id, self.url, self.max_posts,
+                                     self.max_comments_per_post,
+                                     organization_id=self.organization_id,
+                                     created_by=self.created_by,
+                                     user_id=self.user_id)
             try:
                 complete_job(self.run_id, res if isinstance(res, dict) else None)
             except Exception as c_err:  # noqa: BLE001

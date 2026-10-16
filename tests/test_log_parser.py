@@ -645,3 +645,55 @@ def test_module_from_the_apps_own_log_format():
     assert extract_module("16:26:48 INFO    [app.db.mongo] [request_id=-] MongoDB ok") == "app.db.mongo"
     assert extract_module("16:26:48 INFO app.db.mongo: old style") == "app.db.mongo"
     assert extract_module("not a log line") == ""
+
+
+# ── readable entries: whole tracebacks, plain explanations ──────────────────
+
+class TestReadableEntries:
+    TRACE = [
+        "15:49:47 ERROR   [app.queue.service] [request_id=-] Error in DurableQueueWorker loop",
+        "Traceback (most recent call last):",
+        '  File "/home/leadai/leadai/app/queue/service.py", line 218, in claim_job',
+        "    claimed = db[COLL_JOBS].find_one_and_update(",
+        "        query,",
+        "    ...<2 lines>...",
+        "    )",
+        '  File "/home/leadai/leadai/.venv/lib/python3.11/site-packages/pymongo/synchronous/topology.py", line 359, in _select_servers_loop',
+        "    raise ServerSelectionTimeoutError(",
+        "",
+        "During handling of the above exception, another exception occurred:",
+        "",
+        "pymongo.errors.ServerSelectionTimeoutError: ac-x.mongodb.net:27017: [Errno 11001] getaddrinfo failed",
+        "15:50:00 INFO    [app.main] [request_id=-] Server ready",
+    ]
+
+    def test_traceback_is_one_entry_with_a_plain_summary(self):
+        es = parse_log_lines(self.TRACE)
+        assert len(es) == 2 and [e["level"] for e in es] == ["ERROR", "INFO"]
+        e = es[0]
+        assert e["error_type"] == "pymongo.errors.ServerSelectionTimeoutError"
+        assert e["summary"].startswith("Couldn't reach the database (MongoDB)")
+        assert "DNS" in e["summary"] and "Atlas" in e["hint"]
+        assert e["where"] == "app/queue/service.py line 218 (claim_job)"
+        assert "During handling" in e["stack_trace"]
+
+    def test_cut_off_traceback_is_not_unknown(self):
+        es = parse_log_lines(["    raise ServerSelectionTimeoutError(",
+                              "pymongo.errors.NetworkTimeout: ac-x.mongodb.net:27017: timed out",
+                              "15:50:00 INFO    [app.main] [request_id=-] Server ready"])
+        assert es[0]["level"] == "ERROR" and es[0]["partial"] is True
+        assert "older than the lines loaded" in es[0]["summary"]
+        assert all(e["level"] != "UNKNOWN" for e in es)
+
+    def test_slow_request_and_prefixes_are_readable(self):
+        e = parse_log_lines(["15:33:38 WARNING [app.slow_requests] [request_id=abc] slow request GET /login -> 304 in 3223 ms"])[0]
+        assert e["summary"] == "Slow page: GET /login took 3.2 s"
+        assert parse_log_line("15:33:38 INFO    [app.main] [request_id=-] Server ready")["summary"] == "Server ready"
+
+    def test_unexpected_error_names_the_type_and_place(self):
+        es = parse_log_lines(["10:00:00 ERROR   [app.api.routes.search] [request_id=x] boom",
+                              "Traceback (most recent call last):",
+                              '  File "/home/u/leadai/app/api/routes/search.py", line 12, in start',
+                              "KeyError: 'platform'"])
+        assert es[0]["summary"].startswith("Unexpected error: KeyError")
+        assert es[0]["where"] == "app/api/routes/search.py line 12 (start)"

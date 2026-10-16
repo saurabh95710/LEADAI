@@ -112,6 +112,75 @@ def enqueue_job(
     return job_id
 
 
+def claim_inline_job(
+    task_name: str,
+    payload: dict[str, Any],
+    *,
+    run_id: str,
+    max_retries: int = 3,
+    organization_id: str | None = None,
+    created_by: str | None = None,
+    user_id: str | None = None,
+    lease_sec: int = 120,
+) -> str | None:
+    """Record a job that THIS process runs right now, already claimed.
+
+    The job is stored as ``running`` with a lease owned by a fresh inline
+    worker id, so the queue worker never picks it up while it runs (it only
+    claims ``queued`` jobs or ``running`` ones whose lease expired). If this
+    process dies, the lease lapses and the worker resumes the job.
+
+    Returns the inline worker id when this process owns the job (keep the
+    lease alive with :func:`keep_lease_alive`), or None when the job already
+    existed — another process is running or has run it, so don't run it again.
+    """
+    db = get_sync_db()
+    if db is None:
+        raise RuntimeError("Database unavailable for job enqueueing")
+    worker_id = f"inline_{os.getpid()}_{uuid.uuid4().hex[:8]}"
+    now = utcnow()
+    doc = {
+        "job_id": run_id, "run_id": run_id, "task_name": task_name, "payload": payload,
+        "status": "running", "retries": 1, "max_retries": max_retries,
+        "organization_id": str(organization_id) if organization_id else None,
+        "created_by": created_by, "user_id": str(user_id) if user_id else None,
+        "locked_by": worker_id, "locked_until": now + timedelta(seconds=lease_sec),
+        "heartbeat_at": now, "created_at": now, "started_at": now, "completed_at": None,
+        "error": None, "updated_at": now,
+    }
+    res = db[COLL_JOBS].update_one({"job_id": run_id}, {"$setOnInsert": doc}, upsert=True)
+    if res.upserted_id is None:
+        logger.warning("Job %s already exists — not running it a second time", run_id)
+        return None
+    logger.info("Job %s (%s) started inline by %s", run_id, task_name, worker_id)
+    return worker_id
+
+
+class keep_lease_alive:
+    """``with keep_lease_alive(job_id, worker_id):`` renews the job's lease
+    every ``every_sec`` seconds while the block runs."""
+
+    def __init__(self, job_id: str, worker_id: str, every_sec: float = 30, lease_sec: int = 120):
+        self.job_id, self.worker_id = job_id, worker_id
+        self.every_sec, self.lease_sec = every_sec, lease_sec
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def __enter__(self) -> "keep_lease_alive":
+        def _beat():
+            while not self._stop.wait(self.every_sec):
+                try:
+                    heartbeat_job(self.job_id, self.worker_id, self.lease_sec)
+                except Exception:  # noqa: BLE001 — a missed beat only shortens the lease
+                    logger.debug("Lease renewal failed for %s", self.job_id)
+        self._thread = threading.Thread(target=_beat, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self._stop.set()
+
+
 def claim_job(worker_id: str, lock_duration_sec: int = 120) -> dict[str, Any] | None:
     """Atomically claim the next queued or recovered crashed job using lease locking."""
     db = get_sync_db()
@@ -483,4 +552,14 @@ def _handle_url_search(**payload) -> Any:
 
 
 register_task_handler("url_search", _handle_url_search)
+
+
+def _handle_keyword_search(**payload) -> Any:
+    """Resume a keyword search whose process died (stages already done are skipped)."""
+    from app.discovery.pipeline import run_keyword_search
+
+    return run_keyword_search(payload["run_id"])
+
+
+register_task_handler("keyword_search", _handle_keyword_search)
 

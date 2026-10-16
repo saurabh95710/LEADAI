@@ -134,17 +134,20 @@ class TestSearchOwnership:
     def test_search_history_insert_includes_created_by(self):
         from app.api.routes import search
         import inspect
-        src = inspect.getsource(search.start_url_search)
+        # the route delegates every check and the run record to admit_url_search
+        # (shared with the public API)
+        src = inspect.getsource(search.admit_url_search)
         assert "created_by" in src
 
     def test_creator_extraction_from_request(self):
         from app.api.routes import search
         import inspect
-        src = inspect.getsource(search.start_url_search)
+        route = inspect.getsource(search.start_url_search)
+        admit = inspect.getsource(search.admit_url_search)
         # the creator comes from the verified tenant context, never the request body
-        assert 'require_org_permission' in src
-        assert 'stamp(ctx' in src
-        assert 'created_by=ctx.email' in src
+        assert 'require_org_permission' in route and 'admit_url_search(' in route
+        assert 'stamp(ctx' in admit
+        assert 'created_by=ctx.email' in admit
 
 
 # ═══════════════════════════════════════════════════════════════════════════

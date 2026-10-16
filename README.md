@@ -8,7 +8,7 @@
 
 **LeadAI** is a multi-tenant B2B SaaS platform:
 
-1. It collects posts and comments from Facebook Pages, Instagram business profiles, YouTube channels and LinkedIn company pages using **Apify** actors.
+1. It collects posts and comments from Facebook Pages, Instagram business profiles, YouTube channels and LinkedIn company pages using **Apify** actors. You either paste a page's link, or type keywords and let LeadAI **find and filter the pages for you** (keyword search).
 2. It reads every comment with **Google Gemini** to find people who want to buy, and picks out their phone, email and budget.
 3. It hands the qualified leads to your sales team: assignment rules, follow-ups, SLA timers, exports and outbound webhooks.
 
@@ -61,7 +61,7 @@ Each portal has its own session scope: a customer session can't open an admin po
 | Portal | Address | Who | Main features |
 |---|---|---|---|
 | **Website** | `/`, `/pricing`, `/contact`, `/signup`, `/partners` | Anyone | Marketing pages managed from the CMS, and self-serve sign-up. A new customer gets a **free trial at once** (default 3 days, limited tokens; set in Super Admin → Free trials). |
-| **Customer app** | `/user` (also `/dashboard`) | Organization members | Search by page or post link, see every post and comment, AI lead scoring, lead pipeline (status, notes, follow-ups), CSV / Excel downloads. |
+| **Customer app** | `/user` (also `/dashboard`) | Organization members | Search by page or post link, or by keyword with quality filters, see every post and comment, AI lead scoring, lead pipeline (status, notes, follow-ups), CSV / Excel downloads. |
 | **Org Admin** | `/org-admin` | Organization owners and admins | Team members and invitations, roles and permissions, lead assignment rules, webhooks, API keys, billing and invoices. |
 | **Super Admin** | `/superadmin` (sign in at `/login?superadmin=1`) | The platform owner (`SUPERADMIN_EMAIL`) and platform staff (manager, viewer) | Organizations, users, plans and payments, free trials, messaging, AI management, the scraping engine, **Global Settings**, Environment, health, audit log. |
 | **Partner Portal** | `/partner` (sign in at `/login?partner=1`) | Approved affiliates and resellers | Referral links (`/r/{code}`), deal registration, commissions, wallet and payouts. |
@@ -76,6 +76,17 @@ Every portal has a **Guide** button with interactive walkthroughs ([docs/INTERAC
 - Facebook, Instagram, YouTube and LinkedIn links are recognised, cleaned of tracking parameters and checked. Personal profiles, groups, stories and reels are refused.
 - Scraping uses LeadAI's Apify token or the customer's own key (bring your own key, stored encrypted). A customer key never falls back to the platform key.
 - Limits per search (posts, comments per post) and per plan are enforced on the server.
+
+### Keyword search
+- Type keywords and choose platforms. LeadAI finds matching business profiles, pages, channels and companies in four stages: discovery → profile details → recent posts → comments.
+- Optional quality filters run between the stages: followers, total posts, average or total comments over the last N posts, engagement rate, recent activity, business only, contact info, location, verified, excluded words. Only profiles that pass get their comments collected.
+- Every profile found is kept with the measured values and the exact reason it was rejected (e.g. `followers 800 < min 5000`). Filters can be re-applied without scraping again.
+- **Missing data:** a filter a platform can't measure is shown as "unsupported" rather than silently passing or failing. Strict mode rejects instead.
+- **Limits and cost:** limits apply per plan and per free trial. Tokens are charged per stage that actually runs, a cost estimate and confirmation come first, and profile data is cached for 24 hours.
+- **Platforms:**
+  - Instagram, Facebook and YouTube are on.
+  - LinkedIn is off by default (third-party actor; LinkedIn's terms forbid scraping).
+- Details: [docs/KEYWORD_SEARCH.md](docs/KEYWORD_SEARCH.md).
 
 ### Finding leads
 - Gemini reads each comment for buying intent, budget, urgency, location and contact details, and the result becomes a 0–100 lead score.
@@ -103,6 +114,22 @@ Every portal has a **Guide** button with interactive walkthroughs ([docs/INTERAC
   - password reset by email link or SMS code.
 - Without a mail server, emails wait in the outbox (Super Admin → Messaging). One-time links (password reset, invitations) are never stored in the outbox, so waiting emails are never re-sent later.
 
+### API usage & limits
+- **What's watched:**
+  - Apify spend vs limit, for LeadAI's key and every customer's own key;
+  - Gemini requests per minute and per day;
+  - emails per day;
+  - SMS balance and daily count;
+  - each organization's tokens and plan limits.
+- **When you're told:** levels are warning (80%), critical (95%) and used up. Live "out of credit" or "quota used up" errors are noticed at once.
+- **Who is told:**
+  - Super Admins, about LeadAI's own services;
+  - organization admins, about their own keys and plan;
+  - users, when something they need is used up.
+
+  Notices go in-app, plus email for admins, once per period.
+- **Where to see it:** Super Admin → API limits, Org Admin → API usage & limits, and the customer app's Limits card. Details: [docs/API_LIMITS.md](docs/API_LIMITS.md).
+
 ### Partners
 - First- or last-touch attribution with configurable windows; fixed, percentage and hybrid commissions; payouts reviewed by a Super Admin.
 - Refunds and chargebacks reverse commissions in proportion.
@@ -125,7 +152,7 @@ Super Admin → **Global Settings** (`/superadmin#/settings`) holds every platfo
 | Section | Tabs |
 |---|---|
 | Brand & website | General (name, company, support, footer links, regional defaults) · Branding (logos, colours, font, theme, sign-in page) · SEO & sharing |
-| Leads engine | AI engine · Lead scoring · Comment detection · Search limits · Platforms & features · Leads & downloads |
+| Leads engine | AI engine · Lead scoring · Comment detection · Search limits (including keyword search: switches, caps, default filters, cache, actor IDs) · Platforms & features · Leads & downloads |
 | Communication | Email & alerts (mail server setup with a test button, automatic emails, sender name, reply-to, footer) |
 | Operations | Payments (provider, keys, webhook URLs, key check) · Security · Operations (maintenance mode, automation) |
 
@@ -245,6 +272,8 @@ Tests use an in-memory MongoDB (mongomock). Values that exist only in `.env`, su
 ## Documentation
 
 - [Admin portals](docs/ADMIN_PORTALS.md): roles, permissions and every portal page
+- [Keyword search](docs/KEYWORD_SEARCH.md): discovery stages, filters per platform, limits and cost
+- [API usage & limits](docs/API_LIMITS.md): what is watched per service, notification levels, who is told
 - [Payments and email setup](docs/PAYMENTS_AND_EMAIL.md): Razorpay, Stripe, SMTP
 - [Messaging](docs/MESSAGING.md): email, SMS, automatic messages, password reset by SMS
 - [Interactive guides](docs/INTERACTIVE_GUIDES.md): the in-app walkthroughs

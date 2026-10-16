@@ -56,6 +56,7 @@ const portal = {
   summary: null,        // GET /api/me/summary
   plans: [],            // GET /api/billing/plans (cached)
   subscription: null,   // GET /api/billing/subscription (billing viewers)
+  limits: null,         // GET /api/me/api-limits (can I search / use AI, what is left, issues)
 };
 
 function can(perm) { return portal.permissions.has(perm); }
@@ -375,13 +376,20 @@ async function fetchAllPages(buildUrl) {
 
 // ── Confirm dialog (replaces window.confirm for destructive actions) ──────
 let _confirmResolve = null;
-function confirmAction({ title = "Are you sure?", message = "", confirmLabel = "Confirm", danger = false } = {}) {
+/* details: optional trusted HTML (built with esc()) shown under the message, e.g. a cost breakdown. */
+function confirmAction({ title = "Are you sure?", message = "", confirmLabel = "Confirm", danger = false, details = "" } = {}) {
   const modal = $("confirmModal");
   if (!modal) return Promise.resolve(window.confirm(message || title));
   if (_confirmResolve) _confirmResolve(false);
   const prevFocus = document.activeElement;
   $("confirmTitle").textContent = title;
   $("confirmMsg").textContent = message;
+  const extra = $("confirmDetails");
+  if (extra) {
+    extra.innerHTML = details || "";
+    extra.classList.toggle("hidden", !details);
+    modal.querySelector(".confirm-card").classList.toggle("has-details", Boolean(details));
+  }
   const ok = $("confirmOk");
   ok.textContent = confirmLabel;
   ok.className = danger ? "btn-danger-solid" : "btn-primary";
@@ -510,7 +518,7 @@ function navigateToView(view, opts = {}) {
   }
 
   if (view === "dashboard") loadDashboard();
-  if (view === "search") { applySearchState(); renderRecentSearches(); }
+  if (view === "search") { applySearchState(); renderLimitsBanner(); refreshLimits(); renderRecentSearches(); if (window.KeywordSearch) KeywordSearch.onShow(); }
   if (view === "pages") renderPagesScreen();
   if (view === "posts") renderPostsScreen();
   if (view === "comments") renderCommentsScreen();
@@ -738,6 +746,24 @@ function statusPill(status, labelOverride) {
   return `<span class="status-pill sp-${cls}" data-status="${esc(status || "")}">${esc(labelOverride || label)}</span>`;
 }
 
+/** Keyword searches (search_type "keyword"; /api/me/searches only has the "KW…" run id to go by). */
+function isKeywordRun(s) {
+  return Boolean(s) && (s.search_type === "keyword" || /^KW/.test(String(s.run_id || "")));
+}
+/** Every platform a search ran on (a keyword search can use several). */
+function searchPlatforms(s) {
+  const intent = (s && s.intent) || {};
+  const ks = (s && s.keyword_search) || {};
+  return [].concat(ks.platforms || intent.platforms || [], s.platform || intent.platform || []).filter(Boolean);
+}
+/** "Keyword: villa, goa homes (Instagram, Facebook)" */
+function keywordRunTitle(s) {
+  const ks = s.keyword_search || {};
+  const words = (ks.keywords && ks.keywords.length ? ks.keywords.join(", ") : s.query) || "";
+  const plats = (ks.platforms || (s.intent || {}).platforms || []).map((p) => PLATFORMS[p] || p);
+  return `Keyword: ${words}${plats.length ? ` (${plats.join(", ")})` : ""}`;
+}
+
 async function fetchRecentSearches() {
   const res = await api(`/api/search/history?limit=${recentLimit}`);
   if (!res.ok) { recentData = []; return false; }
@@ -749,7 +775,7 @@ function renderRecentRows() {
   const list = $("recentSearchesList");
   const empty = $("recentSearchesEmpty");
   if (!list || !empty) return;
-  const rows = recentData.filter((s) => recentFilter === "all" || (s.platform || (s.intent || {}).platform) === recentFilter);
+  const rows = recentData.filter((s) => recentFilter === "all" || searchPlatforms(s).includes(recentFilter));
   if (!rows.length) {
     list.innerHTML = "";
     empty.classList.remove("hidden");
@@ -759,14 +785,20 @@ function renderRecentRows() {
   const canDelete = can("search.cancel");
   list.innerHTML = rows.map((s) => {
     const platform = s.platform || (s.intent || {}).platform;
-    const [label, icon] = URL_LABELS[platform] || [platform || "URL", ico("link")];
+    const kw = isKeywordRun(s);
+    const [label, icon] = kw ? ["Keyword search", ico("search")] : URL_LABELS[platform] || [platform || "URL", ico("link")];
     const count = s.pages_stored || 0;
+    const title = kw ? keywordRunTitle(s) : s.query;
+    const passed = ((s.stage_counts || {}).passed);
+    const sub = kw && passed != null && s.stage_counts.discovered
+      ? `${label} · ${passed} of ${s.stage_counts.discovered} profiles passed`
+      : `${label} · ${count} page${count === 1 ? "" : "s"}`;
     return `
-      <div class="rs-row" role="button" tabindex="0" data-open-run="${esc(s.run_id)}" aria-label="Open search for ${esc(s.query)}">
+      <div class="rs-row" role="button" tabindex="0" ${kw ? "data-open-kw-run" : "data-open-run"}="${esc(s.run_id)}" aria-label="Open search for ${esc(title)}">
         <span class="rs-icon" aria-hidden="true">${icon}</span>
         <span class="rs-main">
-          <span class="rs-title">${esc(s.query)}</span>
-          <span class="rs-sub">${esc(label)} · ${count} page${count === 1 ? "" : "s"}</span>
+          <span class="rs-title">${esc(title)}</span>
+          <span class="rs-sub">${esc(sub)}</span>
         </span>
         <span class="rs-right">
           ${statusPill(s.status)}
@@ -845,6 +877,64 @@ async function reopenSearch(runId) {
 // ── Search caps / blockers (validated BEFORE running) ────────────────────
 function searchCaps() { return (portal.summary && portal.summary.caps) || {}; }
 function searchBlockers() { return (portal.summary && portal.summary.blockers) || []; }
+/** A paused scraping service (GET /api/me/api-limits). Advisory only: a live provider error clears
+    after the next successful run, so searching stays possible and the server answers with its own
+    402 / blocker when it really can't run. */
+function searchAdvisory() {
+  const lim = portal.limits;
+  if (!lim || lim.can_search !== false) return null;
+  return (lim.issues || []).find((i) => i.code === "SCRAPING_UNAVAILABLE")
+    || { code: "SEARCH_UNAVAILABLE", level: "warning", message: "Searches may not run right now. You can still try.", action: "wait" };
+}
+/** What the person can do about a limit issue {action: upgrade | contact_admin | wait}. */
+function issueActionHtml(i) {
+  if (!i || !i.action || i.action === "upgrade") return upgradeButtonHtml(i && i.code);
+  if (i.action === "contact_admin") return `<span class="ask-admin">Contact your workspace admin</span>`;
+  return `<span class="ask-admin">Try again later — nothing to do on your side</span>`;
+}
+const LIMIT_SERVICE_CODES = { SCRAPING_UNAVAILABLE: 1, AI_UNAVAILABLE: 1, SEARCH_UNAVAILABLE: 1 };
+/** An issue's message without a lead-in that repeats its title ("AI analysis is paused: …"). */
+function issueText(msg, title) {
+  const m = /^([^:]{3,60}):\s+(.+)$/s.exec(String(msg || ""));
+  if (!m || !title || m[1].trim().toLowerCase() !== String(title).trim().toLowerCase()) return String(msg || "");
+  return m[2].charAt(0).toUpperCase() + m[2].slice(1);
+}
+
+let _limitsPromise = null;
+/** Refresh GET /api/me/api-limits (best effort; the search buttons and banners follow it). */
+function refreshLimits() {
+  if (_limitsPromise) return _limitsPromise;
+  _limitsPromise = (async () => {
+    const res = await api("/api/me/api-limits");
+    if (res.ok) {
+      portal.limits = res.data;
+      applySearchState();
+      renderLimitsBanner();
+      if (typeof kwUpdateStartState === "function") kwUpdateStartState();
+    }
+    return res;
+  })().finally(() => { setTimeout(() => { _limitsPromise = null; }, 0); });
+  return _limitsPromise;
+}
+
+const LIMIT_DISMISS_KEY = "leadai_limits_dismissed";
+function limitsDismissed() { try { return JSON.parse(sessionStorage.getItem(LIMIT_DISMISS_KEY) || "[]") || []; } catch (_) { return []; } }
+/** Search view: one line per limit issue (warning / danger) with what to do; dismissible for this session. */
+function renderLimitsBanner() {
+  const box = $("limitsBanner");
+  if (!box) return;
+  const lim = portal.limits;
+  const shown = new Set(((portal.summary && portal.summary.blockers) || []).map((b) => b.code)); // already in the plan banner
+  const gone = limitsDismissed();
+  const items = ((lim && lim.issues) || []).filter((i) => (i.level === "danger" || i.level === "warning") && !shown.has(i.code) && gone.indexOf(i.code) < 0);
+  if (!items.length) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  box.classList.remove("hidden");
+  box.innerHTML = items.map((i) => {
+    const title = (ENTITLEMENT_COPY[i.code] || {}).title || (i.level === "danger" ? "Action needed" : "Heads up");
+    return `<div class="inline-alert ${i.level === "danger" ? "alert-danger" : "alert-warning"} limits-banner-item"><div><strong>${esc(title)}</strong><div>${esc(issueText(i.message, title))}</div></div>` +
+      `<div class="limits-banner-actions">${issueActionHtml(i)}<button type="button" class="icon-btn icon-btn-sm" data-dismiss-limit="${esc(i.code)}" aria-label="Dismiss: ${esc(title)}">✕</button></div></div>`;
+  }).join("");
+}
 
 function clampToCap(input, cap) {
   if (!input) return { value: 0, clamped: false };
@@ -905,12 +995,16 @@ function applySearchState() {
   const card = $("searchCard");
   if (card) card.classList.toggle("hidden", !canSearch);
   const blockers = searchBlockers();
+  const advisory = blockers.length ? null : searchAdvisory();
   if (blockBox) {
     if (blockers.length && canSearch) {
       const b = blockers[0];
       const copy = ENTITLEMENT_COPY[b.code] || {};
       blockBox.className = "inline-alert alert-danger";
       blockBox.innerHTML = `<div><strong>${esc(copy.title || "Searching is paused")}</strong><div>${esc(alertText(b))}</div></div>${upgradeButtonHtml(b.code)}`;
+    } else if (advisory && canSearch) {
+      blockBox.className = "inline-alert alert-warning";
+      blockBox.innerHTML = `<div><strong>Searches may not run right now</strong><div>${esc(issueText(advisory.message, "Searches are paused"))} You can still try — if it can't run, nothing is charged and you'll see why.</div></div>`;
     } else {
       blockBox.className = "hidden";
       blockBox.innerHTML = "";
@@ -920,6 +1014,8 @@ function applySearchState() {
     const blocked = !canSearch || blockers.length > 0;
     btn.disabled = blocked;
     btn.setAttribute("aria-disabled", blocked ? "true" : "false");
+    if ((blocked || advisory) && canSearch && blockBox) btn.setAttribute("aria-describedby", "searchBlocker");
+    else btn.removeAttribute("aria-describedby");
   }
 }
 
@@ -1172,7 +1268,8 @@ function renderDoneActions(runId, status, error) {
 async function resumeRunningSearch() {
   if (_searchInFlight || !memory.runId) return;
   const run = recentData.find((s) => s.run_id === memory.runId && s.status === "running");
-  if (!run || isStale(run.created_at)) return;
+  // a keyword search follows its own progress (keyword-search.js)
+  if (!run || isStale(run.created_at) || isKeywordRun(run)) return;
   _searchInFlight = true;
   const prog = $("urlSearchProgress");
   const btn = $("urlSearchBtn");
@@ -2889,10 +2986,18 @@ const METRIC_LABELS = {
 };
 const FEATURE_NAMES = {
   csv_export: "CSV exports", ai_analysis: "AI lead analysis", lead_scoring: "Lead scoring",
-  url_search: "URL search", facebook: "Facebook search", instagram: "Instagram search",
+  url_search: "URL search", keyword_search: "Keyword search", facebook: "Facebook search", instagram: "Instagram search",
   youtube: "YouTube search", linkedin: "LinkedIn search", custom_branding: "Custom branding",
 };
 const ENTITLEMENT_COPY = {
+  SCRAPING_UNAVAILABLE: { icon: "pause", title: "Searches are paused", msg: (d) => issueText(d.message, "Searches are paused") || "The scraping service is paused right now. Try again later." },
+  SEARCH_UNAVAILABLE: { icon: "pause", title: "Searches are paused", msg: (d) => issueText(d.message, "Searches are paused") || "Searching is paused right now. Try again later." },
+  AI_UNAVAILABLE: { icon: "pause", title: "AI analysis is paused", msg: (d) => issueText(d.message, "AI analysis is paused") || "Comments are scored by the keyword rules for now." },
+  TOKENS_LOW: { icon: "coins", title: "Tokens are running low", msg: (d) => d.message || "Your workspace is running low on tokens." },
+  MONTHLY_SEARCHES_LOW: { icon: "chart", title: "Few searches left this month", msg: (d) => d.message || "" },
+  MONTHLY_SEARCHES_REACHED: { icon: "chart", title: "Monthly searches used up", msg: (d) => d.message || "" },
+  MONTHLY_AI_ANALYSES_LOW: { icon: "chart", title: "Few AI analyses left this month", msg: (d) => d.message || "" },
+  MONTHLY_AI_ANALYSES_REACHED: { icon: "chart", title: "Monthly AI analyses used up", msg: (d) => d.message || "" },
   DEMO_EXPIRED: {
     icon: "clock", title: "Your free trial has ended",
     msg: () => "Your free trial is over. Choose a plan to keep finding leads — your searches and leads are kept safe.",
@@ -2962,7 +3067,11 @@ function showQuotaExceededModal(detail) {
   stats.classList.toggle("hidden", !statItems.length);
   const cta = $("quotaExceededCta");
   const hint = $("quotaExceededHint");
-  if (canManageBilling()) {
+  const svc = Boolean(LIMIT_SERVICE_CODES[code]) && d.action !== "upgrade";
+  cta.classList.toggle("hidden", svc);
+  if (svc) {
+    hint.textContent = d.action === "contact_admin" ? "Ask your workspace admin to fix it — the details are on their API usage & limits page." : "Nothing to do on your side: LeadAI's team has been told. Try again later.";
+  } else if (canManageBilling()) {
     cta.textContent = code === "PLAN_LIMIT" ? "See plans with higher limits →" : "View plans & upgrade →";
     hint.textContent = code === "PLAN_LIMIT" ? "Or lower the numbers and try again." : "";
   } else {
@@ -2970,7 +3079,7 @@ function showQuotaExceededModal(detail) {
     hint.textContent = "Only your workspace owner or billing admin can change the plan — ask them to upgrade.";
   }
   modal.classList.remove("hidden");
-  cta.focus();
+  (svc ? modal.querySelector(".entitlement-actions .btn-secondary") : cta).focus();
   return true;
 }
 
@@ -3704,6 +3813,7 @@ function refreshSummary() {
       renderTokenWidgets();
       renderPortalBanner();
       applySearchState();
+      refreshLimits();
       const badge = $("navAssignedBadge");
       const n = (res.data.counts || {}).assigned_to_me || 0;
       if (badge) { badge.textContent = String(n); badge.classList.toggle("hidden", !n); }
@@ -4125,15 +4235,21 @@ async function loadHistory() {
     fetchAll: () => fetchAllPages((p, n) => "/api/me/searches?" + historyParams(p, n).toString()),
     filters: () => filtersOf(historyParams(1, 20)),
     columns: [
-      { id: "url", label: "URL", required: true, cls: "col-main", text: (s) => s.query,
+      { id: "url", label: "Search", required: true, cls: "col-main", text: (s) => (isKeywordRun(s) ? keywordRunTitle(s) : s.query),
         html: (s) => {
+          if (isKeywordRun(s)) {
+            return `<span class="dt-main"><span class="mini-icon" aria-hidden="true">${ico("search")}</span>
+              <span class="mini-main"><span class="mini-title">${esc(keywordRunTitle(s))}</span>
+              <span class="mini-sub">Keyword search${s.limit ? ` · up to ${esc(s.limit)} profiles` : ""}${s.pages_stored ? ` · ${esc(s.pages_stored)} pages collected` : ""}${s.error ? ` · <span class="text-danger">${esc(String(s.error).slice(0, 80))}</span>` : ""}</span></span></span>`;
+          }
           const [label, icon] = URL_LABELS[s.platform] || [s.platform || "URL", ico("link")];
           return `<span class="dt-main"><span class="mini-icon" aria-hidden="true">${icon}</span>
             <span class="mini-main"><span class="mini-title cell-url">${esc(s.query)}</span>
             <span class="mini-sub">${esc(label)}${s.limit ? ` · ${esc(s.limit)} posts` : ""}${s.max_comments_per_post ? ` · ${esc(s.max_comments_per_post)} comments/post` : ""}${s.error ? ` · <span class="text-danger"${String(s.error).length > 80 ? ` title="${esc(s.error)}"` : ""}>${esc(String(s.error).slice(0, 80))}${String(s.error).length > 80 ? "…" : ""}</span>` : ""}</span>${isOwnKeyError(s.error) ? `<span class="own-key-row">${ownKeyActionHtml(s.error)}</span>` : ""}</span></span>`;
         } },
       { id: "platform", label: "Platform", cls: "col-tag", text: (s) => PLATFORMS[s.platform] || s.platform || "",
-        html: (s) => PLATFORMS[s.platform] ? `<span class="platform-badge ${esc(s.platform)}">${esc(PLATFORMS[s.platform])}</span>` : `<span class="muted">—</span>` },
+        html: (s) => PLATFORMS[s.platform] ? `<span class="platform-badge ${esc(s.platform)}">${esc(PLATFORMS[s.platform])}</span>`
+          : s.platform === "multiple" ? `<span class="platform-badge unknown">Several</span>` : `<span class="muted">—</span>` },
       { id: "status", label: "Status", cls: "col-tag", sort: { desc: "status" }, text: (s) => s.status || "", html: (s) => statusPill(s.status) },
       { id: "pages", label: "Pages", cls: "col-num", text: (s) => s.pages_stored || 0, html: (s) => `<span class="cell-mono">${esc(s.pages_stored || 0)}</span>` },
       { id: "started", label: "Started", cls: "col-date", sort: { desc: "newest", asc: "oldest" }, text: (s) => s.created_at || "",
@@ -4141,8 +4257,9 @@ async function loadHistory() {
     ],
     actions: (s) => {
       const report = `/static/url_report.html?run_id=${encodeURIComponent(s.run_id)}`;
-      return `<button type="button" class="btn-ghost btn-sm" data-open-run="${esc(s.run_id)}">Open</button>
-        <a class="btn-ghost btn-sm" href="${esc(report)}" target="_blank" rel="noopener" aria-label="Open report in a new tab">Report ↗</a>
+      const kw = isKeywordRun(s);
+      return `<button type="button" class="btn-ghost btn-sm" ${kw ? "data-open-kw-run" : "data-open-run"}="${esc(s.run_id)}">Open</button>
+        ${kw ? "" : `<a class="btn-ghost btn-sm" href="${esc(report)}" target="_blank" rel="noopener" aria-label="Open report in a new tab">Report ↗</a>`}
         ${canDelete && s.status !== "running" ? `<button type="button" class="btn-ghost btn-sm btn-danger-text" data-delete-run="${esc(s.run_id)}" aria-label="Delete search ${esc(s.query)}">Delete</button>` : ""}`;
     },
   });
@@ -4230,7 +4347,8 @@ async function loadUsage() {
   const body = $("usageBody");
   body.innerHTML = `<div class="kpi-grid">${'<div class="kpi-card"><span class="skeleton skeleton-line w-40"></span><span class="skeleton skeleton-line w-60"></span></div>'.repeat(4)}</div>`;
   loadLedger();
-  const res = await api("/api/me/usage");
+  const [res, limRes] = await Promise.all([api("/api/me/usage"), api("/api/me/api-limits")]);
+  if (limRes.ok) { portal.limits = limRes.data; renderLimitsBanner(); }
   if (!res.ok) {
     RETRY.usage = loadUsage;
     body.innerHTML = failureState(res, "usage", "usage");
@@ -4257,6 +4375,7 @@ async function loadUsage() {
       <a class="kpi-card box-link" href="#exports" data-nav="exports"><div class="kpi-label">Exports${BOX_GO}</div><div class="kpi-value">${esc(fmt(me.exports_period != null ? me.exports_period : me.exports))}</div><div class="kpi-foot"><div class="kpi-sub">${esc(fmt(me.exports))} all time</div></div></a>
       <a class="kpi-card kpi-token box-link" href="#usage" data-jump="ledgerTitle"><div class="kpi-label">Tokens you used${BOX_GO}</div><div class="kpi-value">${esc(fmt(me.tokens_consumed_period))}</div><div class="kpi-foot"><div class="kpi-sub">${esc(fmt(me.tokens_consumed))} all time · see token activity</div></div></a>
     </div>
+    ${limitsCardHtml(limRes.ok ? limRes.data : null)}
     <div class="dash-grid">
       <section class="panel" data-tour="usage-tokens">
         <div class="panel-head"><h2 class="panel-title">Workspace tokens</h2></div>
@@ -4288,6 +4407,50 @@ async function loadUsage() {
         const val = meterText(m);
         return `<div class="meter"><div class="meter-head"><span>${esc(label)}</span><span class="cell-mono">${esc(val)}</span></div>${meterBar(pct, label + " used", val)}</div>`;
       }).join("")}</div></div>
+    </section>`;
+}
+
+/** Usage view: what the person can do right now (searches left, tokens left, AI) — GET /api/me/api-limits. */
+function limitsCardHtml(lim) {
+  if (!lim) return "";
+  const lvCls = (lv) => (lv === "exhausted" || lv === "critical" || lv === "error" ? "danger" : lv === "warning" ? "warn" : "ok");
+  const LVTXT = { ok: "OK", warning: "Running low", critical: "Almost used up", exhausted: "Used up", error: "Unavailable" };
+  const searches = ((lim.plan || {}).metrics || {}).monthly_searches;
+  const t = lim.tokens;
+  // state: the words next to the label (default from the level; "" = none)
+  const row = (label, valueHtml, sub, lv, meter, state) => `<div class="limit-item limit-${lvCls(lv)}"><div class="limit-head"><span class="limit-label">${esc(label)}</span>${(state != null ? state : LVTXT[lv]) ? `<span class="limit-state">${esc(state != null ? state : LVTXT[lv])}</span>` : ""}</div>` +
+    `<div class="limit-value">${valueHtml}</div>${meter || ""}${sub ? `<div class="kpi-sub">${sub}</div>` : ""}</div>`;
+  const meterOf = (pct, label, text, lv) => {
+    const p = Math.max(0, Math.min(100, Math.round(pct || 0)));
+    return `<div class="quota-bar" role="meter" aria-label="${esc(label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${p}" aria-valuetext="${esc(text)}"><div class="quota-fill ${lvCls(lv) === "ok" ? "" : lvCls(lv)}" style="width:${p}%"></div></div>`;
+  };
+  const items = [];
+  if (searches) {
+    items.push(row("Searches left this month", `${esc(fmt(searches.remaining))}<span class="kpi-of"> of ${esc(fmt(searches.limit))}</span>`,
+      lim.plan && lim.plan.period_end ? "Resets " + esc(new Date(lim.plan.period_end).toLocaleDateString()) : "",
+      searches.level, meterOf(searches.percent, "Searches used this month", `${searches.used} of ${searches.limit} searches used`, searches.level)));
+  } else {
+    items.push(row("Searches this month", "No monthly limit", "", "", ""));
+  }
+  if (t) {
+    items.push(row("Tokens left", t.expired ? "Expired" : `${esc(fmt(t.remaining))}<span class="kpi-of"> of ${esc(fmt(t.allocated))}</span>`,
+      t.search_cost ? `A search uses ${esc(fmt(t.search_cost))} token${t.search_cost === 1 ? "" : "s"}` + (t.search_cost ? ` · enough for about ${esc(fmt(Math.floor((t.remaining || 0) / t.search_cost)))} more` : "") : "",
+      t.level, meterOf(t.percent, "Workspace tokens used", `${t.used} of ${t.allocated} tokens used`, t.level)));
+  } else {
+    items.push(row("Tokens", "Not metered", "", "", ""));
+  }
+  const ai = (lim.issues || []).find((i) => i.code === "AI_UNAVAILABLE");
+  items.push(row("AI lead analysis", lim.can_analyze ? "Available" : "Paused for now",
+    lim.can_analyze ? "Comments are scored by AI." : esc(ai ? issueText(ai.message, "AI analysis is paused") : "Comments are scored by the keyword rules for now."), lim.can_analyze ? "ok" : "warning", "", ""));
+  const srch = searchBlockers()[0] || searchAdvisory();
+  items.push(row("New searches", lim.can_search ? "Available" : searchBlockers().length ? "Paused" : "May not run",
+    lim.can_search ? (lim.leads_limit ? `Up to ${esc(fmt(lim.leads_limit))} leads per search on your plan` : "") : esc(srch ? (srch.code in LIMIT_SERVICE_CODES ? issueText(srch.message, "Searches are paused") + " You can still try." : alertText(srch)) : "Searching may be paused right now."),
+    lim.can_search ? "ok" : searchBlockers().length ? "exhausted" : "warning", "", ""));
+  const issues = (lim.issues || []).filter((i) => i.level === "danger" || i.level === "warning");
+  return `<section class="panel" data-tour="usage-limits" aria-labelledby="limitsTitle">
+      <div class="panel-head"><h2 class="panel-title" id="limitsTitle">Limits</h2><span class="kpi-sub">${esc(planLabel(lim.plan || {}) || "")}</span></div>
+      <div class="panel-body"><div class="limit-grid">${items.join("")}</div>
+      ${issues.length ? `<ul class="limit-issues">${issues.map((i) => `<li class="inline-alert ${i.level === "danger" ? "alert-danger" : "alert-warning"}"><div><strong>${esc((ENTITLEMENT_COPY[i.code] || {}).title || "Heads up")}</strong><div>${esc(issueText(i.message, (ENTITLEMENT_COPY[i.code] || {}).title))}</div></div>${issueActionHtml(i)}</li>`).join("")}</ul>` : ""}</div>
     </section>`;
 }
 
@@ -4647,7 +4810,7 @@ function renderNotifications() {
     return;
   }
   list.innerHTML = notifItems.map((n) => `<button type="button" class="notif-item${n.read ? "" : " unread"}" data-notif="${esc(n.id)}">
-      <span class="notif-sev sev-${esc(n.severity || "info")}" aria-hidden="true">${SEVERITY_ICON[n.severity] || "i"}</span>
+      <span class="notif-sev sev-${esc(n.type === "api_limit_recovered" ? "success" : n.severity || "info")}" aria-hidden="true">${n.type === "api_limit_recovered" ? SEVERITY_ICON.success : SEVERITY_ICON[n.severity] || "i"}</span>
       <span class="notif-body"><span class="notif-title">${esc(n.title)}</span>${n.message ? `<span class="notif-msg">${esc(n.message)}</span>` : ""}<span class="notif-time">${esc(relativeTime(n.created_at))}</span></span>
       ${n.read ? "" : '<span class="sr-only">(unread)</span>'}
     </button>`).join("");
@@ -4662,6 +4825,7 @@ async function openNotification(id) {
   const data = n.data || {};
   if (data.search_run_id) { reopenSearch(data.search_run_id); return; }
   if (n.type === "lead_assigned") { setLeadsView("assigned", false); navigateToView("leads", { userInitiated: true }); return; }
+  if (/^api_limit_|^quota_warning$/.test(n.type || "")) { navigateToView("usage", { userInitiated: true }); return; }
   if (/demo|subscription|payment|token/.test(n.type || "")) { navigateToView("billing", { userInitiated: true }); return; }
   if (n.link && typeof n.link === "string" && n.link.startsWith("/") && !n.link.startsWith("//")) location.href = n.link;
 }
@@ -4681,7 +4845,8 @@ async function markAllNotificationsRead() {
 const GUIDE_WELCOME = "app-basics";
 const GUIDES = [
   { id: GUIDE_WELCOME, label: "Welcome tour", description: "How LeadAI works, start to finish" },
-  { id: "app-search", label: "Running a search", description: "Paste a social link and let the agent find leads" },
+  { id: "app-search", label: "Running a search", description: "Search by link or by keyword and let the agent find leads" },
+  { id: "app-keyword", label: "Keyword search", description: "Find new profiles by keyword, filter them and collect their leads" },
   { id: "app-results", label: "Reading comments & leads", description: "Pages, posts, comments, qualification and Collect all" },
   { id: "app-leads", label: "Leads pipeline", description: "Filter, open and follow up your leads" },
   { id: "app-plans", label: "Plans, tokens & free trial", description: "What tokens are, your trial and choosing a plan" },
@@ -4808,7 +4973,7 @@ function defineGuides() {
     { before: guideSidebar, target: '[data-tour="sidebar-nav"]', placement: "right", title: "Find your way around",
       body: "The sidebar takes you everywhere. Workspace is where you search and see results, Intelligence holds your leads, history and exports, and Account covers tokens, plans and settings.\n\nOn a phone, open it with the menu button at the top left." },
     { before: guideSidebar, target: '[data-tour="nav-search"]', placement: "right", title: "Start a new search",
-      body: "Click New search and paste a Facebook, Instagram, YouTube or LinkedIn link. A short form asks about your business and the words that show buying interest, then the agent collects the page, its posts and their comments for you.\n\nIf your role is view-only, you can open results but not start searches." },
+      body: "Click New search and paste a Facebook, Instagram, YouTube or LinkedIn link. A short form asks about your business and the words that show buying interest, then the agent collects the page, its posts and their comments for you.\n\nNo link yet? The Keyword search tab finds matching profiles for you from a few words.\n\nIf your role is view-only, you can open results but not start searches." },
     { before: guideSidebar, target: '[data-tour="nav-results"]', placement: "right", title: "Results: pages, posts, comments",
       body: "Each search opens in three levels: the page it found, that page's posts, and the comments on each post.\n\nComments that match your keywords are \"qualified\" and go to AI analysis. A filter shows qualified, not qualified or both, and Collect all comments fetches the rest of a post's comments when you want them." },
     { before: guideSidebar, target: '[data-tour="nav-leads"]', placement: "right", title: "Your leads",
@@ -4833,26 +4998,57 @@ function defineGuides() {
       body: "Click Guide (the ? button) any time to replay this tour or follow a short guide for each page: running a search, reading comments and leads, your leads pipeline, plans and tokens, and settings." },
   ] });
 
+  // keyword-search steps (keyword-search.js): optional, so they skip themselves when the feature is off
+  const kwOn = () => Boolean(window.KeywordSearch && KeywordSearch.available());
+  const searchMode = (mode) => async () => {
+    await guideView("search")();
+    if (window.KeywordSearch && (mode === "link" || kwOn())) KeywordSearch.setMode(mode, { remember: false });
+    await sleep(150);
+  };
+  const keywordSteps = [
+    { route: searchMode("keyword"), target: '[data-tour="kw-keywords"]', optional: true, wait: QUICK, title: "Keyword search",
+      body: "No link yet? Type what your buyers follow, like \"villa rental\" or \"wedding photographer\", and pick the platforms. LeadAI searches each keyword on each platform and finds matching profiles for you." },
+    { route: searchMode("keyword"), target: '[data-tour="kw-filters"]', optional: true, wait: QUICK, title: "Filters decide who's worth it",
+      body: "Set minimum followers, how recently the profile posted, how many comments its recent posts get, engagement and more. Profile filters run first, so profiles that fail never cost post or comment collection.\n\nBadges show where a platform can't measure a filter (for example total posts on Facebook). Strict mode rejects those profiles instead of keeping them." },
+    { route: searchMode("keyword"), target: '[data-tour="kw-estimate"]', optional: true, wait: QUICK, title: "See the cost first",
+      body: "The cost preview updates as you type: tokens for each stage, the worst case if every profile passes, and how many tokens you have. Find profiles asks you to confirm before anything is charged." },
+    { route: searchMode("keyword"), target: () => { const r = tourEl("kw-results"); return r && !r.classList.contains("hidden") ? r : tourEl("kw-card"); }, optional: true, wait: QUICK, title: "Results, and changing your mind",
+      body: "Every profile found is listed with its followers, posts, comments and engagement, and why it passed or was rejected, like \"followers 800 < min 5000\". Profiles that pass are collected like a link search: open their pages, posts and leads.\n\nRe-run with different filters re-checks what was already found for free, then fetches only the profiles that now need it." },
+  ];
   // roles without search access get the short version (the search form is hidden for them)
   const searchSteps = can("search.create") ? [
-    { route: guideView("search"), target: '[data-tour="search-hero"]', title: "The URL Search Agent",
+    { route: searchMode("link"), target: '[data-tour="search-hero"]', title: "The URL Search Agent",
       body: "Every search starts here. The agent walks you through five short steps, then collects a page's posts and comments and scores the people in them." },
-    { route: guideView("search"), target: '[data-tour="saved-searches"]', title: "Saved searches",
+    { route: searchMode("link"), target: '[data-tour="search-mode-tabs"]', optional: true, wait: QUICK, title: "By link or by keyword",
+      body: "Search by link analyses a page you already know. Keyword search finds new profiles for you from a few words, filters them and collects the ones worth it. Your last choice is remembered." },
+    { route: searchMode("link"), target: '[data-tour="saved-searches"]', title: "Saved searches",
       body: "Running similar searches often? Save your industry, keywords and limits as a preset, then load it here next time in one click." },
-    { route: guideView("search"), target: '[data-tour="search-steps"]', title: "Five quick steps",
+    { route: searchMode("link"), target: '[data-tour="search-steps"]', title: "Five quick steps",
       body: "Industry and Business type tell the AI what you sell. Keywords are the words that show buying interest, like \"price\", \"available\" or \"book now\": comments that contain them are qualified and sent to AI analysis." },
-    { route: guideView("search"), target: '[data-tour="search-step-link"]', title: "Paste your link",
+    { route: searchMode("link"), target: '[data-tour="search-step-link"]', title: "Paste your link",
       body: "In Social Link, paste a Facebook page, Instagram profile, YouTube channel or LinkedIn company page; LeadAI detects which one it is. You also choose how many posts to analyse and how many comments to collect per post, within your plan's limits." },
     { route: guideView("search"), target: '[data-tour="search-step-review"]', title: "Review and run",
       body: "The last step shows everything you chose and how many tokens the search uses. Click Find Leads Now and follow the live progress: page, posts, comments, qualification, AI scoring and results." },
-  ] : [
+  ].concat(keywordSteps) : [
     { route: guideView("search"), target: '[data-tour="search-permission"]', title: "Searching needs search access",
       body: "Your role is view-only, so the search form is hidden. You can still open results, comments and leads. Ask your workspace admin if you need to run searches." },
   ];
-  LeadTour.define("app-search", { title: "Running a search", onEnd: end, steps: searchSteps.concat([
-    { route: guideView("search"), target: guideFit("recent-searches", ".recent-head"), title: "Your recent searches",
-      body: "Your latest searches appear here with their status. Click one to open its results, or filter by platform. View all opens your full search history." },
-  ]) });
+  const recentStep = { route: guideView("search"), target: guideFit("recent-searches", ".recent-head"), title: "Your recent searches",
+    body: "Your latest searches appear here with their status, keyword searches included (\"Keyword: …\"). Click one to open its results, or filter by platform. View all opens your full search history." };
+  const endSearch = () => { end(); if (window.KeywordSearch) KeywordSearch.restoreMode(); };
+  LeadTour.define("app-search", { title: "Running a search", onEnd: endSearch, steps: searchSteps.concat([recentStep]) });
+  LeadTour.define("app-keyword", { title: "Keyword search", onEnd: endSearch, steps: (can("search.create") ? [
+    { route: searchMode("keyword"), target: () => (kwOn() ? tourEl("search-mode-tabs") : tourEl("search-hero")),
+      get title() { return kwOn() ? "Find profiles by keyword" : "Keyword search is off"; },
+      get body() {
+        return kwOn()
+          ? "The Keyword search tab finds Instagram, Facebook, YouTube and LinkedIn profiles from a few words, keeps the ones that pass your filters and collects their comments for lead scoring."
+          : "Keyword search isn't available for your workspace right now. Search by link still works; ask your administrator if you need keyword search.";
+      } },
+  ].concat(keywordSteps, [
+    { route: searchMode("keyword"), target: '[data-tour="kw-presets"]', optional: true, wait: QUICK, title: "Save your filters",
+      body: "Save filter preset stores the keywords, platforms, filters and limits, privately or shared with your team. Load one from Saved filters next time." },
+  ]) : searchSteps).concat([recentStep]) });
 
   LeadTour.define("app-results", { title: "Reading comments & leads", onEnd: end, steps: [
     // no results yet: the first step says where they will appear, and the other steps skip themselves
@@ -5062,13 +5258,15 @@ function onDocumentClick(e) {
     else if (a === "export-leads") exportMyLeadsCsv(act);
     else if (a === "clear-lead-filters") { ["leadsSearch", "leadsStatus", "leadsQuality", "leadsMinScore", "leadsPlatform"].forEach((id) => { $(id).value = ""; }); leadsState.page = 1; loadLeads(); }
     else if (a === "clear-history-filters") { ["historySearch", "historyStatus", "historyPlatform"].forEach((id) => { $(id).value = ""; }); historyState.page = 1; loadHistory(); }
-    else if (a === "focus-url") { if (currentView !== "search") navigateToView("search", { userInitiated: true }); setTimeout(() => { const i = $("urlSearchInput"); if (i) i.focus(); }, 30); }
+    else if (a === "focus-url") { if (currentView !== "search") navigateToView("search", { userInitiated: true }); if (window.KeywordSearch) KeywordSearch.setMode("link"); setTimeout(() => { const i = $("urlSearchInput"); if (i) i.focus(); }, 30); }
     else if (a === "cancel-sub") handleCancelSubscription();
     else if (a === "reactivate-sub") handleReactivateSubscription();
     return;
   }
   const del = t.closest("[data-delete-run]");
   if (del) { e.stopPropagation(); deleteSearch(del.dataset.deleteRun, e); return; }
+  const kwRun = t.closest("[data-open-kw-run]");
+  if (kwRun) { if (window.KeywordSearch) KeywordSearch.open(kwRun.dataset.openKwRun); return; }
   const run = t.closest("[data-open-run]");
   if (run) { reopenSearch(run.dataset.openRun); return; }
   const lead = t.closest("[data-open-lead]");
@@ -5105,6 +5303,8 @@ function onDocumentClick(e) {
   if (rs) { revokeSession(rs.dataset.revokeSession); return; }
   const nt = t.closest("[data-notif]");
   if (nt) { openNotification(nt.dataset.notif); return; }
+  const dl = t.closest("[data-dismiss-limit]");
+  if (dl) { try { const g = limitsDismissed(); g.push(dl.dataset.dismissLimit); sessionStorage.setItem(LIMIT_DISMISS_KEY, JSON.stringify(g)); } catch (_) {} renderLimitsBanner(); const f = $("urlSearchInput"); if (f && currentView === "search") f.focus({ preventScroll: true }); return; }
   const dismiss = t.closest("[data-dismiss-banner]");
   if (dismiss) { try { sessionStorage.setItem("leadai_banner_dismissed", dismiss.dataset.dismissBanner); } catch (_) {} renderPortalBanner(); return; }
   const mr = t.closest("[data-member-remove]");
@@ -5358,6 +5558,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     navigateToView(h.view || "dashboard", { focus: false, tab: h.params.get("tab") || undefined });
   });
   setupGuides();
+  if (window.KeywordSearch) KeywordSearch.boot();
 
   refreshSummary();
   loadUrlFilterCatalog();
