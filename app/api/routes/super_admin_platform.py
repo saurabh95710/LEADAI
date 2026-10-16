@@ -1760,7 +1760,6 @@ async def _integrations(db) -> Dict[str, Any]:
     cfg = get_settings()
     since = utcnow() - timedelta(hours=24)
     apify_q = {"$or": [{"scrape_info": {"$exists": True}}, {"provider": "apify"}]}
-    usage_usd_30d = await _apify_usage_usd(db, utcnow() - timedelta(days=30))
     try:
         from app.billing.provider import payments_status
         pay = payments_status()
@@ -1768,9 +1767,24 @@ async def _integrations(db) -> Dict[str, Any]:
         pay = {"active": "unknown", "choice": None, "fallback_reason": None, "providers": {}}
     provider = pay["active"]
     rzp = (pay.get("providers") or {}).get("razorpay") or {}
-    ping_ok, latency = await _db_ping(db)
-    outbox = {s: await _count(db.email_outbox, {"status": s}) for s in ("queued", "sent", "failed")}
-    ai_failed = await _count(db.ai_requests, {"status": {"$nin": ["success"]}, "created_at": {"$gte": since}})
+    # Run every database query at once: against a remote cluster, one at a
+    # time costs a network round-trip each and made this take seconds.
+    (usage_usd_30d, (ping_ok, latency), out_queued, out_sent, out_failed, ai_failed, ai_requests,
+     apify_jobs, apify_failures, failed_payments_7d, exports, media_files) = await asyncio.gather(
+        _apify_usage_usd(db, utcnow() - timedelta(days=30)),
+        _db_ping(db),
+        _count(db.email_outbox, {"status": "queued"}),
+        _count(db.email_outbox, {"status": "sent"}),
+        _count(db.email_outbox, {"status": "failed"}),
+        _count(db.ai_requests, {"status": {"$nin": ["success"]}, "created_at": {"$gte": since}}),
+        _count(db.ai_requests, {"created_at": {"$gte": since}}),
+        _count(db.search_history, {**apify_q, "created_at": {"$gte": since}}),
+        _count(db.search_history, {**apify_q, "status": {"$in": list(_FAILED)}, "created_at": {"$gte": since}}),
+        _count(db.payments, {"status": "failed", "created_at": {"$gte": utcnow() - timedelta(days=7)}}),
+        _count(db.exports, {}),
+        _count(db.website_media, {}),
+    )
+    outbox = {"queued": out_queued, "sent": out_sent, "failed": out_failed}
     return {
         "apify": {
             "configured": bool(get_apify_token()),
@@ -1778,9 +1792,8 @@ async def _integrations(db) -> Dict[str, Any]:
             "last_test_at": _clean(get_setting("apify.last_test_at")),
             "actors": {p: get_actor_id(p) for p in _PLATFORMS},
             "platforms_enabled": {p: bool(get_setting(f"platform.{p}.enabled")) for p in _PLATFORMS},
-            "jobs_24h": await _count(db.search_history, {**apify_q, "created_at": {"$gte": since}}),
-            "failures_24h": await _count(db.search_history, {**apify_q, "status": {"$in": list(_FAILED)},
-                                                             "created_at": {"$gte": since}}),
+            "jobs_24h": apify_jobs,
+            "failures_24h": apify_failures,
             "usage_usd_30d": usage_usd_30d,
             "manage_link": "/superadmin#/apify",
             "limits": _limit_brief("apify"),
@@ -1790,7 +1803,7 @@ async def _integrations(db) -> Dict[str, Any]:
             "configured": _env_set("GEMINI_API_KEY", cfg.gemini_api_key or ""),
             "enabled": bool(get_setting("ai.enabled")),
             "model": get_setting("ai.model"),
-            "requests_24h": await _count(db.ai_requests, {"created_at": {"$gte": since}}),
+            "requests_24h": ai_requests,
             "failures_24h": ai_failed,
             "manage_link": "/superadmin#/ai",
             "limits": _limit_brief("gemini"),
@@ -1805,8 +1818,7 @@ async def _integrations(db) -> Dict[str, Any]:
             "stripe_webhook_secret_configured": _env_set("STRIPE_WEBHOOK_SECRET", cfg.stripe_webhook_secret or ""),
             "billing_webhook_secret_configured": _env_set("BILLING_WEBHOOK_SECRET"),
             "setup_link": "/superadmin#/settings?tab=payments",
-            "failed_payments_7d": await _count(db.payments, {"status": "failed",
-                                                             "created_at": {"$gte": utcnow() - timedelta(days=7)}}),
+            "failed_payments_7d": failed_payments_7d,
         },
         "email": {
             "smtp_configured": _env_set("SMTP_HOST"),
@@ -1817,8 +1829,8 @@ async def _integrations(db) -> Dict[str, Any]:
         },
         "sms": _sms_block(),
         "storage": {
-            "exports": await _count(db.exports, {}),
-            "media_files": await _count(db.website_media, {}),
+            "exports": exports,
+            "media_files": media_files,
         },
         "database": {"connected": ping_ok, "latency_ms": latency},
     }
@@ -1858,16 +1870,33 @@ async def platform_health(ctx: TenantContext = Depends(SUPER)):
     if db is None:
         return {"success": True, "health": {"status": "down", "overall": "down", "components": [
             {"key": "database", "label": "Database", "status": "down", "detail": "Unavailable"}]}}
-    integ = await _integrations(db)
     now = utcnow()
     since = now - timedelta(hours=24)
-    running = await _count(db.search_history, {"status": "running"})
-    stale = await _count(db.search_history, {"status": "running", "created_at": {"$lt": now - timedelta(minutes=30)}})
-    failed_24h = await _count(db.search_history, {"status": {"$in": list(_FAILED)}, "created_at": {"$gte": since}})
-    errors = [_clean(n) async for n in db.notifications.find(
-        {"type": "system_error", "created_at": {"$gte": now - timedelta(days=7)}},
-        {"read_by": 0}).sort("created_at", -1).limit(10)]
-    errors_24h = await _count(db.notifications, {"type": "system_error", "created_at": {"$gte": since}})
+
+    async def _recent_errors() -> List[Dict[str, Any]]:
+        return [_clean(n) async for n in db.notifications.find(
+            {"type": "system_error", "created_at": {"$gte": now - timedelta(days=7)}},
+            {"read_by": 0}).sort("created_at", -1).limit(10)]
+
+    async def _total(name: str) -> int:
+        # Collection totals only need to be roughly right: the estimate reads
+        # metadata instead of scanning every document.
+        try:
+            return int(await db[name].estimated_document_count())
+        except Exception:
+            return 0
+
+    count_names = ("organizations", "users", "organization_members", "search_history", "facebook_pages",
+                   "facebook_posts", "facebook_comments", "ai_comments", "subscriptions", "plans", "audit_logs")
+    integ, running, stale, failed_24h, errors, errors_24h, *totals = await asyncio.gather(
+        _integrations(db),
+        _count(db.search_history, {"status": "running"}),
+        _count(db.search_history, {"status": "running", "created_at": {"$lt": now - timedelta(minutes=30)}}),
+        _count(db.search_history, {"status": {"$in": list(_FAILED)}, "created_at": {"$gte": since}}),
+        _recent_errors(),
+        _count(db.notifications, {"type": "system_error", "created_at": {"$gte": since}}),
+        *(_total(name) for name in count_names),
+    )
     dbi = integ["database"]
     components = [
         {"key": "api", "label": "API", "status": "ok", "detail": "Responding"},
@@ -1907,10 +1936,7 @@ async def platform_health(ctx: TenantContext = Depends(SUPER)):
                 break
         elif c["status"] == "warn" and worst == "ok":
             worst = "warn"
-    collection_counts = {}
-    for name in ("organizations", "users", "organization_members", "search_history", "facebook_pages",
-                 "facebook_posts", "facebook_comments", "ai_comments", "subscriptions", "plans", "audit_logs"):
-        collection_counts[name] = await _count(db[name], {})
+    collection_counts = dict(zip(count_names, totals))
     return {"success": True, "health": {
         "status": "ok" if worst in ("ok", "warn") else "degraded",
         "overall": worst, "components": components, "recent_errors": errors,
