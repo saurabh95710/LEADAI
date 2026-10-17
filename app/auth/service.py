@@ -457,6 +457,22 @@ def revoke_user_sessions(user_id: str, revoked_by: str = "system") -> int:
         return 0
 
 
+def revoke_all_sessions(revoked_by: str = "system") -> int:
+    """Revoke every active session of every user, in every portal."""
+    db = get_sync_db()
+    if db is None:
+        return 0
+    try:
+        res = db["user_sessions"].update_many(
+            {"revoked_at": None},
+            {"$set": {"revoked_at": utcnow(), "revoked_by": revoked_by}},
+        )
+        return res.modified_count
+    except Exception as e:
+        logger.warning("Error revoking all sessions: %s", e)
+        return 0
+
+
 def revoke_session(session_id: str, revoked_by: str = "system") -> bool:
     """Revoke a single session by session_id."""
     db = get_sync_db()

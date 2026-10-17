@@ -60,3 +60,25 @@ This document details intentional architectural trade-offs, default fallbacks, a
 ### Concurrent Export Limits
 - To prevent denial-of-service via massive spreadsheet generation, concurrent export generation is capped at 3 simultaneous exports per server worker (`_EXPORT_MAX_CONCURRENT = 3`).
 - Additional export requests return HTTP `429 Too Many Requests` until an ongoing export completes.
+
+## 4. Features that are stored but not run yet
+
+### Outbound webhooks
+Webhooks can be registered (`/api/org-admin/webhooks`) and payloads are signed
+(`X-LeadAI-Signature: sha256=…`), but no event sends a delivery yet: nothing
+calls `dispatch_webhook_event`. Before it is wired in, target URLs need
+checking (https only, no private / loopback / link-local addresses, so a
+webhook can't reach internal services), deliveries need to run off the request
+path with retries, and the event list needs settling. There is no Org Admin
+screen for webhooks.
+
+### Scheduled scans
+Scheduled scans can be created, listed and deleted (`/api/search/scheduled`),
+but nothing runs them (`trigger_due_scheduled_scans` has no caller). When it
+is wired in, each run must go through the same admission as a search started by
+hand (`admit_url_search`: switches, plan caps, tokens, quota), on behalf of a
+member who still belongs to the organization.
+
+### AI playground
+`POST /api/admin/ai/playground` answers 501: running a prompt against a model
+from the registry is not implemented.

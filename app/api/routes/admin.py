@@ -27,6 +27,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel as _PydanticBaseModel
+from pydantic import Field
 
 from app.admin import settings as s
 from app.admin import audit as a
@@ -42,6 +43,7 @@ from app.api.models import (
 )
 from app.auth.roles import (require_env_unlocked, require_manager,
                             require_super, require_viewer)
+from app.auth.rate_limit import RateLimiter
 from app.config import get_settings
 from app.db.mongo import get_async_db
 from app.db.models import strip_sensitive, utcnow
@@ -973,11 +975,18 @@ async def get_lead(lead_id: str):
 @router.patch("/leads/{lead_id}", dependencies=[Depends(require_manager)])
 async def update_lead(lead_id: str, body: Dict[str, Any]):
     db = await _db()
-    lead = await db.ai_comments.find_one({"_id": ObjectId(lead_id)})
+    try:
+        oid = ObjectId(lead_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid lead id")
+    lead = await db.ai_comments.find_one({"_id": oid})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
     update: Dict[str, Any] = {"updated_at": utcnow(), "lead_updated_at": utcnow()}
+    # list appends (status history, notes) go into the same single write as
+    # the $set, so nothing is saved unless every field validated
+    push: Dict[str, Any] = {}
     current_status = lead.get("lead_status", "new")
 
     # Status update with transition validation
@@ -1011,10 +1020,7 @@ async def update_lead(lead_id: str, body: Dict[str, Any]):
             "changed_by": body.get("changed_by", "admin"),
             "reason": body.get("reason", ""),
         }
-        await db.ai_comments.update_one(
-            {"_id": lead["_id"]},
-            {"$push": {"status_history": history_entry}}
-        )
+        push["status_history"] = history_entry
 
     # Priority update
     new_priority = body.get("lead_priority") or body.get("priority")
@@ -1037,25 +1043,21 @@ async def update_lead(lead_id: str, body: Dict[str, Any]):
             "created_at": utcnow(),
             "updated_at": utcnow(),
         }
-        await db.ai_comments.update_one(
-            {"_id": lead["_id"]},
-            {
-                "$push": {"notes": note},
-                "$set": {"updated_at": utcnow(), "lead_updated_at": utcnow()},
-            }
-        )
+        push["notes"] = note
+    elif "notes" in body:
+        # Legacy notes field (overwrite for backward compatibility)
+        update["notes"] = str(body["notes"])[:500]
+
+    ops: Dict[str, Any] = {"$set": update}
+    if push:
+        ops["$push"] = push
+    await db.ai_comments.update_one({"_id": lead["_id"]}, ops)
+    if note_text:
         await a.aaudit("lead.note.add", "leads",
                        details={"lead_id": lead_id})
-        return {"success": True, "lead": _serialize_oid({**lead, **update})}
-
-    # Legacy notes field (overwrite for backward compatibility)
-    for key in ("notes",):
-        if key in body:
-            update[key] = str(body[key])[:500]
-
-    await db.ai_comments.update_one({"_id": lead["_id"]}, {"$set": update})
-    await a.aaudit("lead.update", "leads",
-                   details={"lead_id": lead_id, "status": new_status})
+    if not note_text or set(update) - {"updated_at", "lead_updated_at"}:
+        await a.aaudit("lead.update", "leads",
+                       details={"lead_id": lead_id, "status": new_status})
     return {"success": True, "lead": _serialize_oid({**lead, **update})}
 
 
@@ -1396,7 +1398,7 @@ async def set_apify_token(body: ApifyTokenRequest):
 
 @router.delete("/apify/token", dependencies=[Depends(require_super)])
 async def clear_apify_token():
-    await s.delete_setting("apify.token")
+    await s.adelete_setting("apify.token")
     await a.aaudit("apify.token.clear", "apify")
     return {"success": True, "message": "Token override removed (env token still applies)"}
 
@@ -1440,13 +1442,25 @@ async def env_set_guard(body: EnvGuardBody):
     return {"success": True, "guard_set": True}
 
 
+# Wrong guard passwords per staff account: the guard is what keeps the
+# platform secrets from viewers, so it must not be guessable by trying.
+_env_unlock_failures = RateLimiter("env_unlock_failed", 5, 15 * 60)
+
+
 @router.post("/env/unlock", dependencies=[Depends(require_viewer)])
 async def env_unlock(body: EnvUnlockRequest, response: Response,
                      admin: dict = Depends(require_viewer)):
+    who = str(admin.get("email") or "").lower()
+    if not _env_unlock_failures.allowed(who):
+        wait = max(1, _env_unlock_failures.retry_after(who))
+        raise HTTPException(status_code=429, headers={"Retry-After": str(wait)},
+                            detail=f"Too many wrong passwords. Try again in {max(1, wait // 60)} minute(s).")
     password = body.password
     if not ev.verify_guard_password(password):
-        await a.aaudit("env.unlock.failed", "env", success=False)
+        _env_unlock_failures.hit(who)
+        await a.aaudit("env.unlock.failed", "env", user=admin, success=False)
         raise HTTPException(status_code=403, detail="Wrong password")
+    _env_unlock_failures.reset(who)
     from app.auth.service import set_env_unlock_cookie
     set_env_unlock_cookie(response)
     await a.aaudit("env.unlock", "env")
@@ -2495,11 +2509,17 @@ async def put_security(body: Dict[str, Any],
 
 @router.post("/security/revoke-sessions")
 async def revoke_sessions(admin: dict = Depends(require_super)):
-    """Bump the session epoch: every existing cookie becomes invalid."""
-    epoch = (await s.aget_setting("security.session_epoch") or 0) + 1
+    """Revoke every session: every existing cookie becomes invalid.
+
+    The epoch is the revocation time in unix seconds, compared with each
+    cookie's issue time (``iat``) by the staff session check; every tracked
+    session (customers, partners and staff) is revoked server-side too."""
+    from app.auth.service import revoke_all_sessions
+    epoch = int(time.time())
     await s.aset_setting("security.session_epoch", epoch, by="admin")
+    revoked = await asyncio.to_thread(revoke_all_sessions, admin.get("email") or "super_admin")
     await a.aaudit("security.revoke_sessions", "security", user=admin,
-                   details={"epoch": epoch})
+                   details={"epoch": epoch, "sessions_revoked": revoked})
     return {"success": True, "message": "All sessions revoked (except yours after re-login)"}
 
 
@@ -3217,8 +3237,8 @@ class GrantFeatureRequest(_PydanticBaseModel):
 
 class GrantCreditsRequest(_PydanticBaseModel):
     metric: str
-    credits: int
-    expires_days: Optional[int] = 30
+    credits: int = Field(..., ge=1)
+    expires_days: Optional[int] = Field(30, ge=1, le=3650)
     reason: str = "Customer support accommodation"
 
 
@@ -3228,7 +3248,7 @@ class ChangeSubPlanRequest(_PydanticBaseModel):
 
 
 class ExtendSubTrialRequest(_PydanticBaseModel):
-    extra_days: int = 14
+    extra_days: int = Field(14, ge=1, le=90)
     reason: str = "Trial extension by support"
 
 

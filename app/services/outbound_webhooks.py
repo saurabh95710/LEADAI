@@ -68,8 +68,9 @@ def list_outbound_webhooks(db, organization_id: str) -> list[dict[str, Any]]:
     items = list(db[COLL_OUTBOUND_WEBHOOKS].find({"organization_id": str(organization_id)}).sort("created_at", -1))
     for it in items:
         it["id"] = str(it["_id"])
-        # Mask secret in listing
-        sec = it.get("secret", "")
+        # the signing secret is shown once, when the webhook is created; a
+        # listing only ever carries a masked hint
+        sec = it.pop("secret", "") or ""
         it["masked_secret"] = sec[:4] + "..." + sec[-4:] if len(sec) > 8 else "***"
     return items
 

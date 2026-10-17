@@ -1,10 +1,12 @@
 """
-LeadAI Scheduled Scans & Bulk URL Search Service (Phase 6 Product Feature).
+LeadAI Scheduled Scans Service (Phase 6 Product Feature).
 
 Supports:
 - Recurring / scheduled social scans (daily, weekly, custom interval)
 - Incremental scans (fetching only new posts and comments since last run)
-- Bulk URL input with validation and batch queuing
+
+Bulk URL searches are started by POST /api/search/bulk, one admitted search
+per URL (app.api.routes.search.admit_url_search).
 """
 import logging
 import uuid
@@ -15,7 +17,7 @@ from bson import ObjectId
 
 from app.db.models import utcnow
 from app.queue.service import enqueue_job
-from app.social.url_detector import UrlError, detect_social_url
+from app.social.url_detector import detect_social_url
 
 logger = logging.getLogger(__name__)
 
@@ -163,70 +165,3 @@ def trigger_due_scheduled_scans(db, now: datetime | None = None) -> list[str]:
         logger.info("Triggered recurring scan %s -> run %s", scan_id, run_id)
 
     return triggered_run_ids
-
-
-def process_bulk_urls(
-    db,
-    *,
-    urls: list[str],
-    organization_id: str,
-    user_id: str | None = None,
-    created_by: str | None = None,
-    max_posts: int = 20,
-    max_comments_per_post: int = 30,
-) -> dict[str, Any]:
-    """Validate, deduplicate, and enqueue a bulk batch of URLs."""
-    batch_id = f"batch_{uuid.uuid4().hex[:10]}"
-    valid_runs: list[dict[str, Any]] = []
-    invalid_urls: list[dict[str, str]] = []
-    seen_canonical = set()
-
-    for raw_url in urls:
-        raw_clean = (raw_url or "").strip()
-        if not raw_clean:
-            continue
-        try:
-            platform, canonical_url = detect_social_url(raw_clean)
-            if canonical_url in seen_canonical:
-                continue
-            seen_canonical.add(canonical_url)
-
-            run_id = f"URL_{uuid.uuid4().hex[:12]}"
-            payload = {
-                "run_id": run_id,
-                "url": canonical_url,
-                "max_posts": max_posts,
-                "max_comments_per_post": max_comments_per_post,
-                "organization_id": str(organization_id),
-                "created_by": created_by,
-                "user_id": str(user_id) if user_id else None,
-                "batch_id": batch_id,
-            }
-
-            enqueue_job(
-                task_name="url_search",
-                payload=payload,
-                run_id=run_id,
-                organization_id=organization_id,
-                created_by=created_by,
-                user_id=user_id,
-            )
-
-            valid_runs.append({
-                "url": canonical_url,
-                "platform": platform,
-                "run_id": run_id,
-            })
-        except UrlError as e:
-            invalid_urls.append({"url": raw_clean, "error": str(e.message)})
-        except Exception as e:  # noqa: BLE001
-            invalid_urls.append({"url": raw_clean, "error": str(e)})
-
-    return {
-        "batch_id": batch_id,
-        "total_submitted": len(urls),
-        "total_queued": len(valid_runs),
-        "total_invalid": len(invalid_urls),
-        "queued_runs": valid_runs,
-        "invalid_urls": invalid_urls,
-    }

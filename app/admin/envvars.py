@@ -488,6 +488,23 @@ def legacy_override_value(name: str) -> Optional[str]:
         return None
 
 
+def delete_legacy_override(name: str) -> bool:
+    """Remove the stale stored copy of a core environment-only variable (the
+    leftovers ``legacy_locked_overrides`` lists). The app can only delete it —
+    core values are never written or changed from here."""
+    if name not in _CORE_LOCKED:
+        return False
+    try:
+        db = get_sync_db()
+        if db is None:
+            return False
+        db[COLLECTION].delete_one({"_id": name})
+        _CACHE.pop(name, None)
+        return True
+    except Exception:
+        return False
+
+
 def delete_envvar_override(name: str, *, allow_locked: bool = False) -> bool:
     """Remove an override. Locked (environment-only) variables can only have
     a leftover override removed (``allow_locked``) — never set."""

@@ -1,5 +1,12 @@
 """
-Automatic lead assignment — acts on ``organizations.settings.lead_assignment``.
+Automatic lead assignment.
+
+An organization's active assignment rules (``lead_assignment_rules``, managed
+in Org Admin → assignment rules) are applied first: the first rule whose
+criteria match picks the next of its assignees and stamps an SLA
+(``sla_hours``, ``sla_due_at``, ``sla_status``) that
+``app.services.lead_assignment.check_sla_and_reminders`` watches. When no rule
+applies, ``organizations.settings.lead_assignment`` decides.
 
 Modes (see app/api/routes/organizations.py ``_SETTING_CHOICES``):
 
@@ -28,7 +35,8 @@ Rules:
 Everything here is best effort and never raises into the pipeline.
 """
 import logging
-from typing import Any, Dict, List, Optional
+from datetime import timedelta
+from typing import Any, Dict, List, Optional, Tuple
 
 from bson import ObjectId
 
@@ -123,6 +131,48 @@ def pick_assignee(db, org_id: str, lead: Dict[str, Any],
     return candidates[(seq - 1) % len(candidates)]
 
 
+RULES_COLLECTION = "lead_assignment_rules"
+
+
+def _rule_matches(criteria: Dict[str, Any], lead: Dict[str, Any]) -> bool:
+    if "priority" in criteria and criteria["priority"] != lead.get("priority"):
+        return False
+    if "intent" in criteria and criteria["intent"] != lead.get("intent"):
+        return False
+    if "min_score" in criteria and (lead.get("lead_score") or 0) < criteria["min_score"]:
+        return False
+    return True
+
+
+def rule_assignee(db, org_id: str, lead: Dict[str, Any],
+                  org_doc: Optional[Dict[str, Any]] = None
+                  ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """``(rule, assignee)`` from the organization's active assignment rules
+    (Org Admin → assignment rules), or ``(None, None)`` when no rule applies.
+
+    Rules are tried oldest first; the first whose criteria match and that has
+    at least one eligible assignee wins. Each rule rotates through its own
+    assignees with an atomic ``$inc`` of its ``current_index``. An assignee who
+    is no longer an eligible member is skipped, never assigned."""
+    from pymongo import ReturnDocument
+    rules = list(db[RULES_COLLECTION].find(
+        {"organization_id": {"$in": _org_ids(org_id)}, "is_active": True}).sort("created_at", 1))
+    if not rules:
+        return None, None
+    eligible = {c["user_id"]: c for c in eligible_assignees(db, org_id, org_doc)}
+    for rule in rules:
+        if not _rule_matches(rule.get("criteria") or {}, lead):
+            continue
+        pool = [str(a) for a in rule.get("assignees") or [] if str(a) in eligible]
+        if not pool:
+            continue
+        before = db[RULES_COLLECTION].find_one_and_update(
+            {"_id": rule["_id"]}, {"$inc": {"current_index": 1}, "$set": {"updated_at": utcnow()}},
+            return_document=ReturnDocument.BEFORE) or rule
+        return rule, eligible[pool[int(before.get("current_index") or 0) % len(pool)]]
+    return None, None
+
+
 def _is_member(db, org_id: str, user_id: str) -> bool:
     return db.organization_members.find_one(
         {"organization_id": {"$in": _org_ids(org_id)}, "user_id": str(user_id),
@@ -130,10 +180,11 @@ def _is_member(db, org_id: str, user_id: str) -> bool:
 
 
 def auto_assign_lead(db, lead_ref: Any) -> Optional[Dict[str, Any]]:
-    """Assign one lead according to its organization's setting.
+    """Assign one lead by its organization's rules, else its setting.
 
     ``lead_ref`` is the ai_comments ``_id`` (or the document itself).
-    Returns ``{"user_id", "email", "mode"}`` when assigned, else None.
+    Returns ``{"user_id", "email", "mode"}`` when assigned (plus the SLA
+    fields when a rule assigned it), else None.
     Never raises."""
     try:
         lead = lead_ref if isinstance(lead_ref, dict) else db.ai_comments.find_one({"_id": _oid(lead_ref)})
@@ -147,27 +198,42 @@ def auto_assign_lead(db, lead_ref: Any) -> Optional[Dict[str, Any]]:
         org_doc = db.organizations.find_one({"_id": _oid(org_id)})
         if not org_doc:
             return None
-        mode = assignment_mode(org_doc)
-        if mode == "manual":
-            return None
-        assignee = pick_assignee(db, org_id, lead, org_doc)
+        # an active assignment rule wins over the organization's mode
+        rule, assignee = rule_assignee(db, org_id, lead, org_doc)
+        if rule:
+            mode = "rule"
+        else:
+            mode = assignment_mode(org_doc)
+            if mode == "manual":
+                return None
+            assignee = pick_assignee(db, org_id, lead, org_doc)
         if not assignee or not _is_member(db, org_id, assignee["user_id"]):
             return None
         now = utcnow()
         from app.pipeline.lead_lifecycle import create_assignment_history_entry
         entry = create_assignment_history_entry(None, assignee["user_id"], assignee.get("email"),
                                                 changed_by="system", method=f"auto:{mode}")
+        fields: Dict[str, Any] = {
+            "assigned_user_id": assignee["user_id"], "assigned_to": assignee.get("email"),
+            "assigned_at": now, "lead_updated_at": now,
+            "auto_assignment": {"mode": mode, "at": now, "user_id": assignee["user_id"]}}
+        if rule:
+            # the rule's SLA: the assignee must contact the lead before sla_due_at
+            sla_hours = max(1, int(rule.get("sla_hours") or 24))
+            fields.update({"assignment_rule_id": rule.get("rule_id"), "sla_hours": sla_hours,
+                           "sla_due_at": now + timedelta(hours=sla_hours), "sla_status": "on_track"})
+            fields["auto_assignment"]["rule_id"] = rule.get("rule_id")
         res = db.ai_comments.update_one(
             {"_id": lead["_id"], "organization_id": {"$in": _org_ids(org_id)}, "is_lead": True,
              "assigned_user_id": {"$in": [None, ""]}, "auto_assignment": {"$exists": False}},
-            {"$set": {"assigned_user_id": assignee["user_id"], "assigned_to": assignee.get("email"),
-                      "lead_updated_at": now,
-                      "auto_assignment": {"mode": mode, "at": now, "user_id": assignee["user_id"]}},
-             "$push": {"assignment_history": entry}})
+            {"$set": fields, "$push": {"assignment_history": entry}})
         if not res.modified_count:
             return None  # assigned concurrently (by a person or another worker)
         _after_assign(lead, org_id, assignee, mode)
-        return {"user_id": assignee["user_id"], "email": assignee.get("email"), "mode": mode}
+        out = {"user_id": assignee["user_id"], "email": assignee.get("email"), "mode": mode}
+        if rule:
+            out.update({k: fields[k] for k in ("assignment_rule_id", "sla_hours", "sla_due_at", "sla_status")})
+        return out
     except Exception as e:
         logger.warning("[LeadAssignment] auto-assign failed: %s", e)
         return None

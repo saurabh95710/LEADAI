@@ -107,6 +107,15 @@ def _e164(phone: Any) -> Optional[str]:
     return normalize_phone(phone)
 
 
+def actor_email(actor: Any) -> Optional[str]:
+    """Who acted, as recorded on partner records: the email of a route's actor
+    dict (never the dict itself, which holds the session id) or user object,
+    or a system label (``"system"``, a job name) as given."""
+    if isinstance(actor, dict):
+        return actor.get("email")
+    return getattr(actor, "email", None) or (str(actor) if actor else None)
+
+
 def paudit(action: str, partner_id: Optional[str], *, actor: Any = None,
            ip: Optional[str] = None, details: Optional[Dict[str, Any]] = None,
            resource_type: str = "partner", resource_id: Optional[str] = None,
@@ -128,8 +137,7 @@ def paudit(action: str, partner_id: Optional[str], *, actor: Any = None,
           resource_type=resource_type, resource_id=resource_id or partner_id)
     # the same event in the partner activity feed (Super Admin → Partners → Activity)
     from app.partners.activity import record
-    who = actor.get("email") if isinstance(actor, dict) else getattr(actor, "email", None) or (str(actor) if actor else None)
-    record("action", action, partner_id=partner_id, actor=who, ip=ip, success=success,
+    record("action", action, partner_id=partner_id, actor=actor_email(actor), ip=ip, success=success,
            details={k: v for k, v in d.items() if k != "partner_id"} | {"resource_type": resource_type,
                                                                         "resource_id": resource_id})
 
@@ -228,7 +236,7 @@ def update_program_settings(values: Dict[str, Any], *, actor: Any, ip: Optional[
     if clean_values:
         db[K.SETTINGS].update_one({"_id": "program"},
                                   {"$set": {**clean_values, "updated_at": utcnow(),
-                                            "updated_by": getattr(actor, "email", None) or str(actor)}},
+                                            "updated_by": actor_email(actor)}},
                                   upsert=True)
         paudit("partner.settings.updated", None, actor=actor, ip=ip,
                details={"changed": clean_values}, resource_type="partner_settings",
@@ -410,7 +418,7 @@ def save_rule(data: Dict[str, Any], *, rule_id: Optional[str] = None, actor: Any
         db[K.RULES].update_one({"_id": before["_id"]}, {"$set": doc})
         action = "partner.commission_rule.updated"
     else:
-        doc.update({"created_at": utcnow(), "created_by": getattr(actor, "email", None) or str(actor)})
+        doc.update({"created_at": utcnow(), "created_by": actor_email(actor)})
         rule_id = str(db[K.RULES].insert_one(doc).inserted_id)
         action = "partner.commission_rule.created"
     paudit(action, doc.get("partner_id"), actor=actor, ip=ip,
@@ -701,14 +709,14 @@ def _load_application(app_id: str, db) -> Dict[str, Any]:
     return doc
 
 
-def _app_transition(db, doc, status: str, actor_email: str, note: Optional[str] = None,
+def _app_transition(db, doc, status: str, by: Optional[str], note: Optional[str] = None,
                     extra: Optional[Dict[str, Any]] = None) -> None:
     now = utcnow()
     res = db[K.APPLICATIONS].update_one(
         {"_id": doc["_id"], "status": doc["status"]},
         {"$set": {"status": status, "updated_at": now, "review_note": note,
-                  "reviewed_by": actor_email, "reviewed_at": now, **(extra or {})},
-         "$push": {"history": {"status": status, "at": now, "by": actor_email, "note": note}}})
+                  "reviewed_by": by, "reviewed_at": now, **(extra or {})},
+         "$push": {"history": {"status": status, "at": now, "by": by, "note": note}}})
     if not res.modified_count:
         raise HTTPException(status_code=409, detail="The application changed meanwhile — reload and retry")
 
@@ -741,8 +749,8 @@ def approve_application(app_id: str, *, actor: Any, partner_type: Optional[str] 
     if tier_id and not db[K.TIERS].find_one({"_id": oid(tier_id)}):
         raise HTTPException(status_code=422, detail="Unknown tier")
     perms = clean_permissions(permissions) if permissions is not None else list(K.DEFAULT_PERMISSIONS[ptype])
-    actor_email = getattr(actor, "email", None) or str(actor)
-    _app_transition(db, doc, K.APP_APPROVED, actor_email, note)
+    by = actor_email(actor)
+    _app_transition(db, doc, K.APP_APPROVED, by, note)
     now = utcnow()
     partner = {
         "user_id": doc["user_id"], "application_id": str(doc["_id"]), "email": doc["email"],
@@ -758,8 +766,8 @@ def approve_application(app_id: str, *, actor: Any, partner_type: Optional[str] 
         "tier_id": tier_id or default_tier_id(db), "permissions": perms,
         "settings": {"email_notifications": True},
         "ip_hash": doc.get("ip_hash"), "notes": None,
-        "approved_at": now, "approved_by": actor_email,
-        "status_history": [{"status": K.P_ACTIVE, "at": now, "by": actor_email, "note": "approved"}],
+        "approved_at": now, "approved_by": by,
+        "status_history": [{"status": K.P_ACTIVE, "at": now, "by": by, "note": "approved"}],
         "created_at": now, "updated_at": now,
     }
     try:
@@ -792,7 +800,7 @@ def reject_application(app_id: str, *, actor: Any, reason: str = "", ip: Optiona
     doc = _load_application(app_id, db)
     if doc["status"] not in (K.APP_PENDING, K.APP_CHANGES):
         raise HTTPException(status_code=409, detail=f"Application is '{doc['status']}' — cannot reject")
-    _app_transition(db, doc, K.APP_REJECTED, getattr(actor, "email", None) or str(actor), reason)
+    _app_transition(db, doc, K.APP_REJECTED, actor_email(actor), reason)
     paudit("partner.application.rejected", None, actor=actor, ip=ip,
            details={"application_id": app_id, "reason": reason},
            resource_type="partner_application", resource_id=app_id)
@@ -811,7 +819,7 @@ def request_application_changes(app_id: str, *, actor: Any, note: str, ip: Optio
         raise HTTPException(status_code=409, detail=f"Application is '{doc['status']}' — cannot request changes")
     if not (note or "").strip():
         raise HTTPException(status_code=422, detail="Tell the applicant what to change")
-    _app_transition(db, doc, K.APP_CHANGES, getattr(actor, "email", None) or str(actor), note.strip()[:1000])
+    _app_transition(db, doc, K.APP_CHANGES, actor_email(actor), note.strip()[:1000])
     paudit("partner.application.changes_requested", None, actor=actor, ip=ip,
            details={"application_id": app_id, "note": note},
            resource_type="partner_application", resource_id=app_id)
@@ -843,12 +851,12 @@ def set_partner_status(partner_id: str, status: str, *, actor: Any, reason: str 
     if status == K.P_SUSPENDED and not (reason or "").strip():
         raise HTTPException(status_code=422, detail="A reason is required to suspend a partner")
     now = utcnow()
-    actor_email = getattr(actor, "email", None) or str(actor)
+    by = actor_email(actor)
     db[K.PARTNERS].update_one({"_id": p["_id"], "status": p["status"]}, {
         "$set": {"status": status, "updated_at": now,
                  **({"suspended_at": now, "suspension_reason": reason} if status == K.P_SUSPENDED
                     else {"reactivated_at": now, "suspension_reason": None})},
-        "$push": {"status_history": {"status": status, "at": now, "by": actor_email, "note": reason}}})
+        "$push": {"status_history": {"status": status, "at": now, "by": by, "note": reason}}})
     if status == K.P_SUSPENDED:
         # suspended partners lose access immediately: revoke sessions + API keys
         from app.auth.service import revoke_user_sessions

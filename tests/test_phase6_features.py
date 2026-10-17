@@ -47,7 +47,6 @@ from app.services.outbound_webhooks import (
 from app.services.scheduler import (
     create_scheduled_scan,
     list_scheduled_scans,
-    process_bulk_urls,
     trigger_due_scheduled_scans,
 )
 from app.services.unit_economics import (
@@ -117,26 +116,6 @@ def test_scheduled_scans_lifecycle(mock_db):
         assert triggered[0].startswith("URL_REC_")
 
 
-def test_bulk_url_search(mock_db):
-    with patch("app.queue.service.get_sync_db", return_value=mock_db):
-        urls = [
-            "https://www.facebook.com/firstbrand",
-            "https://www.facebook.com/firstbrand",  # Duplicate
-            "https://www.instagram.com/secondbrand",
-            "https://invalid-non-social.com/bad",
-        ]
-
-        result = process_bulk_urls(
-            mock_db,
-            urls=urls,
-            organization_id="org_alpha",
-            max_posts=10,
-        )
-        assert result["total_submitted"] == 4
-        assert result["total_queued"] == 2  # 2 valid deduplicated
-        assert result["total_invalid"] == 1
-
-
 # ── 3. Lead Deduplication ───────────────────────────────────────────────────
 
 def test_lead_deduplication(mock_db):
@@ -180,7 +159,14 @@ def test_lead_deduplication(mock_db):
 # ── 4. Lead Assignment Rules & SLA Timers ───────────────────────────────────
 
 def test_lead_assignment_rules_and_sla(mock_db):
-    org_id = "org_assign_test"
+    org_id = str(mock_db.organizations.insert_one({"name": "Assign Co", "status": "active"}).inserted_id)
+    reps = []
+    for n in (1, 2):
+        uid = str(mock_db.users.insert_one({"email": f"rep{n}@assign.test", "status": "active"}).inserted_id)
+        mock_db.organization_members.insert_one({"organization_id": org_id, "user_id": uid,
+                                                 "role": "member", "status": "active"})
+        reps.append(uid)
+    reps.sort()
 
     # Create Round-Robin rule for Hot Leads (4-hour SLA)
     rule = create_assignment_rule(
@@ -188,7 +174,7 @@ def test_lead_assignment_rules_and_sla(mock_db):
         organization_id=org_id,
         name="Hot Leads Fast SLA",
         rule_type="round_robin",
-        assignees=["sales_rep_1", "sales_rep_2"],
+        assignees=reps,
         criteria={"priority": "hot"},
         sla_hours=4,
     )
@@ -201,14 +187,15 @@ def test_lead_assignment_rules_and_sla(mock_db):
     lead_doc = {
         "_id": ObjectId(),
         "organization_id": org_id,
+        "is_lead": True,
         "priority": "hot",
-        "status": "new",
+        "lead_status": "new",
     }
     mock_db.ai_comments.insert_one(lead_doc)
 
     # Assign lead 1 -> rep 1
     meta1 = assign_lead(mock_db, str(lead_doc["_id"]), lead_doc, org_id)
-    assert meta1["assigned_user_id"] == "sales_rep_1"
+    assert meta1["assigned_user_id"] == reps[0]
     assert meta1["sla_status"] == "on_track"
 
     # Check SLA breach detection

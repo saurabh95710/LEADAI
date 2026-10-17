@@ -1508,7 +1508,7 @@ async def get_keyword_library_endpoint(ctx: TenantContext = Depends(require_port
     from app.pipeline.domain_intelligence import get_org_keyword_library
     db = _db()
     org = await _org_doc(db, ctx)
-    lib = await get_org_keyword_library(org, db)
+    lib = await get_org_keyword_library(org)
     lib["can_edit"] = P.SETTINGS_MANAGE in ctx.permissions
     return lib
 

@@ -828,10 +828,16 @@ async def enable_2fa(body: TotpVerifyRequest, request: Request):
     if db is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
     now = utcnow()
-    db["users"].update_one(
-        {"_id": ObjectId(str(user["user_id"]))},
+    # Never replace an active second factor here: that would let a stolen
+    # session swap in its own authenticator. Turning 2FA off needs the
+    # password or a current code (/2fa/disable); set up again afterwards.
+    res = db["users"].update_one(
+        {"_id": ObjectId(str(user["user_id"])), "totp_enabled": {"$ne": True}},
         {"$set": {"totp_enabled": True, "totp_secret": body.secret, "totp_enabled_at": now, "updated_at": now}}
     )
+    if not res.matched_count:
+        raise HTTPException(status_code=409, detail="Two-factor authentication is already on. "
+                                                    "Turn it off first to use a new authenticator.")
     meta = request_meta(request)
     await aaudit("auth.2fa_enabled", "auth", user=user, ip=meta["ip"], user_agent=meta["user_agent"])
     return {"success": True, "message": "Two-factor authentication successfully enabled."}
@@ -930,8 +936,16 @@ async def resend_email_verification(body: ResendVerificationRequest, request: Re
     if db is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
+    sent = {"success": True, "message": "Verification link sent to your email."}
     record = db["users"].find_one({"email": target_email})
-    user_id_str = str(record["_id"]) if record else None
+    # Only an existing, unverified account gets a link. Anyone may call this
+    # (no session needed), so mailing any address typed in would let strangers
+    # send LeadAI mail to people who never signed up, and would cancel the
+    # links a real user is waiting for. The answer is the same either way, so
+    # it never reveals which addresses have an account.
+    if not record or record.get("email_verified"):
+        return sent
+    user_id_str = str(record["_id"])
 
     now = utcnow()
     db["email_verifications"].update_many(
@@ -959,4 +973,4 @@ async def resend_email_verification(body: ResendVerificationRequest, request: Re
         "If you did not request this, you can safely ignore this email.",
         kind="email_verification",
     )
-    return {"success": True, "message": "Verification link sent to your email."}
+    return sent

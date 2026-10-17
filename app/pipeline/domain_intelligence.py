@@ -8,6 +8,7 @@ Provides:
 4. User Search Presets Management (Tenant Isolated).
 5. Dynamic Business Context Blending for Search Runs and AI Prompts.
 """
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 from bson import ObjectId
@@ -663,12 +664,14 @@ def generate_recommendations(
     }
 
 
-async def get_org_keyword_library(org: Dict[str, Any], db=None) -> Dict[str, Any]:
+async def get_org_keyword_library(org: Dict[str, Any]) -> Dict[str, Any]:
     """Builds the comprehensive keyword library for an organization.
     Separates keywords into tabs: Suggested, Active, Custom, Excluded."""
     from app.pipeline.business_context import build_context
 
-    ctx = build_context(org, db)
+    # the industry catalog (custom industries, disabled built-ins) is read with
+    # the sync driver: off the event loop, never with the async client
+    ctx = await asyncio.to_thread(build_context, org)
     settings = org.get("settings") or {}
     profile = settings.get("business_profile") or {}
 

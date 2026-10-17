@@ -128,19 +128,28 @@ def run_smoke_test():
     # 5. Lead Assignment Rules & SLA Timers
     logger.info("Step 5: Testing Lead Assignment Rules & SLA Timers...")
     from app.services.lead_assignment import create_assignment_rule, assign_lead, delete_assignment_rule
+    # a rule hands leads only to active members of the organization
+    rule_org = str(db.organizations.insert_one({"name": "Smoke Sales", "status": "active"}).inserted_id)
+    agents = []
+    for n in (1, 2):
+        uid = str(db.users.insert_one({"email": f"agent{n}@smoke.example", "status": "active"}).inserted_id)
+        db.organization_members.insert_one({"organization_id": rule_org, "user_id": uid,
+                                            "role": "member", "status": "active"})
+        agents.append(uid)
+    db.ai_comments.update_one({"_id": ObjectId(id1)}, {"$set": {"organization_id": rule_org, "is_lead": True}})
     rule = create_assignment_rule(
         db,
-        organization_id=org_id,
+        organization_id=rule_org,
         name="High Priority Round Robin",
         rule_type="round_robin",
-        assignees=["sales_agent_1", "sales_agent_2"],
+        assignees=agents,
         sla_hours=4,
     )
-    assigned = assign_lead(db, str(id1), lead2, org_id)
+    assigned = assign_lead(db, str(id1), lead2, rule_org)
     assert assigned is not None
-    assert assigned.get("assigned_user_id") in ["sales_agent_1", "sales_agent_2"]
-    assert assigned.get("sla_hours") == 4
-    delete_assignment_rule(db, rule["rule_id"], org_id)
+    assert assigned.get("assigned_user_id") in agents
+    assert assigned.get("sla_hours") == 4 and assigned.get("sla_due_at")
+    delete_assignment_rule(db, rule["rule_id"], rule_org)
     print("  [PASS] Lead assignment rule evaluated with 4h SLA countdown timer")
 
     # 6. Outbound Webhooks & HMAC Signatures

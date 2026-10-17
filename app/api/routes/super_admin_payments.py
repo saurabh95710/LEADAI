@@ -3,12 +3,14 @@
   GET  /api/super-admin/payments/setup   provider choice, keys configured (yes/no,
                                          test/live, 4-char key id hint), webhook
                                          URLs + events to tick in each dashboard
+  PUT  /api/super-admin/payments/setup   provider choice and the gateway keys /
+                                         webhook secrets, stored encrypted; they
+                                         override the server .env
   POST /api/super-admin/payments/check   {provider}: ask Razorpay / Stripe whether
-                                         the keys in the server environment work
+                                         the keys in use work
 
-The keys themselves live only in the server .env (locked env vars): nothing
-here can change them and no response contains a secret. The provider is
-chosen in Global Settings → Payments (setting ``billing.provider``).
+No response contains a secret. The provider is also chosen in Global Settings
+→ Payments (setting ``billing.provider``).
 """
 import time
 from collections import deque

@@ -173,9 +173,9 @@ Requires an authenticated tenant session cookie.
 | Method | Endpoint | Description | Permission |
 |---|---|---|---|
 | `POST` | `/api/url/search` | Launch a single URL-based scraping run | `search.create` |
-| `POST` | `/api/search/bulk` | Launch concurrent searches for a batch of URLs | `search.create` |
+| `POST` | `/api/search/bulk` | Start a search for each URL of a batch (up to 50). Each URL passes the same checks as a single search (switches, plan caps, tokens, monthly quota, searches running); refused URLs are listed with the reason | `search.create` |
 | `POST` | `/api/search/scheduled` | Create a recurring scheduled scan | `search.create` |
-| `GET` | `/api/search/scheduled` | List active scheduled scans for the organization | `search.view` |
+| `GET` | `/api/search/scheduled` | List scheduled scans: the whole organization's for owners / admins, a member's own otherwise. Scheduled scans are stored but not run yet (see KNOWN_LIMITATIONS.md) | `search.view` |
 | `DELETE` | `/api/search/scheduled/{id}` | Cancel and delete a scheduled scan | `search.create` |
 | `GET` | `/api/search/history` | List recent search runs for the workspace | `search.view` |
 | `GET` | `/api/search/{run_id}` | Poll status, progress, and discovered pages | `search.view` |
@@ -238,8 +238,8 @@ Requires tenant `owner` or `admin` role with active subscription.
 | `POST` | `/api/org-admin/assignment-rules` | Create automated lead assignment rule with SLA |
 | `GET` | `/api/org-admin/assignment-rules` | List lead assignment rules |
 | `DELETE` | `/api/org-admin/assignment-rules/{id}` | Delete assignment rule |
-| `POST` | `/api/org-admin/webhooks` | Register outbound webhook endpoint |
-| `GET` | `/api/org-admin/webhooks` | List registered webhooks |
+| `POST` | `/api/org-admin/webhooks` | Register outbound webhook endpoint (`url`, `secret`, `events`). Deliveries are not sent yet (see KNOWN_LIMITATIONS.md) |
+| `GET` | `/api/org-admin/webhooks` | List registered webhooks (the signing secret only as a masked hint) |
 | `DELETE` | `/api/org-admin/webhooks/{id}` | Remove webhook |
 | `POST` | `/api/org-admin/api-keys` | Generate new public API key |
 | `GET` | `/api/org-admin/api-keys` | List active API keys |

@@ -18,7 +18,7 @@ from app.db.models import utcnow
 from app.db.mongo import get_sync_db
 from app.partners import constants as K
 from app.partners.service import (
-    clean, db_or_503, get_program_settings, money, oid, paudit,
+    actor_email, clean, db_or_503, get_program_settings, money, oid, paudit,
 )
 
 logger = logging.getLogger(__name__)
@@ -82,9 +82,11 @@ def save_coupon(data: Dict[str, Any], *, partner_id: str, actor: Any, by_partner
         "plan_slugs": [re.sub(r"[^a-z0-9_-]", "", str(s).lower())[:40]
                        for s in (data.get("plan_slugs") or []) if str(s).strip()],
         "status": "active" if data.get("status", "active") == "active" else "disabled",
-        "eligibility": eligibility, "commission_basis": basis,
         "updated_at": utcnow(),
     }
+    if not (by_partner and coupon_id):
+        # a partner's edit keeps the eligibility and commission basis the Super Admin set
+        doc.update({"eligibility": eligibility, "commission_basis": basis})
     if coupon_id:
         c = db[K.COUPONS].find_one({"_id": oid(coupon_id), "partner_id": str(partner["_id"])}) if oid(coupon_id) else None
         if not c:
@@ -100,7 +102,7 @@ def save_coupon(data: Dict[str, Any], *, partner_id: str, actor: Any, by_partner
         if db[K.COUPONS].find_one({"code": code}):
             raise HTTPException(status_code=409, detail="This coupon code is already taken")
         doc.update({"code": code, "partner_id": str(partner["_id"]), "times_redeemed": 0,
-                    "created_by": getattr(actor, "email", None) or str(actor),
+                    "created_by": actor_email(actor),
                     "created_by_role": "partner" if by_partner else "super_admin",
                     "created_at": utcnow()})
         try:
@@ -299,8 +301,7 @@ def save_pricing_rule(data: Dict[str, Any], *, actor: Any, rule_id: Optional[str
         db[K.PRICING].update_one({"_id": oid(rule_id)}, {"$set": doc})
         action = "partner.pricing.updated"
     else:
-        doc.update({"created_at": utcnow(), "created_by": getattr(actor, "email", None) or
-                    (actor.get("email") if isinstance(actor, dict) else str(actor))})
+        doc.update({"created_at": utcnow(), "created_by": actor_email(actor)})
         rule_id = str(db[K.PRICING].insert_one(doc).inserted_id)
         action = "partner.pricing.created"
     paudit(action, partner_id, actor=actor, ip=ip,

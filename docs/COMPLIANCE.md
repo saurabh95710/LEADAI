@@ -30,9 +30,15 @@ Organizations can configure an automated data retention window to minimize store
 Individuals and organizations can submit immediate data erasure requests:
 
 - **Admin Deletion Endpoint**: `POST /api/compliance/delete-request`
-- **Public / Prospect Self-Serve Opt-Out**: `POST /api/compliance/opt-out`
+- **Public / Prospect Self-Serve Opt-Out**: `POST /api/compliance/opt-out` (no LeadAI account needed).
+  Nothing is blocked or purged until the person proves the contact is theirs:
+  - an **email address** gets a single-use confirmation link (24 hours): `GET /api/compliance/opt-out/confirm`;
+  - a **phone number** gets a 6-digit SMS code (15 minutes, 5 tries): `POST /api/compliance/opt-out/confirm`;
+  - a **username** can't be verified and is refused; the business that collected it removes it with the admin endpoint.
+  The answer is the same whether or not LeadAI holds data on the contact. The opt-out is platform-wide: every
+  organization's matching leads lose their contact details.
 - **Execution Flow**:
-  1. The prospect's phone number, email address, or username is normalized.
+  1. The prospect's phone number, email address, or username is normalized (names match whole, in any case).
   2. The identifier is permanently added to the `compliance_blocklist` collection to block any future scraping or AI ingestion.
   3. All existing records matching the identifier in `ai_comments` have their PII stripped, and flags set to `is_lead: false`, `is_useful: false`, `compliance_blocked: true`.
   4. An immutable audit record is emitted to `audit_logs` tracking the deletion event.

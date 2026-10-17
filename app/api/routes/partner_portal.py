@@ -649,7 +649,9 @@ def update_campaign(campaign_id: str, body: CampaignBody, request: Request,
 # ── coupons / marketing ──────────────────────────────────────────────────────
 
 def _coupon_out(c: Dict[str, Any]) -> Dict[str, Any]:
-    return S.clean(c)
+    # who at LeadAI issued a coupon is staff data; created_by_role is all the
+    # partner needs (it decides whether they may edit it)
+    return S.clean({k: v for k, v in c.items() if k != "created_by"})
 
 
 @router.get("/coupons")

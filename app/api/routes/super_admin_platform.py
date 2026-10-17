@@ -67,7 +67,7 @@ import re
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Awaitable, Dict, Iterable, List, Optional, Tuple
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -130,6 +130,11 @@ async def _count(coll, query: Dict[str, Any]) -> int:
         return int(await coll.count_documents(query))
     except Exception:
         return 0
+
+
+async def _gather_counts(*counts: Awaitable[int]) -> List[int]:
+    """Run several counts at once (one round-trip instead of one each)."""
+    return list(await asyncio.gather(*counts))
 
 
 async def _agg(coll, pipeline: List[Dict[str, Any]], limit: int = 5000) -> List[Dict[str, Any]]:
@@ -1769,21 +1774,24 @@ async def _integrations(db) -> Dict[str, Any]:
     rzp = (pay.get("providers") or {}).get("razorpay") or {}
     # Run every database query at once: against a remote cluster, one at a
     # time costs a network round-trip each and made this take seconds.
-    (usage_usd_30d, (ping_ok, latency), out_queued, out_sent, out_failed, ai_failed, ai_requests,
-     apify_jobs, apify_failures, failed_payments_7d, exports, media_files) = await asyncio.gather(
+    usage_usd_30d, (ping_ok, latency), counts = await asyncio.gather(
         _apify_usage_usd(db, utcnow() - timedelta(days=30)),
         _db_ping(db),
-        _count(db.email_outbox, {"status": "queued"}),
-        _count(db.email_outbox, {"status": "sent"}),
-        _count(db.email_outbox, {"status": "failed"}),
-        _count(db.ai_requests, {"status": {"$nin": ["success"]}, "created_at": {"$gte": since}}),
-        _count(db.ai_requests, {"created_at": {"$gte": since}}),
-        _count(db.search_history, {**apify_q, "created_at": {"$gte": since}}),
-        _count(db.search_history, {**apify_q, "status": {"$in": list(_FAILED)}, "created_at": {"$gte": since}}),
-        _count(db.payments, {"status": "failed", "created_at": {"$gte": utcnow() - timedelta(days=7)}}),
-        _count(db.exports, {}),
-        _count(db.website_media, {}),
+        _gather_counts(
+            _count(db.email_outbox, {"status": "queued"}),
+            _count(db.email_outbox, {"status": "sent"}),
+            _count(db.email_outbox, {"status": "failed"}),
+            _count(db.ai_requests, {"status": {"$nin": ["success"]}, "created_at": {"$gte": since}}),
+            _count(db.ai_requests, {"created_at": {"$gte": since}}),
+            _count(db.search_history, {**apify_q, "created_at": {"$gte": since}}),
+            _count(db.search_history, {**apify_q, "status": {"$in": list(_FAILED)}, "created_at": {"$gte": since}}),
+            _count(db.payments, {"status": "failed", "created_at": {"$gte": utcnow() - timedelta(days=7)}}),
+            _count(db.exports, {}),
+            _count(db.website_media, {}),
+        ),
     )
+    (out_queued, out_sent, out_failed, ai_failed, ai_requests, apify_jobs, apify_failures,
+     failed_payments_7d, exports, media_files) = counts
     outbox = {"queued": out_queued, "sent": out_sent, "failed": out_failed}
     return {
         "apify": {
@@ -1888,15 +1896,18 @@ async def platform_health(ctx: TenantContext = Depends(SUPER)):
 
     count_names = ("organizations", "users", "organization_members", "search_history", "facebook_pages",
                    "facebook_posts", "facebook_comments", "ai_comments", "subscriptions", "plans", "audit_logs")
-    integ, running, stale, failed_24h, errors, errors_24h, *totals = await asyncio.gather(
+    integ, errors, counts, totals = await asyncio.gather(
         _integrations(db),
-        _count(db.search_history, {"status": "running"}),
-        _count(db.search_history, {"status": "running", "created_at": {"$lt": now - timedelta(minutes=30)}}),
-        _count(db.search_history, {"status": {"$in": list(_FAILED)}, "created_at": {"$gte": since}}),
         _recent_errors(),
-        _count(db.notifications, {"type": "system_error", "created_at": {"$gte": since}}),
-        *(_total(name) for name in count_names),
+        _gather_counts(
+            _count(db.search_history, {"status": "running"}),
+            _count(db.search_history, {"status": "running", "created_at": {"$lt": now - timedelta(minutes=30)}}),
+            _count(db.search_history, {"status": {"$in": list(_FAILED)}, "created_at": {"$gte": since}}),
+            _count(db.notifications, {"type": "system_error", "created_at": {"$gte": since}}),
+        ),
+        _gather_counts(*(_total(name) for name in count_names)),
     )
+    running, stale, failed_24h, errors_24h = counts
     dbi = integ["database"]
     components = [
         {"key": "api", "label": "API", "status": "ok", "detail": "Responding"},
@@ -2608,7 +2619,7 @@ async def remove_legacy_override(name: str, request: Request, ctx: TenantContext
     from app.admin import envvars as ev
     if name not in await asyncio.to_thread(ev.legacy_locked_overrides):
         raise HTTPException(status_code=404, detail="No stored value for this variable")
-    ok = await asyncio.to_thread(ev.delete_envvar_override, name, allow_locked=True)
+    ok = await asyncio.to_thread(ev.delete_legacy_override, name)
     if not ok:
         raise HTTPException(status_code=503, detail="Database unavailable")
     await aaudit("env.legacy_override_removed", "security", user=ctx.audit_user(),

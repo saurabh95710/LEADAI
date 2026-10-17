@@ -47,16 +47,14 @@ def _serialize(doc: Any) -> Any:
 
 @router.get("/actors", dependencies=[Depends(require_viewer)])
 async def list_actors():
-    """List all configured Apify actors from admin settings."""
+    """List the effective Apify actor per platform: the ID the scrapers run."""
     token_hint = s.get_apify_token_hint()
-    # Read actor IDs from settings
     actors = []
-    platforms = s.PLATFORMS if hasattr(s, "PLATFORMS") else ["facebook", "instagram", "youtube", "linkedin"]
-    for platform in platforms:
-        actor_id = await s.aget_setting(f"apify.actor.{platform}")
+    for platform in s.PLATFORMS:
+        actor_id = s.get_actor_id(platform)
         actors.append({
             "platform": platform,
-            "actor_id": actor_id or "",
+            "actor_id": actor_id,
             "configured": bool(actor_id),
         })
     return {
@@ -68,11 +66,13 @@ async def list_actors():
 
 @router.put("/actors/{platform}", dependencies=[Depends(require_manager)])
 async def update_actor(platform: str, request: Request, payload: Dict[str, Any], admin: dict = Depends(require_manager)):
-    """Update the Apify actor ID for a platform."""
+    """Update the Apify actor ID a platform's scraper runs."""
+    if platform not in s.PLATFORMS:
+        raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
     actor_id = str(payload.get("actor_id", "")).strip()
     if not actor_id:
         raise HTTPException(status_code=400, detail="actor_id is required")
-    await s.aset_setting(f"apify.actor.{platform}", actor_id, by=admin.get("email", "system"))
+    await s.aset_setting(s.platform_actor_key(platform), actor_id, by=admin.get("email", "system"))
     await a.aaudit("apify.actor.update", "apify", user=admin, ip=request.client.host if request.client else None, details={"platform": platform, "actor_id": actor_id})
     return {"platform": platform, "actor_id": actor_id, "status": "updated"}
 

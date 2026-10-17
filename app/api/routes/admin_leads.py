@@ -7,7 +7,7 @@ bulk actions, data quality dashboard. All organization-scoped.
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -40,6 +40,11 @@ def _serialize(doc: Any) -> Any:
     return doc
 
 
+def _lead_id(lead_id: str) -> Any:
+    """Lead ids are ObjectIds; accept legacy string ids too."""
+    return ObjectId(lead_id) if ObjectId.is_valid(lead_id) else lead_id
+
+
 VALID_STATUSES = ["new", "contacted", "qualified", "follow_up", "converted", "lost", "disqualified", "archived"]
 
 
@@ -64,16 +69,18 @@ async def search_leads(
 ):
     db = await _db()
     query: Dict[str, Any] = {}
+    # each OR-group (text search, has-contact) must hold on its own: AND them
+    or_groups: List[Dict[str, Any]] = []
 
     if q:
         needle = re.escape(q)
-        query["$or"] = [
+        or_groups.append({"$or": [
             {"commenter_name": {"$regex": needle, "$options": "i"}},
             {"comment_text": {"$regex": needle, "$options": "i"}},
             {"phone": {"$regex": needle}},
             {"email": {"$regex": needle, "$options": "i"}},
             {"whatsapp": {"$regex": needle}},
-        ]
+        ]})
     if status:
         query["lifecycle_status"] = status
     if platform:
@@ -83,11 +90,13 @@ async def search_leads(
     if is_lead is not None:
         query["is_lead"] = is_lead
     if has_contact is True:
-        query["$or"] = query.get("$or", []) + [
+        or_groups.append({"$or": [
             {"phone": {"$regex": r"\S"}},
             {"email": {"$regex": r"\S"}},
             {"whatsapp": {"$regex": r"\S"}},
-        ]
+        ]})
+    if or_groups:
+        query["$and"] = or_groups
     score_q: Dict[str, Any] = {}
     if min_score is not None:
         score_q["$gte"] = min_score
@@ -174,29 +183,20 @@ async def add_note(lead_id: str, request: Request, payload: Dict[str, Any], admi
     if len(text) > 2000:
         raise HTTPException(status_code=400, detail="Note too long (max 2000 characters)")
     note = {"id": str(ObjectId()), "text": text, "created_at": utcnow(), "created_by": admin.get("email", "system")}
-    try:
-        await db_push_note(lead_id, note)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to save note")
+    db = await _db()
+    result = await db.ai_comments.update_one({"_id": _lead_id(lead_id)}, {"$push": {"notes": note}})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Lead not found")
     await a.aaudit("lead.note.add", "leads", user=admin, ip=request.client.host if request.client else None, details={"lead_id": lead_id})
     return {"note": _serialize(note)}
-
-
-async def db_push_note(lead_id: str, note: dict):
-    db = get_async_db()
-    try:
-        return await db.ai_comments.update_one({"_id": ObjectId(lead_id)}, {"$push": {"notes": note}})
-    except Exception:
-        return await db.ai_comments.update_one({"_id": lead_id}, {"$push": {"notes": note}})
 
 
 @router.delete("/{lead_id}/notes/{note_id}", dependencies=[Depends(require_manager)])
 async def delete_note(lead_id: str, note_id: str, request: Request, admin: dict = Depends(require_manager)):
     db = await _db()
-    try:
-        await db.ai_comments.update_one({"_id": ObjectId(lead_id)}, {"$pull": {"notes": {"id": note_id}}})
-    except Exception:
-        await db.ai_comments.update_one({"_id": lead_id}, {"$pull": {"notes": {"id": note_id}}})
+    result = await db.ai_comments.update_one({"_id": _lead_id(lead_id)}, {"$pull": {"notes": {"id": note_id}}})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Lead not found")
     await a.aaudit("lead.note.delete", "leads", user=admin, ip=request.client.host if request.client else None, details={"lead_id": lead_id, "note_id": note_id})
     return {"status": "deleted"}
 
@@ -233,10 +233,9 @@ async def add_follow_up(lead_id: str, request: Request, payload: Dict[str, Any],
         "created_by": admin.get("email", "system"),
     }
     db = await _db()
-    try:
-        await db.ai_comments.update_one({"_id": ObjectId(lead_id)}, {"$push": {"follow_ups": fu}})
-    except Exception:
-        await db.ai_comments.update_one({"_id": lead_id}, {"$push": {"follow_ups": fu}})
+    result = await db.ai_comments.update_one({"_id": _lead_id(lead_id)}, {"$push": {"follow_ups": fu}})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Lead not found")
     await a.aaudit("lead.followup.add", "leads", user=admin, ip=request.client.host if request.client else None, details={"lead_id": lead_id})
     return {"follow_up": _serialize(fu)}
 
@@ -247,13 +246,12 @@ async def update_follow_up_status(lead_id: str, fu_id: str, payload: Dict[str, A
     if status not in ("pending", "done", "cancelled"):
         raise HTTPException(status_code=400, detail="Invalid status. Must be: pending, done, cancelled")
     db = await _db()
-    try:
-        await db.ai_comments.update_one(
-            {"_id": ObjectId(lead_id), "follow_ups.id": fu_id},
-            {"$set": {"follow_ups.$.status": status, "follow_ups.$.updated_at": utcnow()}}
-        )
-    except Exception:
-        pass
+    result = await db.ai_comments.update_one(
+        {"_id": _lead_id(lead_id), "follow_ups.id": fu_id},
+        {"$set": {"follow_ups.$.status": status, "follow_ups.$.updated_at": utcnow()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Follow-up not found")
     return {"status": "updated"}
 
 

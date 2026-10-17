@@ -252,6 +252,13 @@ async def _sweeper_loop() -> None:
             await asyncio.to_thread(expire_deals, get_sync_db())
         except Exception as e:
             logger.warning("[partners] commission release failed: %s", e)
+        try:
+            # leads assigned by a rule and not contacted in time, overdue follow-ups
+            from app.db.mongo import get_sync_db
+            from app.services.lead_assignment import check_sla_and_reminders
+            await asyncio.to_thread(check_sla_and_reminders, get_sync_db())
+        except Exception as e:
+            logger.warning("[leads] SLA sweep failed: %s", e)
         await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
 
 

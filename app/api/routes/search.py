@@ -419,6 +419,18 @@ async def delete_search_run(run_id: str, request: Request,
             "message": "Search deleted"}
 
 
+# declared before /search/{run_id}, which would otherwise take "scheduled" as a run id
+@router.get("/search/scheduled")
+async def get_scheduled_search_runs(
+    ctx: TenantContext = Depends(require_org_permission(P.SEARCH_VIEW)),
+):
+    """List the scheduled scans the caller may see: all of the organization's
+    for owners / admins, a member's own otherwise (like their searches)."""
+    db = _db_or_503()
+    scans = [d async for d in db.scheduled_scans.find(_scoped(ctx, "scheduled_scans")).sort("created_at", -1)]
+    return {"items": _serialize(scans), "total": len(scans)}
+
+
 @router.get("/search/{run_id}")
 async def get_search_run(run_id: str, request: Request,
                          ctx: TenantContext = Depends(require_org_permission(P.SEARCH_VIEW))):
@@ -1972,17 +1984,6 @@ async def create_scheduled_search_run(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/search/scheduled")
-async def get_scheduled_search_runs(
-    ctx: TenantContext = Depends(require_org_permission(P.SEARCH_VIEW)),
-):
-    """List scheduled scans for the tenant organization."""
-    db = _db_or_503()
-    from app.services.scheduler import list_scheduled_scans
-    scans = list_scheduled_scans(db.delegate, ctx.organization_id)
-    return {"items": _serialize(scans), "total": len(scans)}
-
-
 @router.delete("/search/scheduled/{scan_id}")
 async def remove_scheduled_search_run(
     scan_id: str,
@@ -2002,29 +2003,66 @@ async def remove_scheduled_search_run(
 
 
 class BulkSearchCreate(BaseModel):
-    urls: list[str]
-    max_posts: int = Field(20, ge=1, le=100)
-    max_comments_per_post: int = Field(30, ge=1, le=200)
+    urls: list[str] = Field(..., min_length=1, max_length=50)
+    # empty = the platform default; more than the plan allows is refused per URL
+    max_posts: int | None = Field(None, ge=1, le=100)
+    max_comments_per_post: int | None = Field(None, ge=1, le=200)
 
 
 @router.post("/search/bulk")
 async def create_bulk_search_runs(
     data: BulkSearchCreate,
+    request: Request,
     ctx: TenantContext = Depends(require_org_permission(P.SEARCH_CREATE)),
 ):
-    """Submit a batch of social URLs for multi-URL concurrent search runs."""
-    db = _db_or_503()
-    from app.services.scheduler import process_bulk_urls
-    res = process_bulk_urls(
-        db.delegate,
-        urls=data.urls,
-        organization_id=ctx.organization_id,
-        user_id=ctx.user_id,
-        created_by=ctx.email,
-        max_posts=data.max_posts,
-        max_comments_per_post=data.max_comments_per_post,
-    )
-    return res
+    """Start a search for each URL of a batch (duplicates and blanks skipped).
+
+    Every URL goes through ``admit_url_search`` exactly like a single search:
+    feature and platform switches, concurrency, admin and plan caps, tokens,
+    the monthly quota, the run record and the audit trail. A URL refused by a
+    rule of its own (bad link, platform off, quota or tokens used up, too many
+    searches running) is listed in ``invalid_urls`` with the reason; searches
+    switched off refuse the whole batch."""
+    from app.social.url_detector import UrlError, detect_social_url
+    batch_id = f"batch_{uuid.uuid4().hex[:10]}"
+    queued: list[dict[str, Any]] = []
+    invalid: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for raw in data.urls:
+        url = (raw or "").strip()
+        if not url:
+            continue
+        try:
+            _, canonical = detect_social_url(url)
+        except UrlError as e:
+            invalid.append({"url": url, "error": e.message})
+            continue
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        try:
+            started = await admit_url_search(ctx, request, url=canonical, max_posts=data.max_posts,
+                                             max_comments_per_post=data.max_comments_per_post,
+                                             source="bulk")
+        except HTTPException as e:
+            detail = e.detail if isinstance(e.detail, dict) else {"message": str(e.detail)}
+            if detail.get("errorType") == "feature_disabled":
+                raise
+            invalid.append({"url": url, "error": str(detail.get("message") or detail)})
+            continue
+        queued.append({"url": started["canonical_url"], "platform": started["platform"],
+                       "run_id": started["run_id"]})
+    await _audit(ctx, request, "search.bulk_submitted", "search", resource_type="search_batch",
+                 resource_id=batch_id, details={"submitted": len(data.urls), "started": len(queued),
+                                                "refused": len(invalid)})
+    return {
+        "batch_id": batch_id,
+        "total_submitted": len(data.urls),
+        "total_queued": len(queued),
+        "total_invalid": len(invalid),
+        "queued_runs": queued,
+        "invalid_urls": invalid,
+    }
 
 
 @router.get("/leads/export/xlsx")

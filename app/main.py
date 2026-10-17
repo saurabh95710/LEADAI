@@ -599,7 +599,7 @@ if os.path.exists(static_dir):
 
 
 # Pages that stay reachable without a session
-_OPEN_PAGES = {"/health", "/api/health", "/login", "/docs", "/redoc", "/openapi.json"}
+_OPEN_PAGES = {"/health", "/api/health", "/login", "/docs", "/redoc", "/openapi.json", "/favicon.ico"}
 
 
 def _maintenance_enabled() -> bool:
@@ -633,7 +633,7 @@ async def auth_gate(request: Request, call_next):
     portal_path = path.rstrip("/") or "/"
     _PUBLIC_PAGES = {"/", "/signup", "/contact", "/website", "/features", "/pricing", "/about",
                      "/faq", "/privacy", "/terms", "/request-demo", "/demo-pending",
-                     "/forgot-password", "/reset-password", "/403", "/404",
+                     "/forgot-password", "/reset-password", "/verify-email", "/opt-out", "/403", "/404",
                      "/how-it-works", "/cookies", "/testimonials", "/sitemap.xml", "/robots.txt",
                      "/partners"}
     if (
@@ -645,6 +645,8 @@ async def auth_gate(request: Request, call_next):
         or path.startswith("/api/v1/")            # public REST API: X-API-Key checked by the routes
         or path == "/api/admin/impersonate/exit"
         or path == "/api/super-admin/impersonate/exit"
+        # prospects (not LeadAI users) opting out: verified by email link / SMS code
+        or path in ("/api/compliance/opt-out", "/api/compliance/opt-out/confirm")
     ):
         return await call_next(request)
     # the server-side session check reads MongoDB with the sync driver: run it
@@ -749,12 +751,29 @@ async def auth_gate(request: Request, call_next):
                     pass
             target = "/login?admin=1"
         else:
+            # a page that doesn't exist is a 404, not a sign-in prompt (a
+            # mistyped public link must not land on the login page)
+            if not _is_known_page(request):
+                return _static_status("404.html", 404, request)
             # come back to the page that was asked for after signing in
             from urllib.parse import quote
             back = path + (("?" + request.url.query) if request.url.query else "")
             target = "/login" if path in ("/user", "/dashboard") else "/login?next=" + quote(back, safe="")
         return RedirectResponse(target, status_code=303)
     return await _call_as(request, call_next, user)
+
+
+def _is_known_page(request: Request) -> bool:
+    """True when some route of the app serves this path (any method)."""
+    from starlette.routing import Match
+    for route in app.routes:
+        try:
+            match, _ = route.matches(request.scope)
+        except Exception:
+            continue
+        if match != Match.NONE:
+            return True
+    return False
 
 
 def _partner_api_key(request: Request) -> bool:
@@ -962,6 +981,28 @@ async def demo_pending_page():
 @app.get("/reset-password")
 async def reset_password_page():
     return _static("reset-password.html")
+
+
+@app.get("/verify-email")
+async def verify_email_page():
+    return _static("verify-email.html")
+
+
+_FAVICON_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+                '<text y=".9em" font-size="90">&#10022;</text></svg>')
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Browsers ask for /favicon.ico on their own; pages set their icon inline."""
+    return Response(_FAVICON_SVG, media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/opt-out")
+async def opt_out_page():
+    """Prospects (people whose public comments were collected) opt out here."""
+    return _static("opt-out.html")
 
 
 @app.get("/change-password")

@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pymongo.errors import DuplicateKeyError
 
 from app.admin import audit as a
 from app.auth.roles import require_manager, require_viewer
@@ -419,7 +420,11 @@ async def update_category(category_id: str, body: Dict[str, Any],
         update["keywords"] = cf.normalize_keyword_list(body.get("keywords"))
     if "active" in body:
         update["active"] = bool(body.get("active"))
-    await db[cf.CATEGORIES_COLLECTION].update_one({"_id": oid}, {"$set": update})
+    try:
+        await db[cf.CATEGORIES_COLLECTION].update_one({"_id": oid}, {"$set": update})
+    except DuplicateKeyError:
+        raise HTTPException(status_code=400,
+                            detail="A category with this name already exists")
     await a.aaudit("comment_filter.category.update", "comment_filters",
                    user=admin,
                    ip=request.client.host if request.client else None,

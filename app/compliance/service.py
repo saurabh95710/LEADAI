@@ -137,7 +137,9 @@ def add_to_blocklist(
     elif contact_type == "email":
         purge_q["$or"] = [{"email": val}, {"email": raw_val}, {"contact.email": val}]
     elif contact_type in ("username", "author", "name"):
-        purge_q["$or"] = [{"commenter_name": val}, {"author": val}]
+        # names are stored as scraped ("Priya Sharma"); match the whole name in any case
+        name = {"$regex": f"^{re.escape(val)}$", "$options": "i"}
+        purge_q["$or"] = [{"commenter_name": name}, {"author": name}]
 
     purged_count = 0
     if purge_q:
