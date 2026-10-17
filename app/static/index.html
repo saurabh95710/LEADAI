@@ -15,11 +15,11 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500;1,9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="preload" href="/static/design/tokens.css?v=r1005" as="style">
-  <link rel="preload" href="/static/design/components.css?v=r1005" as="style">
+  <link rel="preload" href="/static/design/components.css?v=r1006" as="style">
   <link rel="stylesheet" href="/static/design/tokens.css?v=r1005">
   <!-- shared components in a cascade layer: the portal's own (unlayered) rules always win -->
   <style id="dsLayer">@layer ds, ds-reset; @import url("/static/design/components.css?v=step4") layer(ds);</style>
-  <link rel="stylesheet" href="/static/styles.css?v=err1">
+  <link rel="stylesheet" href="/static/styles.css?v=ui2">
   <link rel="stylesheet" href="/static/design/domain-keywords.css?v=1">
   <link rel="stylesheet" href="/static/design/tour.css?v=tour1">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
@@ -35,6 +35,7 @@
       <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
       <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></symbol>
       <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M4 20h16"/></symbol>
       <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 16a8 8 0 1 1 16 0"/><path d="m12 16 4-5"/></symbol>
       <symbol id="i-card" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></symbol>
@@ -322,7 +323,7 @@
               <!-- Top Bar: Saved Searches / Presets -->
               <div class="presets-bar" id="presetsBar" data-tour="saved-searches">
                 <div class="presets-left">
-                  <span class="presets-label"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-layers"/></svg> Saved Searches:</span>
+                  <span class="presets-label"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-layers"/></svg> Saved searches:</span>
                   <select id="searchPresetSelect" class="presets-select" aria-label="Load a saved search preset">
                     <option value="">Choose a saved search…</option>
                   </select>
@@ -347,7 +348,7 @@
                   <li class="lead-step-connector"></li>
                   <li class="lead-step-item" data-step="2" id="stepIndicator2">
                     <span class="lead-step-num">2</span>
-                    <span class="lead-step-text">Business Type</span>
+                    <span class="lead-step-text">Business type</span>
                   </li>
                   <li class="lead-step-connector"></li>
                   <li class="lead-step-item" data-step="3" id="stepIndicator3">
@@ -357,12 +358,12 @@
                   <li class="lead-step-connector"></li>
                   <li class="lead-step-item" data-step="4" id="stepIndicator4" data-tour="search-step-link">
                     <span class="lead-step-num">4</span>
-                    <span class="lead-step-text">Social Link</span>
+                    <span class="lead-step-text">Social link</span>
                   </li>
                   <li class="lead-step-connector"></li>
                   <li class="lead-step-item" data-step="5" id="stepIndicator5" data-tour="search-step-review">
                     <span class="lead-step-num">5</span>
-                    <span class="lead-step-text">Review &amp; Search</span>
+                    <span class="lead-step-text">Review &amp; search</span>
                   </li>
                 </ol>
               </div>
@@ -383,16 +384,16 @@
                     <!-- Populated dynamically by app.js from /api/business-context/catalog -->
                   </div>
                   <div style="margin-top: 10px;">
-                    <button type="button" class="custom-industry-toggle" id="btnCustomIndustryToggle">+ Can't find your industry? Create Custom Industry</button>
+                    <button type="button" class="custom-industry-toggle" id="btnCustomIndustryToggle">+ Can't find your industry? Type your own</button>
                     <div id="customIndustryWrap" class="hidden" style="margin-top: 8px;">
-                      <label class="field-label" for="customIndustryInput">Custom Industry Name</label>
+                      <label class="field-label" for="customIndustryInput">Your industry</label>
                       <input type="text" id="customIndustryInput" class="form-input" placeholder="e.g. Renewable Energy, Heavy Machinery" maxlength="80">
                     </div>
                   </div>
                   <div class="step-nav-bar">
                     <span class="field-hint" id="step1Hint">Choose an industry above to continue</span>
                     <button type="button" class="btn btn-primary" id="btnStep1Next">
-                      <span>Next: Business Type</span> <span aria-hidden="true">→</span>
+                      <span>Next: Business type</span> <span aria-hidden="true">→</span>
                     </button>
                   </div>
                 </div>
@@ -413,7 +414,7 @@
                   <div class="step-nav-bar">
                     <button type="button" class="btn btn-secondary" id="btnStep2Back">← Back</button>
                     <button type="button" class="btn btn-primary" id="btnStep2Next">
-                      <span>Next: Suggested Keywords</span> <span aria-hidden="true">→</span>
+                      <span>Next: Keywords</span> <span aria-hidden="true">→</span>
                     </button>
                   </div>
                 </div>
@@ -427,7 +428,7 @@
 
                   <!-- Target Customers -->
                   <div style="margin-bottom: 12px;">
-                    <label class="field-label">Target Customer</label>
+                    <label class="field-label">Target customer</label>
                     <div class="target-customers-row" id="targetCustomersRow">
                       <span class="target-cust-chip selected" data-target="Buyers">Buyers</span>
                       <span class="target-cust-chip" data-target="Sellers">Sellers</span>
@@ -450,7 +451,7 @@
                   <div class="kw-selected-container">
                     <div class="kw-selected-head">
                       <span class="kw-selected-title">
-                        <span>Your Selected Keywords</span>
+                        <span>Your keywords</span>
                         <span class="status-pill status-idle" id="selectedKeywordsCount" style="font-size:0.75rem;padding:2px 8px">0 selected</span>
                       </span>
                       <button type="button" class="btn btn-ghost btn-sm" id="btnClearKeywords" style="font-size:0.75rem;padding:2px 6px">Clear all</button>
@@ -467,7 +468,7 @@
                   <!-- Grouped Keyword Suggestions -->
                   <div style="margin-top: 14px;">
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                      <span class="field-label" style="margin:0">Suggested Keywords (Click to add):</span>
+                      <span class="field-label" style="margin:0">Suggested keywords (click to add)</span>
                       <button type="button" class="oa-link oa-small" id="btnAddAllSuggestions" style="background:none;border:none;cursor:pointer;color:var(--primary)">+ Add all recommended</button>
                     </div>
 
@@ -495,7 +496,7 @@
                   <div class="step-nav-bar">
                     <button type="button" class="btn btn-secondary" id="btnStep3Back">← Back</button>
                     <button type="button" class="btn btn-primary" id="btnStep3Next">
-                      <span>Next: Social Link</span> <span aria-hidden="true">→</span>
+                      <span>Next: Social link</span> <span aria-hidden="true">→</span>
                     </button>
                   </div>
                 </div>
@@ -542,7 +543,7 @@
                   <!-- Advanced Filters (Optional Expandable) -->
                   <details class="filter-panel" style="margin-top: 14px;">
                     <summary class="filter-panel-summary">
-                      <span class="filter-panel-title">Advanced Settings (Exclusions &amp; Match Rules)</span>
+                      <span class="filter-panel-title">Advanced settings (excluded words, match rules)</span>
                       <span class="field-hint">— optional fine-tuning for lead qualification</span>
                     </summary>
                     <div class="filter-panel-body">
@@ -564,7 +565,7 @@
                   <div class="step-nav-bar">
                     <button type="button" class="btn btn-secondary" id="btnStep4Back">← Back</button>
                     <button type="button" class="btn btn-primary" id="btnStep4Next">
-                      <span>Next: Review &amp; Search</span> <span aria-hidden="true">→</span>
+                      <span>Next: Review</span> <span aria-hidden="true">→</span>
                     </button>
                   </div>
                 </div>
@@ -578,7 +579,7 @@
 
                   <div class="ready-search-card">
                     <div class="ready-search-head">
-                      <span class="ready-search-title"><span>✦</span> Ready to Find Leads</span>
+                      <span class="ready-search-title"><span>✦</span> Ready to find leads</span>
                       <button type="button" class="btn btn-ghost btn-sm" id="btnEditSearchConfig">✎ Edit</button>
                     </div>
                     <div class="ready-grid">
@@ -587,24 +588,24 @@
                         <span class="ready-val" id="reviewIndustry">Real Estate</span>
                       </div>
                       <div class="ready-item">
-                        <span class="ready-label">Business Type</span>
+                        <span class="ready-label">Business type</span>
                         <span class="ready-val" id="reviewBusinessType">Residential Property</span>
                       </div>
                       <div class="ready-item">
-                        <span class="ready-label">Target Customer</span>
+                        <span class="ready-label">Target customer</span>
                         <span class="ready-val" id="reviewTargetCustomer">Buyers</span>
                       </div>
                       <div class="ready-item">
-                        <span class="ready-label">Social Platform</span>
+                        <span class="ready-label">Platform</span>
                         <span class="ready-val" id="reviewPlatform">Facebook</span>
                       </div>
                     </div>
                     <div class="ready-item" style="margin-top: 6px;">
-                      <span class="ready-label">Active Keywords (<span id="reviewKwCount">0</span>)</span>
+                      <span class="ready-label">Keywords (<span id="reviewKwCount">0</span>)</span>
                       <div class="kw-selected-chips" id="reviewKwChips" style="margin-top: 4px;"></div>
                     </div>
                     <div class="ready-item" style="margin-top: 8px;">
-                      <span class="ready-label">Target URL</span>
+                      <span class="ready-label">Link</span>
                       <span class="ready-val" id="reviewUrl" style="word-break:break-all;font-family:var(--font-mono, monospace);font-size:0.8rem">—</span>
                     </div>
                   </div>
@@ -616,7 +617,7 @@
                     <button type="button" class="btn btn-secondary" id="btnStep5Back">← Back</button>
                     <button type="submit" id="urlSearchBtn" class="btn-primary btn-analyze" style="padding: 10px 24px;">
                       <span class="btn-icon" aria-hidden="true">✦</span>
-                      <span class="btn-text">Find Leads Now</span>
+                      <span class="btn-text">Find leads now</span>
                       <span class="btn-arrow" aria-hidden="true">→</span>
                     </button>
                   </div>
@@ -986,9 +987,9 @@
 
                 <div class="comments-toolbar-selects">
                   <select id="commentsQualificationFilter" class="filter-select" data-tour="qualification-filter" onchange="renderCommentsScreen()" aria-label="Filter by comment qualification">
-                    <option value="">Qualified + not qualified</option>
-                    <option value="qualified">Qualified (went to AI)</option>
-                    <option value="not_qualified">Not qualified (skipped by filter)</option>
+                    <option value="">Sent to AI + not sent</option>
+                    <option value="qualified">Sent to AI (matched your filter)</option>
+                    <option value="not_qualified">Not sent to AI (didn't match)</option>
                   </select>
 
                   <select id="commentsQualityFilter" class="filter-select" onchange="renderCommentsScreen()" aria-label="Filter by lead quality">
@@ -1552,8 +1553,8 @@
   <script src="/static/config.js?v=brand2" defer></script>
   <script src="/static/design/theme.js?v=r1006" defer></script>
   <script src="/static/design/ui.js?v=step4" defer></script>
-  <script src="/static/design/tour.js?v=tour1" defer></script>
-  <script src="/static/app.js?v=lim1" defer></script>
+  <script src="/static/design/tour.js?v=tour2" defer></script>
+  <script src="/static/app.js?v=ui3" defer></script>
   <script src="/static/keyword-search.js?v=err1" defer></script>
 </body>
 </html>

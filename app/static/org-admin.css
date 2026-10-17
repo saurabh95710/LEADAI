@@ -81,6 +81,9 @@ body.oa { min-height:100vh; background:var(--bg-primary); }
 
 .oa-content { padding:28px 32px 64px; max-width:1400px; width:100%; margin:0 auto; }
 .oa-content:focus { outline:none; }
+/* Anything scrolled into view (focus moved back to the page after the guide closes, keyboard
+   focus, scrollIntoView) stops below the sticky 60px top bar instead of underneath it. */
+.oa-content, .oa-content :is(h1, h2, h3, a, button, input, select, textarea, [tabindex], .oa-card) { scroll-margin-top:72px; }
 
 /* ── Page header ─────────────────────────────────────── */
 .oa-head { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:22px; }
@@ -237,6 +240,7 @@ a.oa-biz-stat:hover .oa-biz-stat-label, a.oa-biz-stat:focus-visible .oa-biz-stat
 .oa-bulk-actions { display:flex; gap:6px; flex-wrap:wrap; }
 .oa-bulk-x { width:32px; height:32px; }
 .oa-table tr:last-child td { border-bottom:0; }
+.oa-table td time { white-space:nowrap; } /* "9 min ago" never breaks over two lines */
 .oa-table tbody tr.clickable { cursor:pointer; }
 .oa-table tbody tr.clickable:hover, .oa-table tbody tr.clickable:focus-visible { background:var(--surface-hover); outline:none; }
 .oa-num { text-align:right; font-variant-numeric:tabular-nums; }
@@ -255,7 +259,7 @@ a.oa-biz-stat:hover .oa-biz-stat-label, a.oa-biz-stat:focus-visible .oa-biz-stat
    success = active/completed/paid · info = running (live dot) · warning = pending/invited/draft ·
    danger = failed/rejected · suspended = danger-soft · neutral = cancelled/expired/archived/inactive · brand = demo/trial */
 .oa-pill { display:inline-flex; align-items:center; gap:6px; padding:2px 10px; border-radius:999px; font-size:var(--text-xs); font-weight:600; white-space:nowrap;
-  line-height:1.6; border:1px solid var(--border); background:var(--surface); color:var(--text-secondary); text-transform:capitalize; vertical-align:middle; }
+  line-height:1.6; border:1px solid var(--border); background:var(--surface); color:var(--text-secondary); vertical-align:middle; }
 .oa-pill::before { content:''; width:6px; height:6px; border-radius:50%; background:currentColor; flex-shrink:0; }
 .oa-pill[data-tone="success"] { background:var(--success-soft); border-color:var(--success-border); color:var(--success-text); }
 .oa-pill[data-tone="info"] { background:var(--info-soft); border-color:var(--info-border); color:var(--info-text); }
@@ -689,3 +693,53 @@ a.oa-biz-stat:hover .oa-biz-stat-label, a.oa-biz-stat:focus-visible .oa-biz-stat
 .oa-sev[data-tone="warning"] { background:var(--warning); }
 .oa-sev[data-tone="success"] { background:var(--success); }
 @media (max-width:640px) { .oa-lim-grid { grid-template-columns:minmax(0,1fr); } }
+
+/* ── Dashboard: "What LeadAI looks for" card (base styles in design/domain-keywords.css) ── */
+.oa .oa-biz-head { flex-wrap:wrap; gap:10px 16px; }
+.oa .oa-biz-head .oa-actions { flex-wrap:wrap; }
+@media (max-width:760px) {
+  .oa .oa-biz-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .oa .oa-biz-title { font-size:var(--text-base); }
+}
+@media (hover:none) { a.oa-biz-stat:hover:not(:focus-visible) { background:none; border-color:transparent; } }
+
+/* ── Assignment rules (#assignment) ── */
+.oa-rules-how { margin-bottom:14px; }
+.oa-rules-how .oa-card-title { margin-bottom:10px; }
+.oa-rules-steps { margin:0; padding-left:20px; display:grid; gap:6px; font-size:var(--text-sm); color:var(--text-secondary); line-height:1.5; }
+.oa-rules-steps b { color:var(--text-primary); font-weight:600; }
+.oa-rules-steps li::marker { color:var(--text-link); font-weight:700; }
+.oa-rule-order { display:inline-flex; align-items:center; justify-content:center; min-width:26px; height:26px; padding:0 6px; border-radius:999px;
+  background:var(--primary-light); color:var(--text-link); font-weight:700; font-size:var(--text-xs); font-variant-numeric:tabular-nums; }
+.oa-rule-people { list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:6px; max-width:340px; }
+.oa-rule-person { display:inline-flex; align-items:center; gap:6px; padding:2px 10px 2px 2px; border:1px solid var(--border); border-radius:999px;
+  background:var(--surface); font-size:var(--text-xs); font-weight:600; max-width:100%; min-width:0; }
+.oa-rule-person .oa-avatar { width:22px; height:22px; font-size:10px; }
+.oa-rule-person.is-off { border-style:dashed; color:var(--text-muted); }
+.oa-rule-person.is-off .oa-avatar { background:var(--surface-active); color:var(--text-muted); }
+.oa-rule-people-cell { min-width:200px; }
+.oa-table .oa-rule-del { color:var(--danger-text); white-space:nowrap; }
+.oa-table .oa-rule-del:hover { background:var(--danger-soft); }
+.oa-rule-form .oa-section-title { margin:2px 0 0; }
+.oa-rule-form .oa-tm-fs > .oa-err:empty { display:none; }
+.oa-rule-pick { max-height:260px; }
+.oa-rule-form .oa-tm-summary:empty { display:none; }
+.oa-rule-form > .oa-err:empty { display:none; }
+/* phones: each rule becomes a small card instead of a squeezed table row */
+@media (max-width:640px) {
+  .oa-rules-host .oa-table thead { display:none; }
+  .oa-rules-host .oa-table, .oa-rules-host .oa-table tbody { display:block; width:100%; }
+  .oa-rules-host .oa-table tr { display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px 10px; padding:14px; border-bottom:1px solid var(--border-subtle); }
+  .oa-rules-host .oa-table tr:last-child { border-bottom:0; }
+  .oa-rules-host .oa-table td { display:block; padding:0; border:0; min-width:0; }
+  .oa-rules-host .oa-rc-order { align-self:start; }
+  .oa-rules-host .oa-table td:is(.oa-rc-who, .oa-rc-which, .oa-rc-sla, .oa-rc-status) { grid-column:1 / -1; font-size:var(--text-sm); }
+  .oa-rules-host .oa-table td:is(.oa-rc-who, .oa-rc-which, .oa-rc-sla, .oa-rc-status)::before { display:block; margin-bottom:3px; font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--text-muted); }
+  .oa-rules-host .oa-rc-who::before { content:'Gets the leads'; }
+  .oa-rules-host .oa-rc-which::before { content:'Which leads'; }
+  .oa-rules-host .oa-rc-sla::before { content:'Contact within'; }
+  .oa-rules-host .oa-rc-status::before { content:'Status'; }
+  .oa-rules-host .oa-rc-act { grid-column:1 / -1; }
+  .oa-rules-host .oa-rc-act .oa-actions { justify-content:flex-start !important; }
+  .oa-rules-host .oa-rule-people-cell { min-width:0; }
+}

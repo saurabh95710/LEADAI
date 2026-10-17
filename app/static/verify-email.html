@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en" data-appconfig="brand-only">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Verify email · LeadAI</title>
+  <meta name="robots" content="noindex,nofollow"/>
+  <meta name="referrer" content="no-referrer"/>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>"/>
+  <link rel="stylesheet" href="/static/design/tokens.css?v=r1005"/>
+  <link rel="stylesheet" href="/static/design/components.css?v=r1006"/>
+  <script src="/static/design/theme.js?v=r1006"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="auth-shell">
+  <header class="brand-bar">
+    <a class="brand" href="/website">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.1 6.4 6.4 2.1-6.4 2.1L12 19.5l-2.1-6.4L3.5 11l6.4-2.1z"/></svg></span>
+      <span data-brand-name>LeadAI</span>
+    </a>
+    <div class="brand-actions">
+      <button type="button" class="btn theme-toggle" data-theme-toggle aria-label="Switch theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="auth-main" id="main">
+    <section class="auth-card">
+      <div class="auth-header">
+        <div class="auth-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        </div>
+        <h1 class="auth-title" id="title" tabindex="-1">Verify your email</h1>
+        <p class="auth-subtitle" id="subtitle">Press the button below to confirm that this email address is yours.</p>
+      </div>
+      <div class="alert hidden" id="result" role="status" style="margin-bottom:18px">
+        <div class="alert-body" id="resultText"></div>
+      </div>
+      <!-- the link is never used on page load (mail scanners open links): the person confirms -->
+      <button type="button" class="btn btn-primary btn-lg btn-block" id="verifyBtn">Verify my email</button>
+      <a class="btn btn-primary btn-lg btn-block" id="signinBtn" href="/login" hidden>Go to sign in</a>
+      <!-- link expired / incomplete: ask for a new one (POST /api/auth/verify-email/resend) -->
+      <form class="auth-form" id="resendForm" novalidate hidden>
+        <div class="form-group">
+          <label class="form-label" for="resendEmail">Your email address</label>
+          <input class="form-input" type="email" id="resendEmail" autocomplete="email" inputmode="email" spellcheck="false"
+                 autocapitalize="off" placeholder="you@company.com" data-error="resendEmailError" aria-describedby="resendEmailError"/>
+          <div class="field-error" id="resendEmailError" aria-live="polite"></div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg btn-block" id="resendBtn">
+          <span class="spinner" aria-hidden="true"></span><span class="btn-label">Send me a new link</span>
+        </button>
+      </form>
+      <p class="auth-alt" id="altRow">Already verified? <a class="link" href="/login">Go to sign in</a></p>
+    </section>
+  </main>
+
+  <footer class="auth-footer">
+    <nav aria-label="Footer"><a href="/website">Home</a><a href="/contact">Contact</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+    <p style="margin-top:6px">© 2026 <span data-brand-name>LeadAI</span></p>
+  </footer>
+</div>
+<script>
+(function () {
+  "use strict";
+  var token = new URLSearchParams(location.search).get("token") || "";
+  var btn = document.getElementById("verifyBtn");
+  function show(ok, text) {
+    var box = document.getElementById("result");
+    box.className = "alert " + (ok ? "alert-success" : "alert-danger");
+    document.getElementById("resultText").textContent = text;
+    document.getElementById("title").focus();
+  }
+  function errorText(data, fallback) {
+    return (window.LeadAIUI && LeadAIUI.errorMessage) ? LeadAIUI.errorMessage(data, fallback)
+      : ((data && typeof data.detail === "string" && data.detail) || fallback);
+  }
+  function verified() {
+    btn.hidden = true;
+    document.getElementById("signinBtn").hidden = false;
+    document.getElementById("altRow").hidden = true;
+  }
+  function linkFailed(title, text) {
+    btn.hidden = true;
+    document.getElementById("title").textContent = title;
+    document.getElementById("subtitle").textContent = "Enter your email address and we will send you a new link.";
+    document.getElementById("resendForm").hidden = false;
+    show(false, text);
+  }
+  // ── Ask for a new link ──
+  var resendEmail = document.getElementById("resendEmail");
+  document.getElementById("resendForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var UI = window.LeadAIUI;
+    var value = resendEmail.value.trim();
+    var problem = !value ? "Enter your email address." : (UI.isEmail(value) ? "" : "Enter a valid email address, like name@company.com.");
+    UI.fieldError(resendEmail, problem);
+    if (problem) { resendEmail.focus(); return; }
+    var rb = document.getElementById("resendBtn");
+    UI.setBusy(rb, true, "Sending…");
+    var res = await UI.api("/api/auth/verify-email/resend", { method: "POST", body: { email: value } });
+    UI.setBusy(rb, false);
+    if (res.networkError) { show(false, "We couldn't reach the server. Check your connection and try again."); return; }
+    if (res.status === 429) { show(false, "Too many requests. Please wait a while and try again."); return; }
+    if (!res.ok) { show(false, errorText(res.data, "We couldn't send a new link. Please try again.")); return; }
+    document.getElementById("resendForm").hidden = true;
+    document.getElementById("title").textContent = "Check your inbox";
+    document.getElementById("subtitle").textContent = "";
+    show(true, "If " + value + " has an account that is not verified yet, we sent it a new link. Open the newest email and use its link.");
+  });
+  if (!token) {
+    linkFailed("This link is incomplete", "Part of the link is missing. Open the newest verification email and use the full link, or ask for a new one below.");
+    return;
+  }
+  history.replaceState(null, "", location.pathname);   // keep the token out of history
+  btn.addEventListener("click", function () {
+    btn.disabled = true;
+    btn.textContent = "Verifying…";
+    fetch("/api/auth/verify-email", {
+      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin",
+      body: JSON.stringify({ token: token })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (data) { return { ok: r.ok, data: data }; });
+    }).then(function (res) {
+      if (res.ok) {
+        verified();
+        document.getElementById("title").textContent = "Email verified";
+        document.getElementById("subtitle").textContent = "Thank you. You can now sign in.";
+        show(true, (res.data && res.data.message) || "Your email address is verified.");
+      } else {
+        linkFailed("This link didn't work", errorText(res.data, "This verification link is invalid or has expired.") +
+          " Links work once and for a limited time.");
+      }
+    }).catch(function () {
+      btn.disabled = false;
+      btn.textContent = "Verify my email";
+      show(false, "We couldn't reach the server. Check your connection and try again.");
+    });
+  });
+})();
+</script>
+<script src="/static/config.js?v=brand2" defer></script>
+<script>window.addEventListener("DOMContentLoaded", function () { if (window.AppConfig) AppConfig.load(); });</script>
+</body>
+</html>

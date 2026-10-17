@@ -26,6 +26,14 @@
   function date(v) { if (!v) return '—'; var d = new Date(v); return isNaN(d) ? '—' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); }
   function dt(v) { if (!v) return '—'; var d = new Date(v); return isNaN(d) ? '—' : d.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
   function title(s) { return String(s || '').replace(/[_.]/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }); }
+  /** "payout_paid" -> "Payout paid": the first letter only (statuses, transaction types) */
+  function sentence(s) { var t = String(s || '').replace(/[_.]/g, ' '); return t.charAt(0).toUpperCase() + t.slice(1); }
+  var METHOD_LABEL = { paypal: 'PayPal', upi: 'UPI', bank: 'Bank transfer', bank_transfer: 'Bank transfer', wise: 'Wise', payoneer: 'Payoneer' };
+  function method(m) { return METHOD_LABEL[m] || sentence(m); }
+  /** a plan slug ("starter") as a name ("Starter") */
+  function planLabel(slug) { return slug ? title(slug) : ''; }
+  function plural(n, one, many) { return num(n) + ' ' + (Number(n) === 1 ? one : many); }
+  var PLUS = '<svg class="oa-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
   var TONE = { active: 'success', approved: 'info', paid: 'success', customer: 'success', published: 'success', payable: 'success',
     pending: 'warning', requested: 'warning', changes_requested: 'warning', under_review: 'warning', qualified: 'info',
     processing: 'brand', signed_up: 'info', demo: 'brand', subscription: 'brand', payment: 'brand',
@@ -37,13 +45,13 @@
   // so the referral "demo" stage is a started trial. Set by loadTrial() before any view renders.
   function trialOn() { return !!(S.trial && S.trial.self_serve); }
   function trialName() { var d = S.trial && S.trial.days; return (d > 0 ? d + '-day ' : '') + 'free trial'; }
-  function trialsLabel() { return trialOn() ? 'trials started' : 'demos approved'; }
+  function trialsLabel(n) { return trialOn() ? (n === 1 ? 'trial started' : 'trials started') : (n === 1 ? 'demo approved' : 'demos approved'); }
   async function loadTrial() {
     try { var r = await fetch('/api/public/config', { credentials: 'same-origin', headers: { Accept: 'application/json' } }); S.trial = r.ok ? ((await r.json()).trial || {}) : {}; }
     catch (e) { S.trial = {}; }
     STAGE_LABEL.demo = trialOn() ? 'Free trial' : 'Demo approved';
   }
-  function pill(s, label) { return s ? '<span class="oa-pill" data-tone="' + (TONE[s] || 'neutral') + '">' + esc(label || title(s)) + '</span>' : '<span class="oa-muted">—</span>'; }
+  function pill(s, label) { return s ? '<span class="oa-pill" data-tone="' + (TONE[s] || 'neutral') + '">' + esc(label || sentence(s)) + '</span>' : '<span class="oa-muted">—</span>'; }
   function iso(d) { return d.toISOString().slice(0, 10); }
 
   // ── API ───────────────────────────────────────────────────
@@ -76,7 +84,7 @@
     setTimeout(function () { el.remove(); }, type === 'error' ? 7000 : 4000);
   }
   function loading() { return '<div class="oa-card" aria-busy="true"><div class="oa-skel oa-skel-line" style="width:40%"></div><div class="oa-skel oa-skel-line"></div><div class="oa-skel oa-skel-line"></div><div class="oa-skel oa-skel-line" style="width:70%"></div></div>'; }
-  function empty(t, d, action) { return '<div class="oa-state"><div class="oa-state-icon brand" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"/></svg></div><h3>' + esc(t) + '</h3>' + (d ? '<p>' + esc(d) + '</p>' : '') + (action || '') + '</div>'; }
+  function empty(t, d, action) { return '<div class="oa-state"><div class="oa-state-icon brand" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 13l3-9h12l3 9v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 13h5l1 3h6l1-3h5"/></svg></div><h3>' + esc(t) + '</h3>' + (d ? '<p>' + esc(d) + '</p>' : '') + (action || '') + '</div>'; }
   function errorBox(err) {
     var denied = err && err.status === 403;
     return '<div class="oa-state" role="alert"><div class="oa-state-icon ' + (denied ? 'danger' : 'warning') + '" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg></div><h3>' +
@@ -208,7 +216,7 @@
         body.style.opacity = '';
         if (cfg.onData) cfg.onData(data);
         var rows = cfg.rows ? cfg.rows(data) : (data.items || []);
-        if (!rows.length) { body.innerHTML = empty((cfg.empty || {}).title || 'Nothing here yet', (cfg.empty || {}).desc); return; }
+        if (!rows.length) { var em = cfg.empty || {}; body.innerHTML = empty(em.title || 'Nothing here yet', em.desc, em.action ? '<div class="oa-actions">' + em.action + '</div>' : ''); return; }
         var total = data.total != null ? data.total : rows.length, pages = data.pages || 1;
         body.innerHTML = '<div class="oa-table-wrap"><table class="oa-table"><thead><tr>' + cfg.columns.map(function (c) { return '<th scope="col"' + (c.cls ? ' class="' + c.cls + '"' : '') + '>' + esc(c.label) + '</th>'; }).join('') + '</tr></thead><tbody>' +
           rows.map(function (r, i) { return '<tr data-i="' + i + '">' + cfg.columns.map(function (c) { return '<td' + (c.cls ? ' class="' + c.cls + '"' : '') + '>' + c.render(r) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>' +
@@ -280,20 +288,20 @@
     $('[data-dash]', root).innerHTML = (nt ? '<div class="pp-banner" role="status">You have <b>' + nt + ' open task' + (nt === 1 ? '' : 's') + '</b> from the LeadAI team. <a class="oa-link" href="#/tasks">Open tasks →</a></div>' : '') + links +
       '<div class="oa-grid oa-grid-4" data-tour="pt-dash-kpis">' +
       stat('Referral clicks', num(k.clicks), num(k.unique_clicks) + ' unique', '', go('analytics')) +
-      stat('Referrals', num(k.referrals), num(k.demos) + ' ' + trialsLabel(), '', go('referrals', { from: r.from, to: r.to })) +
-      stat('Customers', num(k.customers), num(k.total_customers) + ' total · ' + num(k.active_subscriptions) + ' active subs', '', go('customers', { stage: 'customer' })) +
-      stat('Conversion', k.conversion_rate + '%', 'clicks → signups · ' + k.customer_rate + '% signups → customers', '', go('analytics')) +
+      stat('Referrals', num(k.referrals), num(k.demos) + ' ' + trialsLabel(k.demos), '', go('referrals', { from: r.from, to: r.to })) +
+      stat('Customers', num(k.customers), num(k.total_customers) + ' in total · ' + num(k.active_subscriptions) + ' paying now', '', go('customers', { stage: 'customer' })) +
+      stat('Conversion', k.conversion_rate + '%', 'of clicks signed up · ' + k.customer_rate + '% of sign-ups became customers', '', go('analytics')) +
       '</div><div class="oa-grid oa-grid-4">' +
-      stat('Revenue generated', money(k.revenue, cur), 'in this period', '', go('analytics') || go('customers', { stage: 'customer' })) +
-      stat('Pending commission', money(b.pending, cur), 'in hold period / review', '', go('commissions', { status: 'pending' })) +
-      (go('wallet') ? stat('Available balance', money(b.available, cur), has('payouts.request') ? 'Request a payout from your wallet' : 'payable now', '', go('wallet'))
-        : stat('Available balance', money(b.available, cur), 'payable now', '', go('commissions', { status: 'payable' }))) +
-      stat('Paid out', money(b.paid, cur), num(k.pending_payout_count) + ' payout(s) in progress · ' + money(k.pending_payouts, cur), '', go('payouts', { status: 'paid' }) || go('commissions', { status: 'paid' })) +
+      stat('Revenue generated', money(k.revenue, cur), 'In this period', '', go('analytics') || go('customers', { stage: 'customer' })) +
+      stat('Pending commission', money(b.pending, cur), 'Waiting for the hold period or review', '', go('commissions', { status: 'pending' })) +
+      (go('wallet') ? stat('Available balance', money(b.available, cur), has('payouts.request') ? 'Ready to withdraw from your wallet' : 'Ready to withdraw', '', go('wallet'))
+        : stat('Available balance', money(b.available, cur), 'Ready to withdraw', '', go('commissions', { status: 'payable' }))) +
+      stat('Paid out', money(b.paid, cur), k.pending_payout_count ? plural(k.pending_payout_count, 'payout', 'payouts') + ' on the way · ' + money(k.pending_payouts, cur) : 'No payouts on the way', '', go('payouts', { status: 'paid' }) || go('commissions', { status: 'paid' })) +
       '</div><div class="oa-grid oa-grid-2">' +
-      card('Recent referrals', list(d.recent_referrals, function (x) { return '<li><span class="oa-feed-main"><b>' + esc(x.company || 'New signup') + '</b> ' + pill(x.stage, STAGE_LABEL[x.stage]) + '</span><time>' + esc(date(x.signed_up_at)) + '</time></li>'; }, 'No referrals yet — share your link to get started.'), '', has('referrals.view') ? '<a class="oa-link" href="#/referrals">View all</a>' : '') +
-      card('Recent customers', list(d.recent_customers, function (x) { return '<li><span class="oa-feed-main"><b>' + esc(x.company || '—') + '</b> <span class="oa-small oa-muted">' + esc(x.plan_id || '') + '</span></span><time>' + esc(date(x.converted_at)) + '</time></li>'; }, 'No paying customers yet.'), '', has('customers.view') ? '<a class="oa-link" href="#/customers">View all</a>' : '') +
-      card('Recent commission activity', list(d.recent_commissions, function (x) { return '<li><span class="oa-feed-main"><span class="pp-money">' + esc(money(x.amount, x.currency)) + '</span> ' + esc(x.company || title(x.kind)) + ' ' + pill(x.status) + '</span><time>' + esc(date(x.created_at)) + '</time></li>'; }, 'No commissions yet.'), '', has('commissions.view') ? '<a class="oa-link" href="#/commissions">View all</a>' : '') +
-      card('Recent notifications', list(d.recent_notifications || [], function (n) { return '<li' + (n.severity === 'danger' ? ' class="fail"' : '') + '><span class="oa-feed-main"><b>' + esc(n.title) + '</b> <span class="oa-small">' + esc(n.message) + '</span></span><time>' + esc(date(n.created_at)) + '</time></li>'; }, 'You are all caught up.'), '', '<a class="oa-link" href="#/notifications">View all</a>') +
+      card('Recent referrals', list(d.recent_referrals, function (x) { return '<li><span class="oa-feed-main"><b>' + esc(x.company || 'New signup') + '</b> ' + pill(x.stage, STAGE_LABEL[x.stage]) + '</span><time>' + esc(date(x.signed_up_at)) + '</time></li>'; }, 'No referrals yet. Share your link to get started.'), '', has('referrals.view') ? '<a class="oa-link oa-small" href="#/referrals">View all</a>' : '') +
+      card('Recent customers', list(d.recent_customers, function (x) { return '<li><span class="oa-feed-main"><b>' + esc(x.company || '—') + '</b> <span class="oa-small oa-muted">' + esc(planLabel(x.plan_id)) + '</span></span><time>' + esc(date(x.converted_at)) + '</time></li>'; }, 'No paying customers yet.'), '', has('customers.view') ? '<a class="oa-link oa-small" href="#/customers">View all</a>' : '') +
+      card('Recent commission activity', list(d.recent_commissions, function (x) { return '<li><span class="oa-feed-main"><span class="pp-money">' + esc(money(x.amount, x.currency)) + '</span> ' + esc(x.company || title(x.kind)) + ' ' + pill(x.status) + '</span><time>' + esc(date(x.created_at)) + '</time></li>'; }, 'No commissions yet.'), '', has('commissions.view') ? '<a class="oa-link oa-small" href="#/commissions">View all</a>' : '') +
+      card('Recent notifications', list(d.recent_notifications || [], function (n) { return '<li' + (n.severity === 'danger' ? ' class="fail"' : '') + '><span class="oa-feed-main"><b>' + esc(n.title) + '</b> <span class="oa-small">' + esc(n.message) + '</span></span><time>' + esc(date(n.created_at)) + '</time></li>'; }, 'You are all caught up.'), '', '<a class="oa-link oa-small" href="#/notifications">View all</a>') +
       '</div>';
     bindCopy(root);
   }
@@ -336,20 +344,20 @@
     if (param) return viewCustomer(root, param);
     var canCreate = has('customers.create');
     root.innerHTML = head('Customers', canCreate ? 'Organizations you referred or onboarded. ' + (trialOn() ? 'New customers start a ' + trialName() + ' at once.' : 'New customers go through LeadAI\'s demo approval.') : 'Organizations attributed to you.',
-      canCreate ? '<a class="btn btn-secondary btn-sm" href="#/campaigns" data-tour="pt-cust-onboard">Onboarding links</a><button type="button" class="btn btn-primary btn-sm" id="newCust" data-tour="pt-cust-new">+ New customer</button>' : '') + '<div id="custT" data-tour="pt-cust-list"></div>';
+      canCreate ? '<a class="btn btn-secondary" href="#/campaigns" data-tour="pt-cust-onboard">Onboarding links</a><button type="button" class="btn btn-primary" id="newCust" data-tour="pt-cust-new">' + PLUS + ' New customer</button>' : '') + '<div id="custT" data-tour="pt-cust-list"></div>';
     var t = table($('#custT', root), {
       initial: only(q, ['stage', 'q', 'managed']),
       url: function (st) { return '/api/partner/v1/customers' + qs({ page: st.page, limit: st.limit, q: st.q, stage: st.stage, managed: st.managed }); },
       filters: [{ key: 'q', label: 'Search company…' }, { key: 'stage', type: 'select', label: 'Stage', options: [['', 'All stages']].concat(Object.keys(STAGE_LABEL).map(function (k) { return [k, STAGE_LABEL[k]]; })) }, { key: 'managed', type: 'select', label: 'Type', options: [['', 'All customers'], ['true', 'Managed by me'], ['false', 'Referred']] }],
       columns: [
         { label: 'Company', render: function (r) { return '<a class="oa-link" href="#/customers/' + esc(r.organization_id) + '"><b>' + esc(r.company || (r.organization || {}).name || '—') + '</b></a>'; } },
-        { label: 'Workspace', render: function (r) { return pill((r.organization || {}).status); } },
-        { label: 'Subscription', render: function (r) { return r.subscription ? pill(r.subscription.status) + ' <span class="oa-small oa-muted">' + esc(r.subscription.plan_id || '') + '</span>' : '<span class="oa-muted">—</span>'; } },
+        { label: 'Account', render: function (r) { return pill((r.organization || {}).status); } },
+        { label: 'Subscription', render: function (r) { return r.subscription ? pill(r.subscription.status) + ' <span class="oa-small oa-muted">' + esc(planLabel(r.subscription.plan_id)) + '</span>' : '<span class="oa-muted">—</span>'; } },
         { label: 'Members', cls: 'oa-num', render: function (r) { return esc(num(r.members)); } },
         { label: 'Stage', render: function (r) { return pill(r.stage, STAGE_LABEL[r.stage]) + (r.managed ? ' <span class="oa-small oa-muted">managed</span>' : ''); } },
         { label: 'Revenue', cls: 'oa-num', render: function (r) { return '<span class="pp-money">' + esc(money(r.revenue_total)) + '</span>'; } }
       ],
-      empty: { title: 'No customers yet', desc: canCreate ? 'Onboard your first customer with “New customer”.' : 'Customers you refer appear here.' }
+      empty: { title: 'No customers yet', desc: canCreate ? 'Add your first customer with “New customer”, or share your referral link.' : 'Businesses you refer show up here once they sign up.' }
     });
     var nb = $('#newCust', root);
     if (nb) nb.onclick = async function () {
@@ -381,10 +389,10 @@
     var c = (await api('/api/partner/v1/customers/' + encodeURIComponent(orgId))).customer;
     var org = c.organization || {}, sub = c.subscription;
     root.innerHTML = '<p><a class="oa-link" href="#/customers">← Customers</a></p>' + head(c.company || org.name || 'Customer', 'Attributed ' + date(c.signed_up_at) + ' via ' + title(c.source) + '.',
-      (c.managed && has('reseller.customers.manage') && c.owner_activated === false) ? '<button type="button" class="btn btn-secondary btn-sm" id="resend">Resend setup email</button>' : '') +
+      (c.managed && has('reseller.customers.manage') && c.owner_activated === false) ? '<button type="button" class="btn btn-secondary" id="resend">Resend setup email</button>' : '') +
       '<div class="oa-grid oa-grid-3">' +
-      card('Workspace', kv([['Status', pill(org.status), true], ['Plan', org.plan_id], [trialOn() ? 'Trial ends' : 'Demo ends', date(org.demo_expires_at)], ['Members', num(c.members)], ['Created', date(org.created_at)]])) +
-      card('Subscription', sub ? kv([['Status', pill(sub.status), true], ['Plan', sub.plan_id], ['Billing', title(sub.billing_cycle)], ['Renews', date(sub.current_period_end)]]) : '<div class="oa-mini-empty">No subscription yet</div>') +
+      card('Account', kv([['Status', pill(org.status), true], ['Plan', planLabel(org.plan_id)], [trialOn() ? 'Trial ends' : 'Demo ends', date(org.demo_expires_at)], ['Members', num(c.members)], ['Created', date(org.created_at)]])) +
+      card('Subscription', sub ? kv([['Status', pill(sub.status), true], ['Plan', planLabel(sub.plan_id)], ['Billing', sentence(sub.billing_cycle)], ['Renews', date(sub.current_period_end)]]) : '<div class="oa-mini-empty">No subscription yet</div>') +
       card('Your earnings', kv([['Stage', pill(c.stage, STAGE_LABEL[c.stage]), true], ['Revenue', money(c.revenue_total)], ['Commission', money(c.commission_total)], ['Customer since', date(c.converted_at)]]
         .concat(c.tokens ? [['Tokens left', num(c.tokens.balance != null ? c.tokens.balance : c.tokens.available)]] : [])
         .concat(c.managed ? [['Owner signed in', c.owner_activated ? 'Yes' : 'Not yet']] : []))) +
@@ -399,12 +407,12 @@
     table($('#comT', root), {
       initial: only(q, ['status', 'from', 'to']),
       url: function (st) { return '/api/partner/v1/commissions' + qs({ page: st.page, limit: st.limit, status: st.status, from: st.from, to: st.to }); },
-      onData: function (d) { var b = d.balances || {}; $('#bal', root).innerHTML = Object.keys(b).length ? '<div class="oa-grid oa-grid-4">' + Object.keys(b).map(function (c) { return stat('Pending · ' + c, money(b[c].pending, c), 'qualifying / awaiting approval', '', go('commissions', { status: 'pending' })) + stat('Available · ' + c, money(b[c].available, c), 'payable now', '', go('commissions', { status: 'payable' })) + stat('In payout · ' + c, money(b[c].processing, c), '', '', go('commissions', { status: 'processing' })) + stat('Paid · ' + c, money(b[c].paid, c), money(b[c].reversed, c) + ' reversed', '', go('commissions', { status: 'paid' })); }).join('') + '</div><div style="height:14px"></div>' : ''; },
+      onData: function (d) { var b = d.balances || {}; $('#bal', root).innerHTML = Object.keys(b).length ? '<div class="oa-grid oa-grid-4">' + Object.keys(b).map(function (c) { return stat('Pending · ' + c, money(b[c].pending, c), 'Waiting for the hold period or approval', '', go('commissions', { status: 'pending' })) + stat('Available · ' + c, money(b[c].available, c), 'Ready to withdraw', '', go('commissions', { status: 'payable' })) + stat('In payout · ' + c, money(b[c].processing, c), 'Requested, not paid yet', '', go('commissions', { status: 'processing' })) + stat('Paid · ' + c, money(b[c].paid, c), money(b[c].reversed, c) + ' taken back after refunds', '', go('commissions', { status: 'paid' })); }).join('') + '</div><div style="height:14px"></div>' : ''; },
       filters: [{ key: 'status', type: 'select', label: 'Status', options: [['', 'All statuses'], ['pending', 'Pending (qualifying)'], ['qualified', 'Qualified'], ['approved', 'Approved'], ['payable', 'Payable'], ['processing', 'In payout'], ['paid', 'Paid'], ['reversed', 'Reversed']] }, { key: 'from', type: 'date', label: 'From' }, { key: 'to', type: 'date', label: 'To' }],
       columns: [
-        { label: 'Date', render: function (r) { return esc(date(r.created_at)); } },
+        { label: 'Date', render: function (r) { return '<span class="pp-nowrap">' + esc(date(r.created_at)) + '</span>'; } },
         { label: 'Customer', render: function (r) { return esc(r.company || (r.kind === 'adjustment' ? 'Adjustment' : '—')) + (r.note ? '<div class="oa-small oa-muted">' + esc(r.note) + '</div>' : ''); } },
-        { label: 'Event', render: function (r) { return esc(title(r.event)); } },
+        { label: 'Event', render: function (r) { return esc(sentence(r.event)); } },
         { label: 'Rate', render: function (r) { return r.rate_type ? esc(r.rate_type === 'percentage' ? r.rate_value + '%' : r.rate_type === 'hybrid' ? r.rate_value + '% + ' + money(r.rate_fixed, r.currency) : money(r.rate_value, r.currency)) : '—'; } },
         { label: 'Payment', cls: 'oa-num', render: function (r) { return r.base_amount ? '<span class="pp-money">' + esc(money(r.base_amount, r.currency)) + '</span>' : '—'; } },
         { label: 'Commission', cls: 'oa-num', render: function (r) { return '<span class="pp-money">' + esc(money(r.amount, r.currency)) + '</span>' + (r.reversed_amount ? '<div class="oa-small oa-muted">' + esc(money(r.reversed_amount, r.currency)) + ' reversed</div>' : '') + (r.clawed_back ? '<div class="oa-small oa-muted">' + esc(money(r.clawed_back, r.currency)) + ' clawed back</div>' : ''); } },
@@ -419,16 +427,17 @@
     var curs = balancesOf(w.balances);
     var me = S.me.partner || {};
     var sched = (S.me.program || {}).payout_schedule || 'on_request';
-    root.innerHTML = head('Wallet', 'Balances are calculated from your commissions — you can\'t edit them. Minimum payout: ' + money(w.min_payout, curs[0]) + '. ' + (sched === 'on_request' ? 'Approved commissions are payable right away.' : 'Approved commissions become payable on the ' + sched + ' payout day.'),
-      has('payouts.request') ? '<button type="button" class="btn btn-primary btn-sm" id="reqPay" data-tour="pt-pay-req">Request payout</button>' : '') +
+    var canPay = curs.some(function (c) { return (w.balances[c] || {}).available > 0; });
+    root.innerHTML = head('Wallet', 'Balances are worked out from your commissions, so you can\'t edit them. Minimum payout: ' + money(w.min_payout, curs[0]) + '. ' + (sched === 'on_request' ? 'Approved commissions are ready to withdraw right away.' : 'Approved commissions become ready to withdraw on the ' + sched + ' payout day.') + (has('payouts.request') && !canPay ? ' You have nothing to withdraw yet.' : ''),
+      has('payouts.request') ? '<button type="button" class="btn btn-primary" id="reqPay" data-tour="pt-pay-req"' + (curs.some(function (c) { return (w.balances[c] || {}).available > 0; }) ? '' : ' disabled title="Nothing to withdraw yet: your available balance is 0"') + '>Request payout</button>' : '') +
       (!me.has_payout_info && has('payouts.request') ? '<div class="pp-banner">Add your payout details in <a class="oa-link" href="#/settings">Settings</a> before requesting a payout.</div>' : '') +
-      curs.map(function (c) { var b = w.balances[c] || {}; return '<div class="oa-grid oa-grid-4" data-tour="pt-wallet-bal">' + stat('Available · ' + c, money(b.available, c), 'payable — ready for payout', '', go('commissions', { status: 'payable' })) + stat('Pending · ' + c, money(b.pending, c), 'qualifying or awaiting approval', '', go('commissions', { status: 'pending' })) + stat('In payout · ' + c, money(b.processing, c), 'requested, not yet paid', '', go('payouts') || go('commissions', { status: 'processing' })) + stat('Paid · ' + c, money(b.paid, c), money(b.reversed, c) + ' reversed · ' + money(b.lifetime, c) + ' lifetime', '', go('payouts', { status: 'paid' }) || go('commissions', { status: 'paid' })) + '</div>'; }).join('<div style="height:14px"></div>') +
+      curs.map(function (c) { var b = w.balances[c] || {}; return '<div class="oa-grid oa-grid-4" data-tour="pt-wallet-bal">' + stat('Available · ' + c, money(b.available, c), 'Ready to withdraw', '', go('commissions', { status: 'payable' })) + stat('Pending · ' + c, money(b.pending, c), 'Waiting for the hold period or approval', '', go('commissions', { status: 'pending' })) + stat('In payout · ' + c, money(b.processing, c), 'Requested, not paid yet', '', go('payouts') || go('commissions', { status: 'processing' })) + stat('Paid · ' + c, money(b.paid, c), money(b.lifetime, c) + ' earned in total · ' + money(b.reversed, c) + ' taken back', '', go('payouts', { status: 'paid' }) || go('commissions', { status: 'paid' })) + '</div>'; }).join('<div style="height:14px"></div>') +
       card('Transactions', (w.transactions || []).length ? '<div class="oa-table-wrap"><table class="oa-table"><thead><tr><th>Date</th><th>Type</th><th>Customer</th><th class="oa-num">Amount</th><th class="oa-num">Available after</th><th>Note</th></tr></thead><tbody>' +
-        w.transactions.map(function (t) { return '<tr><td>' + esc(dt(t.created_at)) + '</td><td>' + esc(title(t.type)) + '</td><td class="oa-small">' + esc(t.company || '—') + '</td><td class="oa-num pp-money">' + esc(money(t.amount, t.currency)) + '</td><td class="oa-num pp-money">' + esc(money(t.available_after, t.currency)) + '</td><td class="oa-small">' + esc(t.note || '') + '</td></tr>'; }).join('') + '</tbody></table></div>' : empty('No transactions yet', 'Every commission, approval, refund and payout is recorded here.'));
+        w.transactions.map(function (t) { return '<tr><td class="pp-nowrap">' + esc(dt(t.created_at)) + '</td><td>' + esc(sentence(t.type)) + '</td><td class="oa-small">' + esc(t.company || '—') + '</td><td class="oa-num pp-money">' + esc(money(t.amount, t.currency)) + '</td><td class="oa-num pp-money">' + esc(money(t.available_after, t.currency)) + '</td><td class="oa-small">' + esc(t.note || '') + '</td></tr>'; }).join('') + '</tbody></table></div>' : empty('No transactions yet', 'Every commission, approval, refund and payout is recorded here.'));
     var rb = $('#reqPay', root);
     if (rb) rb.onclick = async function () {
       var options = curs.filter(function (c) { return (w.balances[c] || {}).available > 0; });
-      if (!options.length) { toast('No available balance to withdraw yet', 'error'); return; }
+      if (!options.length) { toast('Nothing to withdraw yet: your available balance is 0.', 'error'); return; }
       var ok = await modal({ title: 'Request payout', submit: 'Request payout',
         body: '<p style="margin-top:0">Your whole available balance in the selected currency is paid out to your saved payout method.</p>' + field('currency', 'Currency', options[0], { options: options.map(function (c) { return [c, c + ' — ' + money(w.balances[c].available, c)]; }) }),
         onSubmit: function (f) { return api('/api/partner/v1/payouts', { method: 'POST', body: formData(f) }); } });
@@ -437,16 +446,16 @@
   }
 
   async function viewPayouts(root, q) {
-    root.innerHTML = head('Payouts', 'Your payout requests and their status.', has('payouts.request') ? '<a class="btn btn-secondary btn-sm" href="#/wallet">Wallet</a>' : '') + '<div id="poT" data-tour="pt-po-list"></div>';
+    root.innerHTML = head('Payouts', 'Your payout requests and where each one is. Request a new payout from your wallet.', has('payouts.request') ? '<a class="btn btn-secondary" href="#/wallet">Open wallet</a>' : '') + '<div id="poT" data-tour="pt-po-list"></div>';
     table($('#poT', root), {
       initial: only(q, ['status']),
       url: function (st) { return '/api/partner/v1/payouts' + qs({ page: st.page, limit: st.limit, status: st.status }); },
       filters: [{ key: 'status', type: 'select', label: 'Status', options: [['', 'All statuses'], ['requested', 'Requested'], ['under_review', 'Under review'], ['approved', 'Approved'], ['processing', 'Processing'], ['paid', 'Paid'], ['failed', 'Failed'], ['rejected', 'Rejected'], ['cancelled', 'Cancelled']] }],
       columns: [
-        { label: 'Requested', render: function (r) { return esc(dt(r.requested_at)); } },
+        { label: 'Requested', render: function (r) { return '<span class="pp-nowrap">' + esc(dt(r.requested_at)) + '</span>'; } },
         { label: 'Amount', cls: 'oa-num', render: function (r) { return '<span class="pp-money">' + esc(money(r.amount, r.currency)) + '</span>'; } },
-        { label: 'Method', render: function (r) { return esc(title(r.method)); } },
-        { label: 'Commissions', cls: 'oa-num', render: function (r) { return esc((r.commission_ids || []).length); } },
+        { label: 'Method', render: function (r) { return esc(method(r.method)); } },
+        { label: 'Commissions paid', cls: 'oa-num', render: function (r) { return esc((r.commission_ids || []).length); } },
         { label: 'Status', render: function (r) { return pill(r.status) + (r.reference ? '<div class="oa-small oa-muted">Ref ' + esc(r.reference) + '</div>' : '') + (r.failure_reason ? '<div class="oa-small oa-muted">' + esc(r.failure_reason) + '</div>' : ''); } },
         { label: '', cls: 'oa-num', render: function (r) { return r.status === 'requested' && has('payouts.request') ? '<button type="button" class="btn btn-ghost btn-xs" data-cancel>Cancel</button>' : ''; } }
       ],
@@ -467,7 +476,7 @@
     try { if (has('campaigns.manage')) camps = (await api('/api/partner/v1/campaigns')).items || []; } catch (e) { camps = []; }
     var campSel = camps.length ? '<label class="sr-only" for="anCamp">Campaign</label><select class="form-select" id="anCamp" style="width:auto;height:36px;padding:6px 10px"><option value="">All campaigns</option>' + camps.map(function (c) { return '<option value="' + esc(c.id) + '"' + (ctx.campaign === c.id ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select>' : '';
     var params = { from: r.from, to: r.to, unit: ctx.unit, campaign_id: ctx.campaign || '' };
-    root.innerHTML = head('Analytics', 'Clicks, visitors, signups, demos, customers, revenue and commission — from your real referral and billing records.',
+    root.innerHTML = head('Analytics', 'Clicks, visitors, sign-ups, ' + (trialOn() ? 'trials' : 'demos') + ', customers, revenue and commission, from your referral and billing records.',
       campSel + rangeControl(r) + '<a class="btn btn-secondary btn-sm" id="anCsv" href="/api/partner/v1/analytics.csv' + esc(qs(params)) + '" download>⤓ Export CSV</a>') + '<div data-an>' + loading() + '</div>';
     bindRange(root, r, function () { route(true); });
     var cs = $('#anCamp', root); if (cs) cs.onchange = function () { ctx.campaign = cs.value; route(true); };
@@ -482,8 +491,8 @@
     var po = a.payouts || { by_status: {} };
     var poRows = Object.keys(po.by_status || {}).map(function (k) { return '<li class="oa-hbar"><span class="oa-hbar-label">' + esc(title(k)) + '</span><span class="oa-hbar-track"><span style="width:100%"></span></span><span class="oa-hbar-val">' + esc(po.by_status[k].count) + '</span></li>'; }).join('');
     $('[data-an]', root).innerHTML =
-      '<div class="oa-grid oa-grid-4">' + stat('Clicks', num(t.clicks), num(t.visitors) + ' unique visitors', '', go('campaigns')) + stat('Signups', num(t.referrals), num(t.demos) + ' ' + trialsLabel(), '', go('referrals', { from: r.from, to: r.to, campaign_id: ctx.campaign })) +
-      stat('Customers', num(t.customers), num(t.active_subscriptions) + ' active subscriptions', '', go('customers', { stage: 'customer' })) + stat('Conversion', t.conversion_rate + '%', 'visitors → signups · ' + t.customer_rate + '% signups → customers', '', go('referrals', { from: r.from, to: r.to, campaign_id: ctx.campaign })) + '</div>' +
+      '<div class="oa-grid oa-grid-4">' + stat('Clicks', num(t.clicks), num(t.visitors) + ' unique visitors', '', go('campaigns')) + stat('Sign-ups', num(t.referrals), num(t.demos) + ' ' + trialsLabel(t.demos), '', go('referrals', { from: r.from, to: r.to, campaign_id: ctx.campaign })) +
+      stat('Customers', num(t.customers), num(t.active_subscriptions) + ' active subscriptions', '', go('customers', { stage: 'customer' })) + stat('Conversion', t.conversion_rate + '%', 'of visitors signed up · ' + t.customer_rate + '% of sign-ups became customers', '', go('referrals', { from: r.from, to: r.to, campaign_id: ctx.campaign })) + '</div>' +
       '<div class="oa-grid oa-grid-4">' + stat('Revenue generated', money(t.revenue, revCur), 'paid invoices, net of refunds', '', go('customers', { stage: 'customer' })) + stat('Commission earned', money(t.commission, curs[0]), 'excluding reversed', '', go('commissions', { from: r.from, to: r.to })) +
       stat('Payouts', num(po.count), money(t.payouts, curs[0]) + ' paid in period', '', go('payouts')) + stat('Campaigns', num(a.campaigns.length), 'with activity in range', '', go('campaigns')) + '</div>' +
       '<div class="oa-grid oa-grid-2">' + card('Clicks', bars(a.series.clicks, a.labels), '', seg) + card('Unique visitors', bars(a.series.visitors, a.labels)) +
@@ -539,7 +548,7 @@
     };
     var share = k.referral_url ? 'Try LeadAI — it finds real buyers in your social media comments: ' + abs(k.referral_url) : '';
     root.innerHTML = head('Sell LeadAI', 'Everything you need to sell: the live plans and prices your customers pay, what you earn on each, and links that attribute the sale to you.',
-      (has('deals.manage') ? '<a class="btn btn-primary btn-sm" href="#/deals">+ Register a deal</a>' : '') + (has('marketing.access') ? '<a class="btn btn-secondary btn-sm" href="#/marketing">Marketing center</a>' : '')) +
+      (has('deals.manage') ? '<a class="btn btn-primary" href="#/deals">' + PLUS + ' Register a deal</a>' : '') + (has('marketing.access') ? '<a class="btn btn-secondary" href="#/marketing">Marketing center</a>' : '')) +
       '<div class="oa-grid oa-grid-2" data-tour="pt-sell-kit">' + card('The pitch','<ul class="oa-feed">' + k.pitch.map(function (x) { return '<li><span class="oa-feed-main">' + esc(x) + '</span></li>'; }).join('') + '</ul>' +
         (share ? '<button type="button" class="btn btn-secondary btn-sm" data-copy="' + esc(share) + '" style="margin-top:8px">Copy a short pitch with your link</button>' : '')) +
       card('How you get credit', (k.referral_url ? linkRow(k.referral_url, 'Your referral link') : '') + '<p class="oa-small" style="margin-top:8px">Code <b class="oa-mono">' + esc(k.referral_code) + '</b> · clicks are remembered for <b>' + esc(k.attribution_window_days) + ' days</b>. ' +
@@ -556,15 +565,16 @@
     var plans = [];
     try { if (has('sales.view')) plans = ((await api('/api/partner/v1/sales')).sales.plans || []).filter(function (p) { return !p.free; }); } catch (e) { plans = []; }
     root.innerHTML = head('Deals', 'Register prospects you are working on. LeadAI reviews each one; an approved deal protects your claim if the prospect signs up through someone else.',
-      '<button type="button" class="btn btn-primary btn-sm" id="newDeal" data-tour="pt-deal-new">+ Register a deal</button>') + '<div id="dlChips" class="oa-actions" style="margin-bottom:10px"></div><div id="dlT" data-tour="pt-deal-list"></div>';
+      '<button type="button" class="btn btn-primary" id="newDeal" data-tour="pt-deal-new">' + PLUS + ' Register a deal</button>') + '<div id="dlChips" class="oa-actions" style="margin-bottom:10px"></div><div id="dlT" data-tour="pt-deal-list"></div>';
+    var planName = function (slug) { var p = plans.filter(function (x) { return x.slug === slug; })[0]; return p ? p.name : planLabel(slug); };
     var t = table($('#dlT', root), {
       url: function (st) { return '/api/partner/v1/deals' + qs({ page: st.page, limit: st.limit, status: st.status, q: st.q }); },
       filters: [{ key: 'q', label: 'Search company or contact…' }, { key: 'status', type: 'select', label: 'Status', options: [['', 'All deals']].concat(Object.keys(DEAL_LABEL).map(function (s) { return [s, DEAL_LABEL[s]]; })) }],
       onData: function (d) { var c = d.counts || {}; $('#dlChips', root).innerHTML = Object.keys(DEAL_LABEL).filter(function (s) { return c[s]; }).map(function (s) { return pill(s, DEAL_LABEL[s] + ' · ' + c[s]); }).join(' '); },
       columns: [
         { label: 'Prospect', render: function (d) { return '<b>' + esc(d.company) + '</b><div class="oa-small oa-muted">' + esc([d.contact_name, d.contact_email].filter(Boolean).join(' · ')) + '</div>'; } },
-        { label: 'Plan', render: function (d) { return esc(d.expected_plan || '—'); } },
-        { label: 'Value', cls: 'oa-num', render: function (d) { return d.expected_value != null ? '<span class="pp-money">' + esc(money(d.expected_value, d.currency)) + '</span>' : '—'; } },
+        { label: 'Expected plan', render: function (d) { return esc(d.expected_plan ? planName(d.expected_plan) : '—'); } },
+        { label: 'Expected value', cls: 'oa-num', render: function (d) { return d.expected_value != null ? '<span class="pp-money">' + esc(money(d.expected_value, d.currency)) + '</span>' : '—'; } },
         { label: 'Status', render: function (d) { return pill(d.status, DEAL_LABEL[d.status]) + (d.protected_until && d.status === 'approved' ? '<div class="oa-small oa-muted">until ' + esc(date(d.protected_until)) + '</div>' : '') + (d.review_note ? '<div class="oa-small oa-muted">' + esc(d.review_note) + '</div>' : ''); } },
         { label: 'Signed up', render: function (d) { return d.referral_stage ? pill(d.referral_stage, STAGE_LABEL[d.referral_stage]) : '<span class="oa-muted">Not yet</span>'; } },
         { label: 'Registered', render: function (d) { return esc(date(d.created_at)); } },
@@ -672,7 +682,7 @@
 
   async function viewCampaigns(root) {
     var L = has('referral_links.create') ? (await api('/api/partner/v1/referral-links')).links : null;
-    root.innerHTML = head('Campaigns', 'Campaign links let you track each channel separately.', '<button type="button" class="btn btn-primary btn-sm" id="newCamp" data-tour="pt-camp-new">+ New campaign</button>') +
+    root.innerHTML = head('Campaigns', 'Give each place you promote LeadAI its own link, so you can see which one brings the most customers.', '<button type="button" class="btn btn-primary" id="newCamp" data-tour="pt-camp-new">' + PLUS + ' New campaign</button>') +
       (L ? tour(card('Main links', '<div class="oa-form-grid">' + linkRow(L.referral_url, 'Referral link') + linkRow(L.signup_url, trialOn() ? 'Direct sign-up link (' + trialName() + ')' : 'Direct demo request link') + '</div>'), 'pt-camp-links') : '') + '<div id="campT" style="margin-top:14px" data-tour="pt-camp-list"></div>';
     bindCopy(root);
     var t = table($('#campT', root), {
@@ -684,15 +694,17 @@
         { label: '', cls: 'oa-num', render: function (c) { return '<button type="button" class="btn btn-ghost btn-xs" data-edit>Edit</button>'; } }
       ],
       bindRow: function (tr, c, reload) { $('[data-edit]', tr).onclick = function () { editCampaign(c).then(function (ok) { if (ok) reload(); }); }; },
-      empty: { title: 'No campaigns yet', desc: 'Create one per channel — newsletter, webinar, social — to see which converts best.' }
+      empty: { title: 'No campaigns yet', desc: 'Make one campaign per channel, such as a newsletter, a webinar or a social post, to see which one works best.', action: '<button type="button" class="btn btn-primary btn-sm" data-newcamp>' + PLUS + ' New campaign</button>' }
     });
-    $('#newCamp', root).onclick = function () { editCampaign(null).then(function (ok) { if (ok) t.reload(); }); };
+    var newCamp = function () { editCampaign(null).then(function (ok) { if (ok) t.reload(); }); };
+    $('#newCamp', root).onclick = newCamp;
+    $('#campT', root).addEventListener('click', function (e) { if (e.target.closest('[data-newcamp]')) newCamp(); });
   }
   async function editCampaign(c) {
     var ok = await modal({ title: c ? 'Edit campaign' : 'New campaign', submit: c ? 'Save' : 'Create',
       body: '<div class="oa-form-grid">' + field('name', 'Name *', c ? c.name : '', { max: 80 }) + (c ? field('slug', 'Slug', c.slug, { readonly: true }) : field('slug', 'Slug (optional)', '', { max: 40, placeholder: 'spring-webinar' })) +
-        field('landing_path', 'Landing page', c ? c.landing_path : '', { max: 200, placeholder: '/pricing', hint: 'A LeadAI site path; empty = the program default.' }) +
-        field('status', 'Status', c ? c.status : 'active', { options: ['active', 'archived'] }) +
+        field('landing_path', 'Landing page', c ? c.landing_path : '', { max: 200, placeholder: '/pricing', hint: 'The LeadAI page the link opens, for example /pricing. Leave empty for the usual page.' }) +
+        field('status', 'Status', c ? c.status : 'active', { options: [['active', 'Active'], ['archived', 'Archived']] }) +
         (!c && has('reseller.customers.manage') ? field('kind', 'Link type', 'referral', { options: [['referral', 'Referral link'], ['onboarding', 'Customer onboarding link (managed customers)']], hint: 'Signups through an onboarding link become customers you manage.' }) : '') + '</div>',
       onSubmit: function (f) {
         var d = formData(f); if (!d.name) throw new Error('Name is required.');
@@ -707,7 +719,7 @@
   async function viewCoupons(root) {
     var d = await api('/api/partner/v1/coupons');
     root.innerHTML = head('Coupons', 'Customers who pay with your coupon get a discount and are attributed to you.',
-      d.can_create ? '<button type="button" class="btn btn-primary btn-sm" id="newCp" data-tour="pt-coupon-new">+ New coupon</button>' : '') +
+      d.can_create ? '<button type="button" class="btn btn-primary" id="newCp" data-tour="pt-coupon-new">' + PLUS + ' New coupon</button>' : '') +
       (!d.can_create ? '<div class="pp-banner">Coupons are issued by the LeadAI partner team. Contact us if you need one.</div>' : '') + '<div id="cpT" data-tour="pt-coupon-list"></div>';
     var t = table($('#cpT', root), {
       url: function () { return '/api/partner/v1/coupons'; },
@@ -785,7 +797,7 @@
     return /^\/(?!\/)/.test(link) ? link : '';
   }
   async function viewNotifications(root) {
-    root.innerHTML = head('Notifications', '', '<button type="button" class="btn btn-secondary btn-sm" id="readAll">Mark all read</button>') + '<div id="nT"></div>';
+    root.innerHTML = head('Notifications', 'News about your application, referrals, commissions, payouts and tasks.', '<button type="button" class="btn btn-secondary" id="readAll">Mark all as read</button>') + '<div id="nT"></div>';
     var t = table($('#nT', root), {
       url: function (st) { return '/api/partner/v1/notifications' + qs({ page: st.page, limit: st.limit, unread: st.unread }); },
       rows: function (d) { d.pages = Math.max(1, Math.ceil((d.total || 0) / 25)); return d.items || []; },
@@ -793,7 +805,7 @@
       columns: [
         { label: '', render: function (n) { return n.read ? '' : '<span class="oa-pill" data-tone="brand">New</span>'; } },
         { label: 'Notification', render: function (n) { return '<b>' + esc(n.title) + '</b><div class="oa-small">' + esc(n.message) + '</div>'; } },
-        { label: 'When', render: function (n) { return esc(dt(n.created_at)); } },
+        { label: 'When', render: function (n) { return '<span style="white-space:nowrap">' + esc(dt(n.created_at)) + '</span>'; } },
         { label: '', cls: 'oa-num', render: function (n) { var h = notifHref(n.link); return h ? '<a class="oa-link" href="' + esc(h) + '" data-open' + (h.charAt(0) === '/' ? ' target="_blank" rel="noopener"' : '') + '>Open</a>' : ''; } }
       ],
       bindRow: function (tr, n) { if (!n.read) tr.addEventListener('click', function () { if (n.read) return; n.read = true; var pl = $('.oa-pill', tr); if (pl) pl.remove(); api('/api/partner/v1/notifications/read', { method: 'POST', body: { id: n.id } }).then(refreshBell, function () {}); }); },
@@ -803,7 +815,7 @@
   }
 
   async function viewApi(root) {
-    root.innerHTML = head('API access', 'Read-only API keys for /api/partner/v1 (dashboard, referrals, customers, commissions, wallet, payouts, analytics).', '<button type="button" class="btn btn-primary btn-sm" id="newKey" data-tour="pt-api-new">+ New API key</button>') +
+    root.innerHTML = head('API access', 'Read-only API keys for /api/partner/v1 (dashboard, referrals, customers, commissions, wallet, payouts, analytics).', '<button type="button" class="btn btn-primary" id="newKey" data-tour="pt-api-new">' + PLUS + ' New API key</button>') +
       card('Usage', '<pre class="oa-pre oa-mono" style="white-space:pre-wrap">curl -H "X-API-Key: lap_live_…" ' + esc(location.origin) + '/api/partner/v1/dashboard</pre><p class="oa-small oa-muted">Keys are read-only and limited to 60 requests per minute. Revoke a key at once if it leaks.</p><div id="apiIdx" class="oa-small"></div>') + '<div id="kT" style="margin-top:14px"></div>';
     api('/api/partner/v1').then(function (d) { var el = $('#apiIdx', root); if (el) el.innerHTML = '<b>Endpoints your partner account can read</b><ul class="oa-feed">' + d.endpoints.map(function (e) { return '<li><span class="oa-feed-main oa-mono">' + esc(e) + '</span></li>'; }).join('') + '</ul>'; }, function () {});
     var t = table($('#kT', root), {
@@ -855,10 +867,10 @@
     var po = p.payout_info || {}, tax = p.tax_info || {};
     var html = head('Settings & security', 'Payout details, notifications, password and two-factor authentication.');
     if (S.me.is_active_partner && has('profile.manage')) {
-      html += '<form class="oa-card" id="payForm" data-tour="pt-payout-details" novalidate><div class="oa-card-head"><div><div class="oa-card-title">Payout details</div><div class="oa-card-sub">' + (p.has_payout_info ? 'Saved: ' + esc(title(po.method)) + ' · ' + esc(po.account_number || po.iban || po.upi_id || po.paypal_email || '') + '. Enter new details to replace them.' : 'Required before your first payout.') + '</div></div></div><div class="oa-form-grid">' +
-        field('method', 'Method', po.method || methods[0], { options: methods.map(function (m) { return [m, title(m)]; }) }) +
+      html += '<form class="oa-card" id="payForm" data-tour="pt-payout-details" novalidate><div class="oa-card-head"><div><div class="oa-card-title">Payout details</div><div class="oa-card-sub">' + (p.has_payout_info ? 'Saved: ' + esc(method(po.method)) + ' · ' + esc(po.account_number || po.iban || po.upi_id || po.paypal_email || '') + '. Enter new details to replace them.' : 'Required before your first payout.') + '</div></div></div><div class="oa-form-grid">' +
+        field('method', 'Method', po.method || methods[0], { options: methods.map(function (m) { return [m, method(m)]; }) }) +
         field('account_name', 'Account holder name', po.account_name || '', { max: 120 }) +
-        field('destination', 'Account number / IBAN / UPI ID / PayPal email', '', { max: 120, placeholder: 'Enter to update' }) +
+        field('destination', 'Account number / IBAN / UPI ID / PayPal email', '', { max: 120, placeholder: p.has_payout_info ? 'Type new details to replace the saved ones' : '' }) +
         field('ifsc', 'IFSC / SWIFT / routing (bank only)', '', { max: 40 }) +
         field('bank_name', 'Bank name', po.bank_name || '', { max: 120 }) +
         field('tax_id', 'Tax ID (PAN / VAT / EIN)', '', { max: 60, placeholder: tax.tax_id ? 'Saved: ' + tax.tax_id : '' }) +
@@ -1014,7 +1026,7 @@
       await def[4](box, hashQuery(), ctx, param);
       if (my !== routeSeq) return;
       main.innerHTML = ''; main.appendChild(box); main.setAttribute('data-view', h);
-      if (!silent) { var h1 = $('h1', main); if (h1) h1.focus({ preventScroll: true }); }
+      if (!silent) { var h1 = $('h1', main); if (h1) h1.focus({ preventScroll: true }); window.scrollTo(0, 0); }
     } catch (err) {
       if (my !== routeSeq) return;
       main.innerHTML = errorBox(err); main.setAttribute('data-view', h);

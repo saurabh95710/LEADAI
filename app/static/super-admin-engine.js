@@ -61,11 +61,11 @@
   /** naive ISO timestamps from the API are UTC */
   function utc(v) { return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T[\d:.]+$/.test(v) ? v + 'Z' : v; }
   function dt(v) { return v ? K.fmtDT(utc(v)) : '—'; }
-  function usd(v) { var n = Number(v); return isFinite(n) ? '$' + n.toFixed(4) : '—'; }
+  function usd(v) { var n = Number(v); return v == null || v === '' || !isFinite(n) ? '—' : '$' + (n === 0 ? '0.00' : n.toFixed(Math.abs(n) < 1 ? 4 : 2)); }
   function fmtBytes(v) {
     var n = Number(v);
     if (v == null || v === '' || isNaN(n)) return '—';
-    if (n < 1024) return n + ' B';
+    if (n < 1024) return Math.round(n) + ' B';
     var u = ['KB', 'MB', 'GB', 'TB'], i = -1;
     do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1);
     return n.toFixed(n >= 10 ? 1 : 2) + ' ' + u[i];
@@ -82,7 +82,8 @@
       (list.length > max ? '<span title="' + esc(list.slice(max).join(', ')) + '">+' + (list.length - max) + '</span>' : '') + '</span>';
   }
   var PLAT_TONE = { facebook: 'info', instagram: 'primary', linkedin: 'info', youtube: 'danger' };
-  function platformBadge(p) { return p ? badge(K.titleCase(p), PLAT_TONE[String(p).toLowerCase()] || 'neutral') : '<span class="sa-muted">—</span>'; }
+  function platName(p) { return { linkedin: 'LinkedIn', youtube: 'YouTube' }[String(p || '').toLowerCase()] || K.titleCase(p); }
+  function platformBadge(p) { return p ? badge(platName(p), PLAT_TONE[String(p).toLowerCase()] || 'neutral') : '<span class="sa-muted">—</span>'; }
   function csvCell(v) {
     var s = String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
     if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; // spreadsheet formula-injection guard
@@ -203,7 +204,7 @@
         K.kpi('Completed', fmtN(js.completed), js.success_rate == null ? 'no runs yet' : js.success_rate + '% success rate', { href: '#/jobs', icon: 'chart' }) +
         K.kpi('Failed', fmtN(js.failed), 'open the failed jobs', { href: '#/jobs?tab=failed', icon: 'flag', tone: js.failed ? 'warn' : '' }) +
         K.kpi('Running', fmtN(js.running), fmtN(js.cancelled) + ' cancelled', { href: '#/jobs', icon: 'bolt' }) + '</div></div>' : '') +
-      '<div class="sa-card sa-section"><h3>Usage in the last 30 days <span class="sa-small sa-muted">real usageUsd from run records</span></h3>' +
+      '<div class="sa-card sa-section"><h3>Usage in the last 30 days <span class="sa-small sa-muted">the cost Apify reported for each run</span></h3>' +
       (acts.length ? '<div class="sa-grid sa-kpis">' +
         K.kpi('Total cost', usd(u.total_cost), 'reported by Apify', { href: '#/usage', icon: 'coin' }) +
         K.kpi('Runs with usage', fmtN(u.runs_with_usage), 'runs that reported a cost', { href: '#/usage', icon: 'chart' }) +
@@ -273,7 +274,7 @@
       if (e) e.onclick = async function () {
         var ok = await K.openModal({ title: 'Edit actor · ' + a.key, submitLabel: 'Save',
           body: field('egAct', 'Apify actor id', '<input class="form-input sa-mono" id="egAct" name="actor_id" value="' + esc(a.value) + '" autocomplete="off" placeholder="username/actor-name" required>',
-            'Format <span class="sa-mono">username/actor-name</span>. Default: <span class="sa-mono">' + esc(a.default) + '</span>. Used by the next scrape on ' + esc(K.titleCase(a.platform)) + '.') +
+            'Format <span class="sa-mono">username/actor-name</span>. Default: <span class="sa-mono">' + esc(a.default) + '</span>. Used by the next scrape on ' + esc(platName(a.platform)) + '.') +
             '<label class="sa-check" style="margin-top:10px"><input type="checkbox" name="test" checked> Test the actor after saving</label>',
           onSubmit: async function (form, fd) {
             var v = String(fd.get('actor_id') || '').trim();
@@ -310,7 +311,7 @@
     root.innerHTML = tourHead(K.header('Usage & cost', 'What each Apify actor (scraping tool) cost, added up from the real cost Apify reported for every run. Nothing is estimated.',
       badge(usd(d.total_cost) + ' total · ' + fmtN(d.runs_with_usage) + ' runs with usage', d.total_cost > 0 ? 'warning' : 'muted') +
       '<label class="sr-only" for="egDays">Period</label><select class="form-select eg-hsel" id="egDays">' + DAYS.map(function (n) { return '<option value="' + n + '"' + (n === days ? ' selected' : '') + '>Last ' + n + ' days</option>'; }).join('') + '</select>'), 'head-usage') +
-      '<div class="alert alert-info"><div class="alert-body">' + esc(d.note || '') + '</div></div>' +
+      '<div class="alert alert-info"><div class="alert-body">Costs come from what Apify reports for each run. Runs that did not report a cost are left out of the totals.</div></div>' +
       '<div class="sa-grid sa-kpis sa-section">' +
       K.kpi('Total cost', usd(d.total_cost), 'last ' + days + ' days', { icon: 'coin' }) +
       K.kpi('Runs with usage', fmtN(d.runs_with_usage), 'runs that reported a cost', { icon: 'chart' }) +
@@ -352,7 +353,7 @@
     var man = canManage();
     var d = await api(A + '/limits');
     var set = d.settings || {}, use = d.usage || {};
-    root.innerHTML = K.header('Scraping & global limits', 'Scrape quotas and cost protection. Saved at once — running scrapers respect them on the next query.') +
+    root.innerHTML = K.header('Scraping limits', 'How much each search may collect, and the cost protection. Changes save as you type and apply from the next search.') +
       (man ? '' : roleNote('the limits')) +
       '<div class="sa-grid sa-kpis">' +
       K.kpi('Pages stored', fmtN(use.pages), 'collected pages', { href: '#/pages', icon: 'file' }) +
@@ -436,8 +437,8 @@
       (man ? '' : roleNote('the keyword rules')) +
       (d.active_rule_id ? '<div class="alert alert-info" data-tour="kr-active"><div class="alert-body eg-banner"><div><div>Active rule — <b>' + esc((active || {}).name || '—') + '</b> applies to new scrapes that don\'t set their own filter.</div><div style="margin-top:4px">' + chips((active || {}).include_keywords, 'w') + '</div></div>' +
         (man ? '<button type="button" class="btn btn-secondary btn-sm" data-deact="' + esc(d.active_rule_id) + '">Deactivate</button>' : '') + '</div></div>'
-        : '<div class="alert alert-warning" data-tour="kr-active"><div class="alert-body eg-banner"><div><div><b>No active rule</b> — every comment is processed (NO_FILTER).</div><div class="sa-small">Create a rule and activate it to filter comments before AI analysis.</div></div>' +
-        (man ? '<button type="button" class="btn btn-secondary btn-sm" data-new>+ New rule</button>' : '') + '</div></div>') +
+        : '<div class="alert alert-warning" data-tour="kr-active"><div class="alert-body eg-banner"><div><div><b>No active rule</b> — every comment goes to the AI.</div><div class="sa-small">Create a rule and activate it to filter comments before AI analysis.</div></div>' +
+        '</div></div>') +
       '<div class="sa-grid sa-kpis sa-section">' +
       K.kpi('Comments filtered', fmtN(t.filtered || 0), 'of ' + fmtN(t.comments || 0) + ' total' + (t.coverage_pct != null ? ' · ' + t.coverage_pct + '%' : ''), { href: '#/keyword-rules?tab=comments&status=all', icon: 'msg' }) +
       K.kpi('Matched → AI', fmtN(t.matched || 0), t.match_pct != null ? t.match_pct + '% of filtered' : 'sent to the AI', { href: '#/keyword-rules?tab=comments&status=MATCHED', icon: 'star' }) +
@@ -467,7 +468,7 @@
       filters: [{ key: 'q', label: 'Search rules…' },
         { key: 'state', type: 'select', label: 'Status', options: [['', 'Any status'], ['active', 'Active'], ['inactive', 'Inactive']], match: function (r, v) { return v === 'active' ? !!r.active : !r.active; } },
         { key: 'match_mode', type: 'select', label: 'Match mode', options: [['', 'Any match mode']].concat(Object.keys(MODE_LABEL).map(function (k) { return [k, MODE_LABEL[k]]; })) },
-        { key: 'platform', type: 'select', label: 'Platform', options: [['', 'Any platform'], ['all', 'All platforms']].concat(PLATFORMS.map(function (p) { return [p, K.titleCase(p)]; })) }],
+        { key: 'platform', type: 'select', label: 'Platform', options: [['', 'Any platform'], ['all', 'All platforms']].concat(PLATFORMS.map(function (p) { return [p, platName(p)]; })) }],
       columns: [
         { label: 'Rule', sort: 'name', render: function (r) { return '<div class="cell-main">' + esc(r.name || 'Untitled rule') + '</div><div class="cell-sub">' + esc(K.short(r.description || '', 80)) + '</div>'; }, csv: function (r) { return r.name; } },
         { label: 'Match', render: function (r) { return badge(MODE_LABEL[r.match_mode] || r.match_mode || 'any', 'primary'); }, csv: function (r) { return r.match_mode; } },
@@ -523,7 +524,7 @@
       field('krName', 'Rule name', '<input class="form-input" id="krName" name="name" maxlength="120" value="' + esc(st.name || '') + '" placeholder="e.g. High-intent buyers — automotive">') +
       field('krDesc', 'Description', '<input class="form-input" id="krDesc" name="description" maxlength="500" value="' + esc(st.description || '') + '" placeholder="What does this rule capture?">') +
       field('krMode', 'Match mode', '<select class="form-select" id="krMode" name="match_mode">' + Object.keys(MODE_LABEL).map(function (k) { return '<option value="' + k + '"' + ((st.match_mode || 'any') === k ? ' selected' : '') + '>' + esc(MODE_LABEL[k]) + '</option>'; }).join('') + '</select>') +
-      field('krPlat', 'Platform', '<select class="form-select" id="krPlat" name="platform"><option value="all">All platforms</option>' + PLATFORMS.map(function (p) { return '<option value="' + p + '"' + (st.platform === p ? ' selected' : '') + '>' + esc(K.titleCase(p)) + '</option>'; }).join('') + '</select>') +
+      field('krPlat', 'Platform', '<select class="form-select" id="krPlat" name="platform"><option value="all">All platforms</option>' + PLATFORMS.map(function (p) { return '<option value="' + p + '"' + (st.platform === p ? ' selected' : '') + '>' + esc(platName(p)) + '</option>'; }).join('') + '</select>') +
       '</div><div class="sa-field" style="margin-top:12px"><span style="font-weight:600;font-size:13px" id="krCatsL">Categories &amp; presets <span class="sa-small sa-muted">(their keywords join your includes — click to toggle; dashed = preset)</span></span><div class="eg-cats" role="group" aria-labelledby="krCatsL">' +
       (cat.categories || []).map(function (c) { return pillHtml(c.key, (c.icon || '•') + ' ' + c.name); }).join('') +
       (cat.presets || []).map(function (p) { return pillHtml(p.key, (p.icon || '•') + ' ' + p.name, 'pre'); }).join('') +
@@ -586,7 +587,7 @@
       rowsKey: 'items', key: 'eng_kr_comments', exportName: 'filtered-comments',
       onData: function (d) { totals = d.totals || {}; renderChips(); },
       filters: [{ key: 'q', label: 'Search comment text…' },
-        { key: 'platform', type: 'select', label: 'Platform', options: [['', 'All platforms']].concat(PLATFORMS.map(function (p) { return [p, K.titleCase(p)]; })) },
+        { key: 'platform', type: 'select', label: 'Platform', options: [['', 'All platforms']].concat(PLATFORMS.map(function (p) { return [p, platName(p)]; })) },
         { key: 'rule_id', type: 'select', label: 'Rule', options: [['', 'Any rule']].concat(ctx.rules.map(function (r) { return [ruleId(r), r.name || 'Untitled rule']; })) },
         { key: 'contact', type: 'select', label: 'Contact', options: [['', 'With or without contact'], ['true', 'Has contact details']] }],
       columns: [
@@ -685,7 +686,7 @@
     var maxB = Math.max.apply(null, cols.map(function (c) { return c.size || 0; }).concat([1]));
     var docs = cols.reduce(function (s, c) { return s + (c.documents || 0); }, 0);
     root.innerHTML = K.header('Database', 'MongoDB state behind the scrapers — documents, indexes and size. Nothing here can be deleted.', '<button type="button" class="btn btn-secondary btn-sm" data-refresh>↻ Refresh</button>') +
-      '<div class="sa-grid sa-2"><div class="sa-card" data-tour="db-conn"><h3>Connection <span class="sa-small sa-muted">dbStats</span></h3>' +
+      '<div class="sa-grid sa-2"><div class="sa-card" data-tour="db-conn"><h3>Connection</h3>' +
       (st.error ? '<div class="alert alert-warning"><div class="alert-body">' + esc(st.error) + '. The collection counts below are still live.</div></div>'
         : '<dl class="sa-kv"><dt>Status</dt><dd>' + pill('active', 'Connected') + '</dd><dt>Database</dt><dd class="sa-mono">' + esc(st.db || '—') + '</dd>' +
         '<dt>Collections</dt><dd>' + fmtN(st.collections != null ? st.collections : cols.length) + '</dd><dt>Documents</dt><dd>' + fmtN(st.objects) + '</dd>' +
@@ -924,10 +925,10 @@
   // ════════════════ registration ════════════════
   var V = 'viewer';
   K.register('Lead engine', 'Operations', [
-    ['apify', 'Apify', 'plug', null, V], ['actors', 'Actors', 'cpu', null, V], ['limits', 'Limits', 'shield', null, V],
+    ['apify', 'Apify', 'plug', null, V], ['actors', 'Actors', 'cpu', null, V], ['limits', 'Scraping limits', 'shield', null, V],
     ['usage', 'Usage & cost', 'coin', null, V], ['scoring', 'Lead scoring', 'star', null, V], ['keyword-rules', 'Keyword rules', 'tag', null, V]
   ], {
-    apify: [viewApify, 'Apify', null, V], actors: [viewActors, 'Actors', null, V], limits: [viewLimits, 'Scraping & global limits', null, V],
+    apify: [viewApify, 'Apify', null, V], actors: [viewActors, 'Actors', null, V], limits: [viewLimits, 'Scraping limits', null, V],
     usage: [viewUsage, 'Usage & cost', null, V], scoring: [viewScoring, 'Lead scoring', null, V], 'keyword-rules': [viewKeywordRules, 'Keyword rules', null, V]
   });
   K.register('System', 'Platform', [['database', 'Database', 'layers', null, V], ['logs', 'Logs', 'list', null, V]],

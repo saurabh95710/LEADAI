@@ -12,10 +12,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap"/>
   <link rel="preload" href="/static/design/tokens.css?v=r1005" as="style"/>
-  <link rel="preload" href="/static/design/components.css?v=r1005" as="style"/>
+  <link rel="preload" href="/static/design/components.css?v=r1006" as="style"/>
   <link rel="stylesheet" href="/static/design/tokens.css?v=r1005"/>
-  <link rel="stylesheet" href="/static/design/components.css?v=r1005"/>
-  <link rel="stylesheet" href="/static/website.css?v=apicov1"/>
+  <link rel="stylesheet" href="/static/design/components.css?v=r1006"/>
+  <link rel="stylesheet" href="/static/website.css?v=ui2"/>
   <script src="/static/design/theme.js?v=r1006" defer></script>
 </head>
 <body>
@@ -48,7 +48,7 @@
   <footer class="site-footer" id="site-footer"></footer>
 </div>
 
-<script src="/static/website.js?v=brand2" defer></script>
+<script src="/static/website.js?v=ui2" defer></script>
 <script>
 function initWebsite() {
   'use strict';
@@ -106,11 +106,25 @@ function initWebsite() {
     await goTo(path, false);
   }
 
+  // Privacy page: people whose public comments were collected (they have no
+  // account) can ask us to stop using their email or phone number.
+  function optOutCallout() {
+    const h = S.h;
+    return h('section', { class: 'section section-tight', 'aria-labelledby': 'h-optout', style: 'padding-top:0' },
+      h('div', { class: 'wrap-narrow' }, h('div', { class: 'optout-callout' },
+        S.iconTile('shield'),
+        h('div', null,
+          h('h2', { id: 'h-optout', text: 'Is your email or phone number in a lead?' }),
+          h('p', { text: 'Our customers find leads in public social media comments. If you shared your email or phone number in a public comment, you can ask us to remove it from all collected leads and to stop using it. You don’t need an account.' }),
+          h('a', { class: 'btn btn-primary', href: '/opt-out', text: 'Remove my contact details' })))));
+  }
+
   async function renderContent(slug) {
     const page = await S.api('/api/public/page/' + encodeURIComponent(slug));
     const ctx = { updated: LEGAL[slug] ? S.niceDate(page.published_at) : '' };
     S.renderSections(main, page.sections, ctx);
     if (!main.children.length) throw Object.assign(new Error('empty'), { status: 404 });
+    if (slug === 'privacy') main.appendChild(optOutCallout());
     S.applySeo(page, settings);
   }
 

@@ -10,8 +10,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap"/>
   <link rel="stylesheet" href="/static/design/tokens.css?v=r1005"/>
-  <link rel="stylesheet" href="/static/design/components.css?v=r1005"/>
-  <link rel="stylesheet" href="/static/website.css?v=apicov1"/>
+  <link rel="stylesheet" href="/static/design/components.css?v=r1006"/>
+  <link rel="stylesheet" href="/static/website.css?v=ui2"/>
   <script src="/static/design/theme.js?v=r1006"></script>
 </head>
 <body>
@@ -38,6 +38,14 @@
       <div class="wrap contact-grid">
         <div>
           <ul class="contact-list" id="contact-details" aria-label="Contact details"></ul>
+          <div class="contact-help" aria-labelledby="help-title">
+            <h2 id="help-title">Quick help</h2>
+            <ul>
+              <li>Can't sign in?<br/><a class="link" href="/forgot-password">Reset your password</a></li>
+              <li>Want to earn money by bringing us customers?<br/><a class="link" href="/partners">See the Partner Program</a></li>
+              <li>Want us to stop using your email or phone number?<br/><a class="link" href="/opt-out">Remove my contact details</a></li>
+            </ul>
+          </div>
         </div>
 
         <div class="form-card">
@@ -112,7 +120,7 @@
   <footer class="site-footer" id="site-footer"></footer>
 </div>
 
-<script src="/static/website.js?v=brand2"></script>
+<script src="/static/website.js?v=ui2"></script>
 <script>
 (function () {
   'use strict';

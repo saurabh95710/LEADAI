@@ -55,9 +55,9 @@
     var totals = ov.commission_totals || {}, cur = Object.keys(totals)[0] || 'USD', t = totals[cur] || {};
     root.innerHTML = K.header('Partners & resellers', 'Applications, partners, commissions and payouts. Customers they bring are ordinary organizations; commissions come from confirmed subscription payments.') +
       '<div class="sa-grid sa-kpis" data-tour="pt-kpis">' +
-      K.kpi('Applications to review', K.fmtN(ov.applications_pending), K.fmtN(ov.applications_changes) + ' awaiting changes', { href: '#/partners?tab=applications&status=pending', icon: 'list', tone: ov.applications_pending ? 'warn' : '' }) +
+      K.kpi('Applications to review', K.fmtN(ov.applications_pending), K.fmtN(ov.applications_changes) + ' sent back for changes', { href: '#/partners?tab=applications&status=pending', icon: 'list', tone: ov.applications_pending ? 'warn' : '' }) +
       K.kpi('Active partners', K.fmtN(ov.partners_active), K.fmtN(ov.affiliates) + ' affiliates · ' + K.fmtN(ov.resellers) + ' resellers', { href: '#/partners?tab=partners&status=active', icon: 'handshake' }) +
-      K.kpi('Referred customers', K.fmtN(ov.customers), K.fmtN(ov.referrals) + ' referrals in total', { href: '#/partners?tab=referrals&stage=customer', icon: 'users' }) +
+      K.kpi('Referred customers', K.fmtN(ov.customers), K.fmtN(ov.referrals) + (ov.referrals === 1 ? ' referral' : ' referrals') + ' in total', { href: '#/partners?tab=referrals&stage=customer', icon: 'users' }) +
       K.kpi('Commission (' + cur + ')', money((t.pending || 0) + (t.qualified || 0) + (t.approved || 0) + (t.payable || 0) + (t.processing || 0), cur), 'unpaid · ' + money(t.paid, cur) + ' paid · ' + K.fmtN(ov.payouts_open) + ' payouts open', { href: '#/partners?tab=commissions', icon: 'coin' }) +
       '</div><div id="ptTabs" data-tour="pt-tabs" style="margin-top:14px"></div>';
     K.tabs($('#ptTabs', root), [['applications', 'Applications'], ['analytics', 'Analytics'], ['activity', 'Activity log'], ['partners', 'Partners'], ['tasks', 'Tasks'], ['deals', 'Deals'], ['referrals', 'Customers & referrals'],
@@ -453,7 +453,7 @@
         if (r.status === 'pending' || r.status === 'qualified') b.push('<button type="button" class="btn btn-secondary btn-xs" data-c="approve">Approve</button>');
         if (r.status === 'approved') b.push('<button type="button" class="btn btn-secondary btn-xs" data-c="payable">Make payable</button>');
         if (r.kind === 'commission' && r.status !== 'reversed') b.push('<button type="button" class="btn btn-danger btn-xs" data-c="reverse">Reverse</button>');
-        if (r.kind === 'commission' && r.invoice_id) b.push('<button type="button" class="btn btn-ghost btn-xs" data-c="refund">Refund payment</button>');
+        if (r.kind === 'commission' && r.invoice_id) b.push('<button type="button" class="btn btn-secondary btn-xs" data-c="refund" title="Record a refund on the customer’s invoice; the commission is reduced to match">Refund payment</button>');
         return '<div class="row-actions">' + b.join('') + '</div>'; } }
     ]);
   }
@@ -493,7 +493,7 @@
       url: function (p) { return B + '/commissions' + qs({ page: p.page, limit: p.limit, sort: p.sort, status: p.status, manual: p.manual }); },
       sort: '-created_at', initial: { status: q.status || '', manual: q.manual === 'true' ? 'true' : '' }, key: 'partner_commissions',
       filters: [{ key: 'status', type: 'select', label: 'Status', options: COMMISSION_FILTER },
-        { key: 'manual', type: 'select', label: 'Review', options: [['', 'All'], ['true', 'Needs manual review']] }],
+        { key: 'manual', type: 'select', label: 'Review', options: [['', 'Any review state'], ['true', 'Needs manual review']] }],
       toolbar: '<button type="button" class="btn btn-secondary btn-sm" id="runLc">Run qualification now</button>',
       columns: commissionColumns(true), bindRow: bindCommission,
       empty: { title: 'No commissions', desc: 'Commissions are created when a referred organization\'s subscription payment is confirmed.' }
@@ -568,8 +568,8 @@
     var lv = K.listView($('#rfList', el), {
       url: function (p) { return B + '/referrals' + qs({ page: p.page, limit: p.limit, q: p.q, stage: p.stage, status: p.status, suspicious: p.suspicious }); },
       filters: [{ key: 'q', label: 'Search company, email…' }, { key: 'stage', type: 'select', label: 'Stage', options: STAGE_FILTER },
-        { key: 'status', type: 'select', label: 'Status', options: [['', 'All'], ['active', 'Active'], ['invalid', 'Invalidated']] },
-        { key: 'suspicious', type: 'select', label: 'Flag', options: [['', 'All'], ['true', 'Flagged']] }],
+        { key: 'status', type: 'select', label: 'Status', options: [['', 'All statuses'], ['active', 'Active'], ['invalid', 'Invalidated']] },
+        { key: 'suspicious', type: 'select', label: 'Flag', options: [['', 'Flagged or not'], ['true', 'Flagged only']] }],
       initial: { stage: STAGE_FILTER.some(function (x) { return x[0] && x[0] === q.stage; }) ? q.stage : '', suspicious: q.suspicious === 'true' ? 'true' : '' },
       onData: function (d) { var c = d.counts || {}; $('#rfChips', el).innerHTML = STAGE_FILTER.slice(1).map(function (s) { return '<span class="sa-chip">' + esc(s[1]) + '<b>' + K.fmtN(c[s[0]] || 0) + '</b></span>'; }).join(''); },
       columns: [
@@ -618,7 +618,7 @@
     K.listView($('#ffList', el), {
       url: function (p) { return B + '/fraud-flags' + qs({ page: p.page, limit: p.limit, status: p.status, type: p.type, severity: p.severity }); },
       initial: { status: 'open' },
-      filters: [{ key: 'status', type: 'select', label: 'Status', options: [['open', 'Open'], ['confirmed', 'Confirmed'], ['dismissed', 'Dismissed'], ['', 'All']] },
+      filters: [{ key: 'status', type: 'select', label: 'Status', options: [['open', 'Open'], ['confirmed', 'Confirmed'], ['dismissed', 'Dismissed'], ['', 'All statuses']] },
         { key: 'severity', type: 'select', label: 'Severity', options: [['', 'All severities'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']] }],
       onData: function (dd) { types = dd.types || {}; },
       columns: [{ label: 'Signal', render: function (f) { return '<b>' + esc(f.label || types[f.type] || f.type) + '</b>' + (f.occurrences > 1 ? ' <span class="sa-small sa-muted">×' + K.fmtN(f.occurrences) + '</span>' : ''); } },
@@ -749,7 +749,7 @@
     el.innerHTML = (m.can_manage ? '<div class="sa-row" style="justify-content:flex-end"><button type="button" class="btn btn-primary btn-sm" id="newCoupon">+ New coupon</button></div>' : '') + '<div id="cpList"></div>';
     var lv = K.listView($('#cpList', el), {
       url: function (p) { return B + '/coupons' + qs({ page: p.page, limit: p.limit, q: p.q, status: p.status }); },
-      filters: [{ key: 'q', label: 'Search code…' }, { key: 'status', type: 'select', label: 'Status', options: [['', 'All'], ['active', 'Active'], ['disabled', 'Disabled']] }],
+      filters: [{ key: 'q', label: 'Search code…' }, { key: 'status', type: 'select', label: 'Status', options: [['', 'All statuses'], ['active', 'Active'], ['disabled', 'Disabled']] }],
       columns: [
         { label: 'Code', render: function (c) { return '<b class="sa-mono">' + esc(c.code) + '</b>'; } },
         { label: 'Partner', render: function (c) { return '<a class="sa-link" href="#/partners/' + esc(c.partner_id) + '">' + esc(K.short(c.partner_id)) + '</a>'; } },
@@ -817,17 +817,17 @@
     var s = (await api(B + '/settings')).settings;
     var dis = m.can_manage ? '' : ' disabled';
     el.innerHTML = '<form class="sa-card" id="psForm" novalidate><h3>Partner program</h3><div class="sa-form-grid">' +
-      field('attribution_model', 'Attribution model', s.attribution_model, { options: [['first_touch', 'First touch'], ['last_touch', 'Last touch']] }) +
-      field('attribution_window_days', 'Attribution window (days)', s.attribution_window_days, { type: 'number', min: 1, hint: 'Common: 7, 30, 60, 90' }) +
-      field('commission_hold_days', 'Qualification period (days)', s.commission_hold_days, { type: 'number', min: 0, hint: 'Refund window before a commission qualifies; rules may override' }) +
+      field('attribution_model', 'Attribution model', s.attribution_model, { options: [['first_touch', 'First touch'], ['last_touch', 'Last touch']], hint: 'Who gets the customer when they clicked links from more than one partner: the first partner or the last one.' }) +
+      field('attribution_window_days', 'Attribution window (days)', s.attribution_window_days, { type: 'number', min: 1, hint: 'How long after a click a sign-up still counts for the partner. Common: 7, 30, 60 or 90.' }) +
+      field('commission_hold_days', 'Qualification period (days)', s.commission_hold_days, { type: 'number', min: 0, hint: 'Days a commission waits (the refund window) before it can be approved. Commission rules can set their own.' }) +
       field('payout_schedule', 'Payout schedule', s.payout_schedule, { options: [['on_request', 'On request (approved = payable at once)'], ['weekly', 'Weekly'], ['monthly', 'Monthly']] }) +
-      field('payout_day', 'Payout day (weekly 0=Mon…6=Sun · monthly 1–28)', s.payout_day, { type: 'number', min: 0 }) +
-      field('min_payout', 'Minimum payout', s.min_payout, { type: 'number', min: 0, step: '0.01' }) +
-      field('payout_methods', 'Payout methods (comma-separated)', (s.payout_methods || []).join(', ')) +
-      field('default_landing', 'Default landing page', s.default_landing) +
-      field('max_partner_coupon_percent', 'Max partner coupon %', s.max_partner_coupon_percent, { type: 'number', min: 0, step: '0.5' }) +
-      field('max_clicks_per_ip_per_hour', 'Max clicks per IP per hour', s.max_clicks_per_ip_per_hour, { type: 'number', min: 1 }) +
-      field('terms_version', 'Terms version', s.terms_version) + '</div><div class="sa-row sa-section">' +
+      field('payout_day', 'Payout day', s.payout_day, { type: 'number', min: 0, hint: 'Weekly schedule: 0 = Monday … 6 = Sunday. Monthly schedule: day 1–28. Not used for “On request”.' }) +
+      field('min_payout', 'Minimum payout', s.min_payout, { type: 'number', min: 0, step: '0.01', hint: 'A partner can ask for a payout once their approved balance reaches this amount.' }) +
+      field('payout_methods', 'Payout methods', (s.payout_methods || []).join(', '), { hint: 'Comma-separated, e.g. bank_transfer, paypal, upi. Partners choose one of these.' }) +
+      field('default_landing', 'Default landing page', s.default_landing, { hint: 'Where a referral link sends visitors, unless the partner’s campaign sets its own page.' }) +
+      field('max_partner_coupon_percent', 'Max partner coupon %', s.max_partner_coupon_percent, { type: 'number', min: 0, step: '0.5', hint: 'The biggest discount a partner may put on their own coupons.' }) +
+      field('max_clicks_per_ip_per_hour', 'Max clicks per IP per hour', s.max_clicks_per_ip_per_hour, { type: 'number', min: 1, hint: 'Fraud protection: extra clicks from one internet address in an hour earn the partner nothing and go to Fraud review.' }) +
+      field('terms_version', 'Terms version', s.terms_version, { hint: 'Saved with each new application as the terms the partner accepted. Change it when you update the partner terms.' }) + '</div><div class="sa-row sa-section">' +
       field('applications_open', 'Accept new applications', s.applications_open, { type: 'checkbox' }) +
       field('allow_code_entry', 'Allow referral code entry without a click', s.allow_code_entry, { type: 'checkbox' }) +
       field('auto_approve_commissions', 'Approve commissions automatically after the hold', s.auto_approve_commissions, { type: 'checkbox' }) +
@@ -1014,6 +1014,6 @@
     api(B + '/overview').then(function (d) { K.setCount('partners', (d.overview.applications_pending || 0) + (d.overview.payouts_open || 0) + (d.overview.tasks_to_review || 0)); }, function () {});
   }
 
-  K.register('Partners', 'Revenue', [['partners', 'Partners & Resellers', 'handshake', 'partners']],
-    { partners: [viewPartners, 'Partners & Resellers', viewPartnerDetail] }, countPending);
+  K.register('Partners', 'Revenue', [['partners', 'Partners & resellers', 'handshake', 'partners']],
+    { partners: [viewPartners, 'Partners & resellers', viewPartnerDetail] }, countPending);
 })();

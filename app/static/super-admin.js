@@ -61,6 +61,10 @@
   }
   function short(id, n) { id = String(id || ''); return id.length > (n || 10) ? id.slice(0, n || 10) + '…' : id; }
   function titleCase(s) { return String(s || '').replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }); }
+  /** Platform key → its brand spelling (LinkedIn, YouTube), else Title Case. */
+  function platLabel(p) { return { linkedin: 'LinkedIn', youtube: 'YouTube' }[p] || titleCase(p); }
+  /** Plan feature key → readable name (url_search → URL Search, youtube → YouTube). */
+  function featLabel(f) { return titleCase(f).replace(/\bUrl\b/g, 'URL').replace(/\bAi\b/g, 'AI').replace(/\bCsv\b/g, 'CSV').replace(/\bYoutube\b/g, 'YouTube').replace(/\bLinkedin\b/g, 'LinkedIn'); }
   function isoDay(d) { return d.toISOString().slice(0, 10); }
 
   /* Canonical status → tone mapping (single source for this portal; mirrors the Step 3
@@ -480,7 +484,7 @@
       '<button type="button" class="sa-pop-item" role="menuitem" data-exp="view"><span><b>Current view</b><small data-expcount>Visible columns · rows on screen</small></span></button>' +
       (cfg.exportUrl ? '<button type="button" class="sa-pop-item" role="menuitem" data-exp="server"><span><b>Full report</b><small>Server CSV with these filters · redacted · audited</small></span></button>' : '') + '</div></span>';
     el.innerHTML = '<div class="sa-filters">' + filtersHtml + '<button type="button" class="btn btn-ghost btn-sm" data-fclear hidden>Clear filters</button><span class="sa-spacer"></span>' +
-      (cfg.toolbar || '') + colMenu + expMenu + '</div>' +
+      '<span class="sa-tools">' + (cfg.toolbar || '') + colMenu + expMenu + '</span></div>' +
       '<div data-bulk aria-live="polite"></div><div data-body>' + skeleton('rows') + '</div><div class="sa-pager" data-pager></div>';
     var body = $('[data-body]', el), pager = $('[data-pager]', el), bulkEl = $('[data-bulk]', el), clearBtn = $('[data-fclear]', el);
     var timer;
@@ -785,13 +789,13 @@
       kpi('Admins', fmtN(d.admins.total), 'owners & admins', { href: '#/admins', icon: 'shield' }) +
       kpi('Users', fmtN(d.users.total), fmtN(d.users.active) + ' active · +' + fmtN(d.users.new_7d) + ' this week', { href: '#/users', icon: 'users' }) +
       kpi('Free trials', fmtN(d.demo.accounts), d.demo.pending_requests ? fmtN(d.demo.pending_requests) + ' sign-ups waiting for approval' : 'Trial length & tokens →', { href: d.demo.pending_requests ? '#/demo?status=pending' : '#/demo?tab=config', tone: d.demo.pending_requests ? 'warn' : '', icon: 'gift' }) +
-      kpi('Active subscriptions', fmtN(sub.active), fmtN(sub.awaiting_confirmation) + ' awaiting confirmation', { href: '#/subscriptions', tone: sub.awaiting_confirmation ? 'warn' : '', icon: 'repeat' }) +
+      kpi('Subscriptions', fmtN(sub.active), 'active · ' + fmtN(sub.awaiting_confirmation) + ' awaiting confirmation', { href: '#/subscriptions', tone: sub.awaiting_confirmation ? 'warn' : '', icon: 'repeat' }) +
       kpi('MRR', mrrTxt, esc(rev30Txt) + ' collected (30d)', { href: '#/payments', icon: 'card' }) +
-      kpi('Tokens used (24h)', fmtN(d.tokens.consumed_24h), fmtN(d.tokens.consumed_30d) + ' in 30 days', { href: '#/tokens', icon: 'coin' }) +
+      kpi('Tokens (24h)', fmtN(d.tokens.consumed_24h), fmtN(d.tokens.consumed_30d) + ' in 30 days', { href: '#/tokens', icon: 'coin' }) +
       kpi('Searches', fmtN(d.searches.total), fmtN(d.searches.running) + ' running · ' + fmtN(d.searches.failed) + ' failed', { href: '#/ops/agent?tab=searches', tone: d.searches.failed ? 'warn' : '', icon: 'search' }) +
       kpi('Apify jobs', fmtN(d.apify.total), fmtN(d.apify.failed) + ' failed · ' + fmtN(d.apify.failed_24h) + ' in 24h', { href: '#/ops/agent?tab=apify', tone: d.apify.failed_24h ? 'bad' : '', icon: 'cpu' }) +
       kpi('Leads', fmtN(d.leads.total), fmtN(d.leads.hot) + ' hot · +' + fmtN(d.leads.last_30d) + ' (30d)', { href: '#/leads', icon: 'star' }) +
-      kpi('Platform errors (7d)', fmtN(errs), fmtN(d.errors.system_errors_7d) + ' server · ' + fmtN(d.errors.security_high_7d) + ' security', { href: '#/security', tone: errs ? 'bad' : '', icon: 'lock' }) +
+      kpi('Errors (7d)', fmtN(errs), fmtN(d.errors.system_errors_7d) + ' server · ' + fmtN(d.errors.security_high_7d) + ' security', { href: '#/security', tone: errs ? 'bad' : '', icon: 'lock' }) +
       kpi('Payments', fmtN((d.payments.by_status.succeeded || {}).count || 0), fmtN(d.payments.pending) + ' pending · ' + fmtN(d.payments.failed) + ' failed · ' + fmtN(d.payments.refund_required) + ' refund due', { href: '#/payments', tone: d.payments.refund_required ? 'warn' : '', icon: 'card' }) +
       '</div>';
     // the scraping side of the platform (ex platform-console dashboard) lives on Operations
@@ -1962,8 +1966,8 @@
     ['all_included', 'All included', { apify: 'leadai', gemini: 'leadai' }],
     ['own_apify', 'Own Apify key', { apify: 'own', gemini: 'leadai' }],
     ['own_gemini', 'Own Gemini key', { apify: 'leadai', gemini: 'own' }],
-    ['own_both', 'Bring both keys', { apify: 'own', gemini: 'own' }]];
-  var COVERAGE_FILTER = [['', 'All coverage'], ['all_included', 'All included'], ['own_apify', 'Own Apify'], ['own_gemini', 'Own Gemini'], ['own_both', 'Bring both']];
+    ['own_both', 'Own both keys', { apify: 'own', gemini: 'own' }]];
+  var COVERAGE_FILTER = [['', 'All coverage'], ['all_included', 'All included'], ['own_apify', 'Own Apify'], ['own_gemini', 'Own Gemini'], ['own_both', 'Own both']];
   function money2(v) { var n = Number(v); return isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0; }
   function planAllowsOwn(p) { return p.allows_byok !== false && money2(p.price_monthly) > 0; }
   function planAddons(p) {
@@ -2014,13 +2018,13 @@
     var adds = planAddons(p);
     var body = '<div class="sa-form-grid">' +
       '<div class="sa-field"><label for="peName">Name *</label><input class="form-input" id="peName" name="name" required maxlength="80" value="' + esc(p.name || '') + '"></div>' +
-      '<div class="sa-field"><label for="peSlug">Slug' + (plan ? ' <span class="sa-muted">(fixed)</span>' : '') + '</label><input class="form-input" id="peSlug" name="slug" maxlength="60" value="' + esc(p.slug || '') + '"' + (plan ? ' readonly' : '') + '></div>' +
-      '<div class="sa-field"><label for="peStatus">Status</label><select class="form-select" id="peStatus" name="status">' + ['active', 'inactive', 'archived'].map(function (s) { return '<option' + (p.status === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></div>' +
+      '<div class="sa-field"><label for="peSlug">Slug' + (plan ? ' <span class="sa-muted">(fixed)</span>' : '') + '</label><input class="form-input" id="peSlug" name="slug" maxlength="60" value="' + esc(p.slug || '') + '"' + (plan ? ' readonly' : '') + ' placeholder="e.g. starter"><span class="hint">Short code used inside LeadAI and in links. ' + (plan ? 'It cannot change after the plan is created.' : 'Leave empty to make one from the name. It cannot change later.') + '</span></div>' +
+      '<div class="sa-field"><label for="peStatus">Status</label><select class="form-select" id="peStatus" name="status">' + [['active', 'Active · can be bought'], ['inactive', 'Inactive · hidden, not for sale'], ['archived', 'Archived · retired']].map(function (s) { return '<option value="' + s[0] + '"' + (p.status === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('') + '</select></div>' +
       '<div class="sa-field"><label for="peCur">Currency</label><input class="form-input" id="peCur" name="currency" maxlength="3" value="' + esc(p.currency || 'USD') + '"></div>' +
       '<div class="sa-field"><label for="peM">Price / month</label><input class="form-input" id="peM" name="price_monthly" type="number" min="0" step="0.01" value="' + esc(p.price_monthly || 0) + '"></div>' +
       '<div class="sa-field"><label for="peY">Price / year</label><input class="form-input" id="peY" name="price_yearly" type="number" min="0" step="0.01" value="' + esc(p.price_yearly || 0) + '"></div>' +
       '<div class="sa-field"><label for="peT">Trial days <span class="sa-muted">(pricing page label)</span></label><input class="form-input" id="peT" name="trial_days" type="number" min="0" value="' + esc(p.trial_days || 0) + '" aria-describedby="peTHint"><span class="hint" id="peTHint">Only shown on the pricing page. The free trial website sign-ups get is set in <b>Free trials → Trial settings</b>.</span></div>' +
-      '<div class="sa-field"><label for="peO">Display order</label><input class="form-input" id="peO" name="display_order" type="number" value="' + esc(p.display_order == null ? 99 : p.display_order) + '"></div></div>' +
+      '<div class="sa-field"><label for="peO">Display order</label><input class="form-input" id="peO" name="display_order" type="number" value="' + esc(p.display_order == null ? 99 : p.display_order) + '"><span class="hint">Lower numbers come first on the pricing page.</span></div></div>' +
       '<div class="sa-field"><label for="peD">Description</label><textarea class="form-textarea" id="peD" name="description" rows="2" style="min-height:60px">' + esc(p.description || '') + '</textarea></div>' +
       '<div class="sa-row">' + [['is_public', 'Shown on the public pricing page'], ['is_default', 'Default / highlighted plan'], ['is_trial', 'Trial plan']].map(function (x) { return '<label class="sa-check"><input type="checkbox" name="' + x[0] + '"' + (p[x[0]] ? ' checked' : '') + '> ' + esc(x[1]) + '</label>'; }).join('') + '</div>' +
       '<h4 style="margin:6px 0 0">API keys &amp; price</h4>' +
@@ -2107,14 +2111,18 @@
         { label: 'Own keys', sort: 'own_keys', sortVal: function (p) { return planAllowsOwn(p) ? coveragePrice(p.price_monthly, planAddons(p), COVERAGE_OPTS[3][2], 'monthly', true) : -1; },
           csv: function (p) { return planAllowsOwn(p) ? 'Yes · both own ' + fmtMoney(coveragePrice(p.price_monthly, planAddons(p), COVERAGE_OPTS[3][2], 'monthly', true), p.currency) + '/mo' : 'No'; },
           render: function (p) {
-            if (!planAllowsOwn(p)) return badge('Own keys: no', 'muted');
+            if (!planAllowsOwn(p)) return badge('No', 'muted');
             var both = coveragePrice(p.price_monthly, planAddons(p), COVERAGE_OPTS[3][2], 'monthly', true);
-            return badge('Own keys: yes', 'success') + '<span class="cell-sub" title="Price when the customer brings both the Apify and the Gemini key">Both own: ' + esc(fmtMoney(both, p.currency)) + '/mo</span>';
+            return badge('Yes', 'success') + '<span class="cell-sub" title="Price when the customer brings both the Apify and the Gemini key">Both own: ' + esc(fmtMoney(both, p.currency)) + '/mo</span>';
           } },
         { label: 'Trial', sort: 'trial_days', cls: 'num', render: function (p) { return esc(p.trial_days || 0) + 'd'; } },
-        { label: 'Key limits', render: function (p) { var l = p.limits || {}; return '<span class="sa-small">' + esc(['monthly_tokens', 'monthly_searches', 'team_members'].filter(function (k) { return l[k] != null; }).map(function (k) { return titleCase(k) + ': ' + fmtN(l[k]); }).join(' · ') || '—') + '</span>'; } },
+        { label: 'Key limits', csv: function (p) { var l = p.limits || {}; return ['monthly_tokens', 'monthly_searches', 'team_members'].filter(function (k) { return l[k] != null; }).map(function (k) { return titleCase(k) + ': ' + l[k]; }).join(' · '); },
+          render: function (p) { var l = p.limits || {}, nm = { monthly_tokens: 'tokens/mo', monthly_searches: 'searches/mo', team_members: 'member' };
+            var rows = ['monthly_tokens', 'monthly_searches', 'team_members'].filter(function (k) { return l[k] != null; });
+            return rows.length ? '<span class="sa-small" style="display:block;line-height:1.45" title="Monthly tokens, monthly searches and team members">' + rows.map(function (k) {
+              return '<span style="display:block;white-space:nowrap"><b>' + esc(fmtN(l[k])) + '</b> ' + esc(nm[k] + (k === 'team_members' && l[k] !== 1 ? 's' : '')) + '</span>'; }).join('') + '</span>' : '<span class="sa-muted">—</span>'; } },
         { label: 'Features', sort: 'features', sortVal: function (p) { return (p.features || []).length; }, csv: function (p) { return (p.features || []).join(' '); },
-          render: function (p) { var f = p.features || []; return '<span class="cell-main" title="' + esc(f.map(titleCase).join(', ')) + '">' + fmtN(f.length) + '</span><span class="cell-sub">' + esc(short(f.map(titleCase).join(', '), 42)) + '</span>'; } },
+          render: function (p) { var f = (p.features || []).map(featLabel); return '<span class="cell-main" title="' + esc(f.join(', ')) + '">' + fmtN(f.length) + '</span><span class="cell-sub">' + esc(short(f.join(', '), 42)) + '</span>'; } },
         { label: 'Live subs', sort: 'live_subscriptions', cls: 'num', hidden: staff, render: function (p) { return p.live_subscriptions == null ? '—' : fmtN(p.live_subscriptions); } },
         { label: 'Order', sort: 'display_order', cls: 'num', hidden: true, render: function (p) { return esc(p.display_order == null ? '—' : p.display_order); } },
         staff ? null : { label: '', cls: 'num', render: function (p) {
@@ -2146,13 +2154,18 @@
         return '<div class="sa-card" style="' + (p.popular ? 'border-color:var(--primary);box-shadow:var(--glow)' : '') + '"><h3>' + esc(p.name) + (p.popular ? pill('active', 'Popular') : '') + '</h3>' +
           '<div style="font-size:26px;font-weight:800">' + esc(fmtMoney(price, p.currency)) + '<span class="sa-small sa-muted"> / ' + (cycle === 'yearly' ? 'year' : 'month') + '</span></div>' +
           (p.trial_days ? '<div class="sa-small sa-muted">' + esc(p.trial_days) + '-day trial</div>' : '') + '<p class="sa-small" style="color:var(--text-secondary)">' + esc(p.description || '') + '</p>' +
-          '<ul style="margin:8px 0 0;padding-left:18px;font-size:13px">' + (p.highlights || []).map(function (h) { return '<li>' + esc(h) + '</li>'; }).join('') +
-          (p.features || []).map(function (f) { return '<li>' + esc(schema.features[f] || f) + '</li>'; }).join('') + '</ul></div>';
+          '<ul style="margin:8px 0 0;padding-left:18px;font-size:13px">' + (p.highlights || []).map(function (h) { return '<li>' + esc(h) + '</li>'; }).join('') + '</ul>' +
+          (function () { // the website lists the highlights only; name the plan features it does not mention, once each
+            var said = (p.highlights || []).join(' · ').toLowerCase(), seen = {};
+            var rest = (p.features || []).map(function (f) { return schema.features[f] || f; }).filter(function (l) {
+              var k = String(l).toLowerCase(); if (seen[k] || said.indexOf(k) >= 0) return false; seen[k] = 1; return true; });
+            return rest.length ? '<p class="sa-small sa-muted" style="margin:10px 0 0">Also in this plan, not listed on the website: ' + esc(rest.join(', ')) + '</p>' : '';
+          })() + '</div>';
       }).join('') : emptyState('No public plans', 'Only plans that are Active and Public appear on the website.');
     }
     var tc = {};
     try { tc = (await api('/api/super-admin/demo-config')).config || {}; } catch (e) { /* the note is optional */ }
-    root.innerHTML = header('Pricing preview', 'Exactly what the public website shows (GET /api/public/pricing). Edit prices and limits in Plans.' +
+    root.innerHTML = header('Pricing preview', 'The plans exactly as the public pricing page shows them. Change prices, limits and features in Plans.' +
       (tc.duration_days ? ' The “N-day trial” labels come from each plan; website sign-ups actually get the ' + tc.duration_days + '-day free trial set in Free trials → Trial settings.' : ''),
       '<div class="sa-chips" style="margin:0" data-tour="pricing-cycle"><button type="button" class="sa-chip active" data-c="monthly">Monthly</button><button type="button" class="sa-chip" data-c="yearly">Yearly</button></div><a class="btn btn-secondary btn-sm" href="#/plans">Edit plans</a><a class="btn btn-secondary btn-sm" href="/pricing" target="_blank" rel="noopener">Open website ↗</a>') +
       '<div class="sa-grid sa-3" id="prCards" data-tour="pricing-cards"></div>';
@@ -2643,7 +2656,7 @@
 
   async function viewSubscriptions(root, q) {
     if (isStaff()) return viewSubscriptionsStaff(root, q);
-    root.innerHTML = header('Subscriptions', 'Payment success never activates anything: verified payments wait in the confirmation queue until you confirm them. Lifecycle automation ends, renews and expires subscriptions and free trials over time.',
+    root.innerHTML = header('Subscriptions', 'A paid subscription starts only after you confirm it: verified payments wait in the confirmation queue. Lifecycle automation then renews, ends and expires subscriptions and free trials on time.',
       '<a class="btn btn-secondary btn-sm" href="#/plans">Plans</a><a class="btn btn-secondary btn-sm" href="#/payments">Payments</a><a class="btn btn-secondary btn-sm" href="#/settings?tab=payments">Payment Gateways</a>') + '<div id="sbTabs" data-tour="sub-tabs"></div>';
     tabs($('#sbTabs', root), [['queue', 'Confirmation queue'], ['all', 'All subscriptions'], ['automation', 'Lifecycle automation']], (q.status && q.status !== 'awaiting') || q.coverage ? 'all' : (q.tab || 'queue'), function (key, el) {
       if (key === 'automation') return lifecycleAutomation(el);
@@ -2660,7 +2673,7 @@
             { label: '', cls: 'num', render: function () { return '<div class="row-actions"><button type="button" class="btn btn-secondary btn-xs" data-a="view">Details</button><button type="button" class="btn btn-primary btn-xs" data-a="confirm">Confirm</button><button type="button" class="btn btn-danger btn-xs" data-a="cancelled">Reject</button></div>'; } }
           ],
           bindRow: function (tr, s, reload) { $$('[data-a]', tr).forEach(function (b) { b.onclick = function () { var a = b.getAttribute('data-a'); if (a === 'view') subDrawer(s.id, reload); else runSubAction(s, a, reload); }; }); },
-          empty: { title: 'Queue is empty', desc: 'Verified payments awaiting your confirmation appear here.' }
+          empty: { title: 'Nothing to confirm', desc: 'When a customer pays and the payment provider verifies it, the subscription waits here for you to confirm.' }
         });
       } else {
         listView(el, {
@@ -2690,7 +2703,7 @@
 
   async function viewPayments(root, q) {
     if (isStaff()) return viewInvoicesStaff(root, q);
-    root.innerHTML = header('Payments', 'Provider-verified payments, failures and refunds. Only signed webhooks / provider checks can mark a payment succeeded.',
+    root.innerHTML = header('Payments', 'Payments, failures and refunds. A payment counts as paid only when the payment provider confirms it.',
       '<a class="btn btn-secondary btn-sm" href="#/subscriptions">Subscriptions</a><a class="btn btn-secondary btn-sm" href="#/settings?tab=payments">Payment Gateways Setup</a>') + '<div id="pyTabs" data-tour="pay-tabs"></div>';
     tabs($('#pyTabs', root), [['payments', 'Payments'], ['invoices', 'Invoices & refunds']], q.tab || 'payments', function (key, el) {
       if (key === 'invoices') return invoicesList(el);
@@ -2794,7 +2807,7 @@
       '<div class="sa-grid sa-kpis" data-tour="tok-kpis">' + kpi('Allocated', fmtN(t.allocated), fmtN(t.organizations) + ' metered orgs', { href: '#/tokens?sort=-allocated&section=balances' }) + kpi('Used', fmtN(t.used), usageBar(t.allocated ? t.used * 100 / t.allocated : 0), { href: '#/tokens?sort=-used&section=balances' }) +
       kpi('Remaining', fmtN(t.remaining), 'lowest balances first', { href: '#/tokens?sort=remaining&section=balances' }) + kpi('Consumed (24h)', fmtN(s.consumed_24h), 'daily trend in analytics', { href: '#/analytics?range=7d' }) +
       kpi('Usage warnings', fmtN(s.warnings.length), '≥ 80% used', { href: '#/tokens?section=warnings', tone: s.warnings.length ? 'warn' : '' }) + kpi('Anomalies', fmtN(s.anomalies.length), '24h > 3× daily avg', { href: '#/tokens?section=anomalies', tone: s.anomalies.length ? 'bad' : '' }) + '</div>' +
-      '<div class="alert alert-info sa-section"><div class="alert-body"><div class="alert-title">Over-limit behaviour</div><div>' + esc(s.over_limit_behaviour) + '</div></div></div>' +
+      '<div class="alert alert-info sa-section"><div class="alert-body"><div class="alert-title">When an organization runs out of tokens</div><div>' + (s.over_limit_behaviour ? 'An action that needs more tokens than are left is refused before it starts, so nothing is half-charged and existing data stays. Expired balances work the same way. Owners and admins are told at 80% and at 100% use.' : '') + '</div></div></div>' +
       '<div class="sa-grid sa-2 sa-section"><div class="sa-card" data-section="warnings"><h3>Usage warnings (≥ 80%)</h3>' + tbl(s.warnings, [['Organization', orgCell], ['Used', function (r) { return usageBar(r.percentage); }], ['Remaining', function (r) { return fmtN(r.remaining); }, 1]], 'No organization above 80%') + '</div>' +
       '<div class="sa-card" data-section="anomalies"><h3>Anomalies (last 24h)</h3>' + tbl(s.anomalies, [['Organization', orgCell], ['Last 24h', function (r) { return fmtN(r.last_24h); }, 1], ['Daily avg', function (r) { return fmtN(r.daily_average); }, 1], ['Factor', function (r) { return r.factor ? r.factor + '×' : 'new'; }, 1]], 'No unusual consumption') + '</div></div>' +
       (s.expired.length ? '<div class="sa-card sa-section"><h3>Expired balances</h3>' + tbl(s.expired, [['Organization', orgCell], ['Expired', function (r) { return esc(fmtDT(r.expires_at)); }], ['Remaining', function (r) { return fmtN(r.remaining); }, 1]], '') + '</div>' : '') +
@@ -2937,7 +2950,7 @@
       '<a class="btn btn-secondary btn-sm" href="#/flags">Feature flags</a>' + pageLink('#/limits', 'Scraping limits', 'sliders') + pageLink('#/platforms', 'Platforms & actors', 'globe') + pageLink('#/operations', 'Operations overview', 'activity')) +
       '<div class="sa-grid sa-3"><div class="sa-card"><h3>Agent</h3><dl class="sa-kv"><dt>URL Search</dt><dd>' + pill(f['features.url_search.enabled'] ? 'active' : 'disabled', f['features.url_search.enabled'] ? 'Enabled' : 'Disabled') + '</dd>' +
       '<dt>AI analysis</dt><dd>' + pill(f['ai.enabled'] ? 'active' : 'disabled', f['ai.enabled'] ? 'Enabled' : 'Disabled') + '</dd><dt>Maintenance</dt><dd>' + pill(f['maintenance.enabled'] ? 'warn' : 'active', f['maintenance.enabled'] ? 'On' : 'Off') + '</dd></dl></div>' +
-      '<div class="sa-card"><h3>Platforms</h3><dl class="sa-kv">' + ['facebook', 'instagram', 'linkedin', 'youtube'].map(function (p) { return '<dt>' + esc(titleCase(p)) + '</dt><dd>' + pill(f['platform.' + p + '.enabled'] ? 'active' : 'disabled', f['platform.' + p + '.enabled'] ? 'Enabled' : 'Disabled') + '</dd>'; }).join('') + '</dl></div>' +
+      '<div class="sa-card"><h3>Platforms</h3><dl class="sa-kv">' + ['facebook', 'instagram', 'linkedin', 'youtube'].map(function (p) { return '<dt>' + esc(platLabel(p)) + '</dt><dd>' + pill(f['platform.' + p + '.enabled'] ? 'active' : 'disabled', f['platform.' + p + '.enabled'] ? 'Enabled' : 'Disabled') + '</dd>'; }).join('') + '</dl></div>' +
       '<div class="sa-card"><h3>Operate</h3><ul class="sa-feed"><li><a class="sa-link" href="#/ops/agent?tab=searches&amp;status=running">Running searches</a></li><li><a class="sa-link" href="#/ops/agent?tab=apify&amp;status=failed">Failed Apify jobs</a></li><li><a class="sa-link" href="#/jobs?tab=failed">Retry failed jobs →</a></li><li><a class="sa-link" href="#/apify">Apify connection →</a></li></ul></div></div>' +
       '<div class="sa-section" id="agK"></div><div class="sa-section" id="agTabs" data-tour="ops-agent-tabs"></div>';
     opsKpis($('#agK', root)).catch(function () {});
@@ -3069,7 +3082,7 @@
         el.innerHTML = '<div class="sa-chips">' + ['24h', '7d', '30d', '90d'].map(function (r) { return '<a class="sa-chip' + (r === range ? ' active' : '') + '" href="#/ai?range=' + r + '">' + r + '</a>'; }).join('') + '</div>' +
           '<div class="sa-grid sa-kpis">' + kpi('Requests', fmtN(m.total_requests), fmtN(m.requests_today) + ' today', { href: '#/analytics?range=' + (['7d', '30d', '90d'].indexOf(range) >= 0 ? range : '7d') }) +
           kpi('Failed', fmtN(m.failed_requests), fmtN(m.fallback_requests) + ' rule fallbacks', { href: '#/integrations', tone: m.failed_requests ? 'warn' : '' }) +
-          kpi('Avg latency', fmtN(m.avg_latency_ms) + ' ms', 'runtime settings & live test', { href: '#/ai?tab=runtime' }) + kpi('Tokens', fmtN(m.total_tokens), fmtN(m.avg_tokens) + ' avg / call', { href: '#/ai?tab=models' }) +
+          kpi('Avg latency', fmtN(m.avg_latency_ms) + ' ms', 'time per AI call', { href: '#/ai?tab=runtime' }) + kpi('Tokens', fmtN(m.total_tokens), fmtN(m.avg_tokens) + ' avg / call', { href: '#/ai?tab=models' }) +
           kpi('Est. cost', '$' + Number(m.estimated_cost_usd || 0).toFixed(4), 'by organization', { href: '#/ai?range=' + range + '&section=ai-cost' }) +
           kpi('Leads by AI', fmtN(m.ai_leads_generated), fmtN(m.ai_comments_analyzed) + ' comments analysed', { href: '#/leads' }) + '</div>' +
           '<div class="sa-grid sa-2 sa-section"><div class="sa-card"><h3>Requests over time</h3>' + (series.length ? lineChart(series.map(function (x) { return pick(x, ['requests', 'count', 'total']); }), series.map(function (x) { return x.date || x._id || ''; }), { title: 'AI requests' }) : emptyState('No AI calls in this range')) + '</div>' +
@@ -3712,16 +3725,17 @@
     tabs($('#ntTabs', root), [['inbox', 'Inbox'], ['outbox', 'Email outbox'], ['config', 'Configuration']], q.tab || 'inbox', async function (key, el) {
       if (key === 'inbox') {
         var unread = q.unread === '1';
-        el.innerHTML = '<div class="sa-row" style="margin-bottom:10px"><div class="sa-chips" style="margin:0"><button type="button" class="sa-chip' + (!unread ? ' active' : '') + '" data-u="0">All</button><button type="button" class="sa-chip' + (unread ? ' active' : '') + '" data-u="1">Unread</button></div><span class="sa-spacer"></span><button type="button" class="btn btn-secondary btn-sm" id="ntAll">Mark all read</button></div><div id="ntList"></div>';
+        el.innerHTML = '<div class="sa-row" style="margin-bottom:10px"><div class="sa-chips" style="margin:0"><button type="button" class="sa-chip' + (!unread ? ' active' : '') + '" data-u="0">All</button><button type="button" class="sa-chip' + (unread ? ' active' : '') + '" data-u="1">Unread</button></div></div><div id="ntList"></div>';
         var lv = listView($('#ntList', el), {
+          toolbar: '<button type="button" class="btn btn-secondary btn-sm" id="ntAll">Mark all read</button>',
           url: function (p) { return '/api/super-admin/notifications' + qs({ page: p.page, limit: p.limit, unread: p.unread ? 'true' : '' }); },
           initial: { unread: unread },
           columns: [
             { label: '', render: function (n) { return n.read ? '' : '<span class="sa-dot warn" title="Unread" aria-label="Unread"></span>'; } },
             { label: 'Event', render: function (n) { return '<span class="cell-main">' + esc(n.title) + '</span><span class="cell-sub">' + esc(n.message) + '</span>'; } },
-            { label: 'Type', render: function (n) { return '<span class="sa-mono">' + esc(n.type) + '</span>'; } },
+            { label: 'Type', render: function (n) { return '<span class="sa-small" title="' + esc(n.type) + '">' + esc(titleCase(String(n.type || '').toLowerCase())) + '</span>'; } },
             { label: 'Severity', render: function (n) { return sevPill(n.severity); } },
-            { label: 'When', render: function (n) { return esc(ago(n.created_at)); } },
+            { label: 'When', render: function (n) { return '<span style="white-space:nowrap" title="' + esc(fmtDT(n.created_at)) + '">' + esc(ago(n.created_at)) + '</span>'; } },
             { label: '', cls: 'num', render: function (n) { return '<div class="row-actions">' + (n.type === 'support_ticket' && n.data && n.data.ticket_id ? '<a class="btn btn-secondary btn-xs" href="#/support/' + esc(n.data.ticket_id) + '">Open</a>' : n.link ? '<a class="btn btn-secondary btn-xs" href="' + esc(internalLink(n.link)) + '">Open</a>' : '') + (n.read ? '' : '<button type="button" class="btn btn-secondary btn-xs" data-read>Mark read</button>') + '</div>'; } }
           ],
           bindRow: function (tr, n, reload) { var b = $('[data-read]', tr); if (b) b.onclick = async function () { await api('/api/super-admin/notifications/read', { method: 'POST', body: { id: n.id } }); reload(); refreshBell(); }; },
@@ -3773,7 +3787,7 @@
     var lv = listView(lvHolder, {
       url: function (p) { return '/api/super-admin/audit-logs' + qs(Object.assign({ page: p.page, limit: p.limit, q: p.q, actor_email: p.actor_email, action: p.action, category: p.category, status: p.status, from: p.from, to: p.to }, fixed)); },
       limit: 50, initial: o.initial || {},
-      filters: [{ key: 'q', label: 'Resource id / action…' }, { key: 'actor_email', label: 'Actor email' }, { key: 'action', label: 'Action prefix (e.g. subscription.)' },
+      filters: [{ key: 'q', label: 'Resource id / action…' }, { key: 'actor_email', label: 'Actor email' }, { key: 'action', label: 'Action starts with… (e.g. subscription.)' },
         { key: 'category', type: 'select', label: 'Category', options: cats }, { key: 'status', type: 'select', label: 'Result', options: [['', 'Any result'], ['success', 'Success'], ['failure', 'Failure']] },
         { key: 'from', type: 'date', label: 'From' }, { key: 'to', type: 'date', label: 'To' }],
       key: 'audit', exportUrl: function (st) { return reportUrl('audit-logs', { organization_id: fixed.organization_id, from: st.from, to: st.to, category: st.category, action: st.action, status: st.status }); },
@@ -4043,7 +4057,7 @@
     root.innerHTML = header('Integrations', 'Connection status only — secret values are never sent to the browser.') + '<div class="sa-grid sa-2">' +
       '<div class="sa-card"><h3>Apify <a class="sa-link" href="#/apify">Manage →</a></h3><dl class="sa-kv"><dt>API token</dt><dd>' + yes(ap.configured) + ' <a class="sa-link sa-small" href="#/provider-keys">Replace or test →</a></dd><dt>Last connection test</dt><dd>' + (ap.last_test_ok == null ? '<span class="sa-muted">never</span>' : pill(ap.last_test_ok ? 'active' : 'failed', ap.last_test_ok ? 'Passed' : 'Failed')) + ' <span class="sa-small sa-muted">' + esc(ap.last_test_at ? fmtDT(ap.last_test_at) : '') + '</span></dd>' +
       '<dt>Jobs (24h)</dt><dd>' + fmtN(ap.jobs_24h) + ' · <span style="color:' + (ap.failures_24h ? 'var(--danger-text)' : 'inherit') + '">' + fmtN(ap.failures_24h) + ' failed</span></dd><dt>Usage (30d)</dt><dd>$' + esc(Number(ap.usage_usd_30d || 0).toFixed(2)) + '</dd>' + limitsRow(ap.limits) +
-      Object.keys(ap.actors).map(function (p) { return '<dt>' + esc(titleCase(p)) + '</dt><dd><span class="sa-mono">' + esc(ap.actors[p] || '—') + '</span> ' + (ap.platforms_enabled[p] ? pill('active', 'On') : pill('disabled', 'Off')) + '</dd>'; }).join('') + '</dl></div>' +
+      Object.keys(ap.actors).map(function (p) { return '<dt>' + esc(platLabel(p)) + '</dt><dd><span class="sa-mono">' + esc(ap.actors[p] || '—') + '</span> ' + (ap.platforms_enabled[p] ? pill('active', 'On') : pill('disabled', 'Off')) + '</dd>'; }).join('') + '</dl></div>' +
       '<div class="sa-card"><h3>AI provider <a class="sa-link" href="#/ai">AI management →</a></h3><dl class="sa-kv"><dt>Provider</dt><dd>' + esc(titleCase(ai.provider)) + '</dd><dt>API key</dt><dd>' + yes(ai.configured) + (String(ai.provider || '').toLowerCase() === 'gemini' ? ' <a class="sa-link sa-small" href="#/provider-keys">Replace or test →</a>' : '') + '</dd><dt>AI enabled</dt><dd>' + yes(ai.enabled, 'Enabled', 'Disabled') + '</dd><dt>Model</dt><dd class="sa-mono">' + esc(ai.model) + '</dd><dt>Calls (24h)</dt><dd>' + fmtN(ai.requests_24h) + ' · ' + fmtN(ai.failures_24h) + ' failed</dd>' + limitsRow(ai.limits) + '</dl></div>' +
       '<div class="sa-card"><h3>Payment provider <a class="sa-link" href="#/settings?tab=payments">Set up →</a></h3><dl class="sa-kv"><dt>Active provider</dt><dd>' + pill(pay.provider === 'mock' ? 'warn' : 'active', pay.provider === 'mock' ? 'Mock (test only)' : titleCase(pay.provider)) + '</dd><dt>Razorpay keys</dt><dd>' + yes(pay.razorpay_key_configured) + '</dd><dt>Razorpay webhook secret</dt><dd>' + yes(pay.razorpay_webhook_secret_configured) + '</dd><dt>Stripe secret key</dt><dd>' + yes(pay.stripe_key_configured) + '</dd><dt>Stripe webhook secret</dt><dd>' + yes(pay.stripe_webhook_secret_configured) + '</dd><dt>BILLING_WEBHOOK_SECRET</dt><dd>' + yes(pay.billing_webhook_secret_configured) + '</dd><dt>Failed payments (7d)</dt><dd>' + fmtN(pay.failed_payments_7d) + '</dd></dl>' +
       (pay.provider === 'mock' ? '<p class="sa-small sa-muted">The test-only mock page is used because no Razorpay or Stripe keys are set, so no real money is collected. <a class="sa-link" href="#/settings?tab=payments">Set up payments →</a></p>' : '') + '</div>' +
@@ -4124,14 +4138,25 @@
     S.timers.push(setInterval(function () { if (!document.hidden && /^#\/?health/.test(location.hash)) route(true); }, 30000));
   }
 
+  // plain names and help for the server's flag labels (brand spelling, sentence case, no status codes)
+  var FLAG_COPY = { 'features.demo_registration.enabled': ['Free-trial sign-ups', 'The public website accepts new free-trial sign-ups. Turn off to stop new sign-ups.'],
+    'features.exports.enabled': ['CSV export'], 'features.ai_analysis.enabled': ['AI analysis'], 'ai.enabled': ['AI analysis'],
+    'maintenance.enabled': ['Maintenance mode', 'Customers see a maintenance page instead of the app. Admin portals and sign-in stay reachable.'] };
+  function flagCopy(f) {
+    var c = FLAG_COPY[f.key] || [];
+    var fix = function (t) { return String(t || '').replace(/\bLinkedin\b/g, 'LinkedIn').replace(/\bYoutube\b/g, 'YouTube').replace(/with a 503 page/g, 'with a maintenance page'); };
+    f.label = fix(c[0] || f.label); f.help = fix(c[1] || f.help);
+    if (f.label === 'AI Analysis') f.label = 'AI analysis';
+    if (f.label === 'CSV Export') f.label = 'CSV export';
+  }
   async function flagsEditor(el, groups, o) {
     o = o || {};
     var d = await api('/api/super-admin/feature-flags');
     var flags = d.flags.filter(function (f) { return !groups || groups.indexOf(f.group) >= 0; });
     var titles = { features: 'Product features', platforms: 'Scraping platforms', maintenance: 'Maintenance mode', notifications: 'Notifications' };
     var byGroup = {};
-    flags.forEach(function (f) { (byGroup[f.group] = byGroup[f.group] || []).push(f); });
-    el.innerHTML = '<form id="ffForm" novalidate><div class="alert alert-info"><div class="alert-body">' + esc(d.note) + '</div></div><div class="sa-grid ' + (Object.keys(byGroup).length > 1 ? 'sa-2' : '') + ' sa-section">' + Object.keys(byGroup).map(function (g) {
+    flags.forEach(function (f) { (byGroup[f.group] = byGroup[f.group] || []).push(f); flagCopy(f); });
+    el.innerHTML = '<form id="ffForm" novalidate><div class="alert alert-info"><div class="alert-body">' + esc(d.note ? 'Switches only affect new actions. Turning one off never deletes or changes existing data.' : '') + '</div></div><div class="sa-grid ' + (Object.keys(byGroup).length > 1 ? 'sa-2' : '') + ' sa-section">' + Object.keys(byGroup).map(function (g) {
       return '<div class="sa-card"><h3>' + esc(titles[g] || g) + '</h3>' + byGroup[g].map(function (f) {
         var id = 'ff_' + f.key.replace(/\./g, '_');
         if (f.type === 'text') return '<div class="sa-flag" style="display:block"><label for="' + id + '" style="font-weight:600;font-size:13px">' + esc(f.label) + '</label><textarea class="form-textarea" id="' + id + '" name="' + esc(f.key) + '" data-orig="' + esc(f.value) + '" maxlength="500" rows="2" style="min-height:60px;margin-top:6px">' + esc(f.value) + '</textarea><div class="sa-small sa-muted">' + esc(f.help) + '</div></div>';
@@ -4182,9 +4207,9 @@
         return '<tr><td><b>' + esc(i.icon + ' ' + i.name) + '</b><div class="sa-small sa-muted">' + esc(i.key) + (i.builtin ? ' · built-in' : ' · custom') + '</div><div class="sa-small">' + esc(i.description) + '</div></td>' +
           '<td class="sa-small">' + esc(list(i.category_keys) || '—') + '</td><td class="sa-small">' + esc(list(i.default_keywords.slice(0, 8)) || '—') + '</td>' +
           '<td class="num">' + fmtN(i.organizations) + '</td><td>' + pill(i.enabled ? 'active' : 'disabled', i.enabled ? 'Enabled' : 'Disabled') + '</td>' +
-          '<td class="sa-row" style="justify-content:flex-end"><button type="button" class="btn btn-secondary btn-sm" data-edit="' + esc(i.key) + '">Edit</button>' +
-          (i.key === 'general' ? '' : '<button type="button" class="btn btn-secondary btn-sm" data-toggle="' + esc(i.key) + '">' + (i.enabled ? 'Disable' : 'Enable') + '</button>') +
-          (i.builtin ? '' : '<button type="button" class="btn btn-danger btn-sm" data-del="' + esc(i.key) + '">Delete</button>') + '</td></tr>';
+          '<td><div class="row-actions"><button type="button" class="btn btn-secondary btn-xs" data-edit="' + esc(i.key) + '">Edit</button>' +
+          (i.key === 'general' ? '' : '<button type="button" class="btn btn-secondary btn-xs" data-toggle="' + esc(i.key) + '">' + (i.enabled ? 'Disable' : 'Enable') + '</button>') +
+          (i.builtin ? '' : '<button type="button" class="btn btn-danger btn-xs" data-del="' + esc(i.key) + '">Delete</button>') + '</div></td></tr>';
       }).join('') + '</tbody></table></div>';
     var byKey = {}; d.industries.forEach(function (i) { byKey[i.key] = i; });
     var reload = function () { viewIndustries(root); };
@@ -4291,15 +4316,15 @@
     };
   }
   async function viewMaintenance(root) {
-    root.innerHTML = header('Maintenance', 'Maintenance mode blocks the customer app with a 503 page. Admin pages, sign-in and health stay reachable.', pageLink('#/settings', 'Global settings', 'gear')) + '<div id="mtLc" style="margin-bottom:12px"></div><div id="mtBody"></div>';
+    root.innerHTML = header('Maintenance', 'Maintenance mode shows customers a maintenance page instead of the app. Admin pages, sign-in and health checks stay reachable.', pageLink('#/settings', 'Global settings', 'gear')) + '<div id="mtLc" style="margin-bottom:12px"></div><div id="mtBody"></div>';
     if (isStaff()) return staffMaintenance($('#mtBody', root));
     await Promise.all([flagsEditor($('#mtBody', root), ['maintenance']), lifecycleCard($('#mtLc', root), 'It ends, marks past due and expires subscriptions and free trials over time.')]);
   }
 
   async function viewReports(root) {
     var d = await api('/api/super-admin/reports');
-    root.innerHTML = header('Reports & exports', 'Redacted CSV exports (no passwords, hashes, tokens or keys; lead contact data masked). Every export is audited. Max ' + fmtN(d.max_rows) + ' rows.') +
-      '<form class="sa-card" id="rpForm"><h3>Filters (optional)</h3><div class="sa-filters" style="margin:0"><label class="sr-only" for="rpOrg">Organization ID</label><input class="form-input sa-grow" id="rpOrg" name="organization_id" placeholder="Organization ID">' +
+    root.innerHTML = header('Account reports', 'CSV downloads of accounts, billing, usage and audit data. Passwords, keys and tokens are never included and lead contact details are masked. Every download is recorded in the audit log. Up to ' + fmtN(d.max_rows) + ' rows per file.', '<a class="btn btn-secondary btn-sm" href="#/exports">Lead &amp; job exports</a>') +
+      '<form class="sa-card" id="rpForm"><h3><span>Filters <span class="sa-small sa-muted">optional · apply to every download below</span></span></h3><div class="sa-filters" style="margin:0"><label class="sr-only" for="rpOrg">Organization ID</label><input class="form-input sa-grow" id="rpOrg" name="organization_id" placeholder="Organization ID (from its page address)">' +
       '<label class="sa-small sa-muted" for="rpFrom">From</label><input class="form-input" type="date" id="rpFrom" name="from"><label class="sa-small sa-muted" for="rpTo">To</label><input class="form-input" type="date" id="rpTo" name="to">' +
       '<label class="sr-only" for="rpStatus">Status</label><input class="form-input" id="rpStatus" name="status" placeholder="Status (e.g. active, failed)"></div></form>' +
       '<div class="sa-grid sa-3 sa-section">' + d.kinds.map(function (k) { return '<div class="sa-card"><h3>' + esc(k.label) + '</h3><button type="button" class="btn btn-secondary btn-sm" data-k="' + esc(k.key) + '">Download CSV</button></div>'; }).join('') + '</div>' +
@@ -5087,25 +5112,25 @@
   var MENU = [
     ['Overview', [['dashboard', 'Dashboard', 'dash']]],
     ['Customers', [['organizations', 'Organizations', 'org', null, 'viewer'], ['admins', 'Admins', 'shield'], ['users', 'Users', 'users'], ['demo', 'Free trials', 'gift', 'demo'], ['support', 'Support', 'msg', 'support'], ['messaging', 'Messaging', 'send']]],
-    ['Revenue', [['plans', 'Plans', 'layers', null, 'viewer'], ['pricing', 'Pricing', 'tag'], ['provider-keys', 'API keys', 'key', 'apikeys'], ['subscriptions', 'Subscriptions', 'repeat', 'queue', 'viewer'], ['payments', 'Payments', 'card', null, 'viewer', 'Invoices'], ['tokens', 'Tokens & Usage', 'coin']]],
+    ['Revenue', [['plans', 'Plans', 'layers', null, 'viewer'], ['pricing', 'Pricing', 'tag'], ['provider-keys', 'API keys', 'key', 'apikeys'], ['subscriptions', 'Subscriptions', 'repeat', 'queue', 'viewer'], ['payments', 'Payments', 'card', null, 'viewer', 'Invoices'], ['tokens', 'Tokens & usage', 'coin']]],
     // the Operations module (super-admin-ops.js) merges its pages into this group
     ['Operations', [['ops/agent', 'URL Search Agent', 'bolt']]],
-    ['Intelligence', [['ai', 'AI Management', 'brain', null, 'viewer'], ['industries', 'Industries', 'layers'], ['analytics', 'Analytics', 'chart', null, 'viewer']]],
-    ['Governance', [['notifications', 'Notifications', 'bell', 'notif'], ['audit', 'Audit Logs', 'list', null, 'viewer'], ['security', 'Security Center', 'lock', null, 'viewer'], ['roles', 'Roles & Permissions', 'key']]],
-    ['Platform', [['website', 'Website / CMS', 'globe'], ['integrations', 'Integrations', 'plug'], ['api-limits', 'API limits', 'activity', 'apilimits', 'viewer'], ['health', 'System Health', 'heart', null, 'viewer'], ['flags', 'Feature Flags', 'flag', null, 'viewer'], ['reports', 'Reports / Exports', 'download'], ['maintenance', 'Maintenance', 'tool', null, 'viewer']]]
+    ['Intelligence', [['ai', 'AI management', 'brain', null, 'viewer'], ['industries', 'Industries', 'layers'], ['analytics', 'Analytics', 'chart', null, 'viewer']]],
+    ['Governance', [['notifications', 'Notifications', 'bell', 'notif'], ['audit', 'Audit logs', 'list', null, 'viewer'], ['security', 'Security center', 'lock', null, 'viewer'], ['roles', 'Roles & permissions', 'key']]],
+    ['Platform', [['website', 'Website / CMS', 'globe'], ['integrations', 'Integrations', 'plug'], ['api-limits', 'API usage & limits', 'activity', 'apilimits', 'viewer'], ['health', 'System health', 'heart', null, 'viewer'], ['flags', 'Feature flags', 'flag', null, 'viewer'], ['reports', 'Account reports', 'download'], ['maintenance', 'Maintenance', 'tool', null, 'viewer']]]
   ];
   var CORE_GROUPS = MENU.map(function (g) { return g[0]; });
   var ROUTES = {
     dashboard: [viewDashboard, 'Dashboard'], organizations: [viewOrganizations, 'Organizations', viewOrgDetail], admins: [viewAdmins, 'Admins'],
     users: [viewUsers, 'Users', viewUserDetail], demo: [viewDemo, 'Free trials'], plans: [viewPlans, 'Plans'], pricing: [viewPricing, 'Pricing'], 'provider-keys': [viewProviderKeys, 'API keys'],
-    subscriptions: [viewSubscriptions, 'Subscriptions'], payments: [viewPayments, 'Payments'], tokens: [viewTokens, 'Tokens & Usage'],
+    subscriptions: [viewSubscriptions, 'Subscriptions'], payments: [viewPayments, 'Payments'], tokens: [viewTokens, 'Tokens & usage'],
     'ops/agent': [viewOpsAgent, 'URL Search Agent'], 'ops/chain': [null, 'Investigation', viewChain],
     // old names: aliases to Jobs / Leads (see ROUTE_ALIAS); these views are the fallback while those pages are not loaded
     'ops/searches': [viewOpsSearches, 'URL Search Agent'], 'ops/jobs': [viewOpsJobs, 'URL Search Agent'], 'ops/leads': [viewOpsLeads, 'URL Search Agent'],
-    ai: [viewAI, 'AI Management'], industries: [viewIndustries, 'Industries'], analytics: [viewAnalytics, 'Analytics'], notifications: [viewNotifications, 'Notifications'],
-    audit: [viewAudit, 'Audit Logs'], security: [viewSecurity, 'Security Center'], roles: [viewRoles, 'Roles & Permissions'],
-    website: [viewWebsite, 'Website / CMS'], cms: [viewWebsite, 'Website / CMS'], support: [viewSupport, 'Support', viewSupportTicket], messaging: [viewMessaging, 'Messaging'], integrations: [viewIntegrations, 'Integrations'], health: [viewHealth, 'System Health'],
-    flags: [viewFlags, 'Feature Flags'], reports: [viewReports, 'Reports / Exports'], maintenance: [viewMaintenance, 'Maintenance']
+    ai: [viewAI, 'AI management'], industries: [viewIndustries, 'Industries'], analytics: [viewAnalytics, 'Analytics'], notifications: [viewNotifications, 'Notifications'],
+    audit: [viewAudit, 'Audit logs'], security: [viewSecurity, 'Security center'], roles: [viewRoles, 'Roles & permissions'],
+    website: [viewWebsite, 'Website / CMS'], cms: [viewWebsite, 'Website / CMS'], support: [viewSupport, 'Support', viewSupportTicket], messaging: [viewMessaging, 'Messaging'], integrations: [viewIntegrations, 'Integrations'], health: [viewHealth, 'System health'],
+    flags: [viewFlags, 'Feature flags'], reports: [viewReports, 'Account reports'], maintenance: [viewMaintenance, 'Maintenance']
   };
   var GROUP_OF = { 'ops/chain': 'Operations', 'ops/searches': 'Operations', 'ops/jobs': 'Operations', 'ops/leads': 'Operations', cms: 'Platform' };
   MENU.forEach(function (g) { g[1].forEach(function (i) { GROUP_OF[i[0]] = g[0]; }); });
@@ -5634,7 +5659,7 @@
         body: 'Trial access stops on its end date by itself. Lifecycle automation sends the "trial ends soon" and "trial has ended" emails; the link takes you to it.' },
       { route: '#/demo?tab=costs', target: '[data-tour="token-costs"]', title: 'Token costs',
         body: 'How many tokens each action costs, for every organization: starting a search, collecting more, one AI analysis and one export. Changes apply at once.' },
-      { route: '#/tokens', target: '[data-tour="tok-kpis"]', title: 'Tokens & Usage',
+      { route: '#/tokens', target: '[data-tour="tok-kpis"]', title: 'Tokens & usage',
         body: 'Watch token use across the platform: what is allocated, used and left, who is close to running out, and unusual spikes.\n\nTo give one customer more tokens, open their organization and choose "Adjust tokens".' }
     ]);
 

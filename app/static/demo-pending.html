@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex,nofollow"/>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>"/>
   <link rel="stylesheet" href="/static/design/tokens.css?v=r1005"/>
-  <link rel="stylesheet" href="/static/design/components.css?v=r1005"/>
+  <link rel="stylesheet" href="/static/design/components.css?v=r1006"/>
   <script src="/static/design/theme.js?v=r1006"></script>
 </head>
 <body>
@@ -29,6 +29,45 @@
 
   <main class="auth-main" id="main">
     <section class="auth-card auth-card-wide" aria-labelledby="title">
+      <!-- Self-serve free trial on and no demo request just sent (e.g. the
+           website footer's "How the free trial works"): explain the trial. -->
+      <div id="trialView" hidden>
+        <div class="auth-header">
+          <div class="auth-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg>
+          </div>
+          <p class="auth-eyebrow">Free trial</p>
+          <h1 class="auth-title" id="trialTitle">How the free trial works</h1>
+          <p class="auth-subtitle" id="trialLead">Your free trial starts the moment you sign up. No approval and no card needed.</p>
+        </div>
+        <h2 class="label-sm" style="margin-bottom:14px;color:var(--text-secondary)">Three simple steps</h2>
+        <ol class="timeline" aria-label="Free trial steps">
+          <li class="timeline-item is-current">
+            <span class="timeline-dot" aria-hidden="true">1</span>
+            <div><div class="timeline-title">Create your account</div><div class="timeline-desc">Enter your name, work email and a password. It takes about a minute.</div></div>
+          </li>
+          <li class="timeline-item is-upcoming">
+            <span class="timeline-dot" aria-hidden="true">2</span>
+            <div><div class="timeline-title">Start finding leads</div><div class="timeline-desc" id="trialTokens">Your workspace opens at once, with free tokens for your first searches.</div></div>
+          </li>
+          <li class="timeline-item is-upcoming">
+            <span class="timeline-dot" aria-hidden="true">3</span>
+            <div><div class="timeline-title">Choose a plan</div><div class="timeline-desc">When you're ready, pick a plan from Billing in your dashboard to keep going.</div></div>
+          </li>
+        </ol>
+        <div class="alert alert-info" style="margin-top:24px">
+          <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <div class="alert-body">
+            <p>Did you request a demo before? We still review it and will email you when your account is ready. Questions? <a href="/contact">Contact us</a>.</p>
+          </div>
+        </div>
+        <div class="auth-actions-row">
+          <a class="btn btn-primary" href="/signup" id="trialCta">Start your free trial</a>
+          <a class="btn btn-secondary" href="/login">Sign in</a>
+        </div>
+      </div>
+
+      <div id="pendingView">
       <div class="auth-header">
         <div class="auth-icon tone-warning" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -76,6 +115,7 @@
         <a class="btn btn-primary" href="/website">Back to website</a>
         <a class="btn btn-secondary" href="/login">Go to sign in</a>
       </div>
+      </div>
     </section>
   </main>
 
@@ -104,15 +144,32 @@
   }
   // Self-serve free trial on: sign-up no longer waits for approval — say so
   // (this page is still linked from older emails and the website footer).
+  // no demo request just sent: wait for the settings before choosing a view (no flash of the wrong one)
+  var pending = document.getElementById("pendingView");
+  if (!email) pending.style.visibility = "hidden";
+  var revealPending = function () { pending.style.visibility = ""; };
   fetch("/api/public/config").then(function (r) { return r.ok ? r.json() : {}; }).then(function (d) {
     var t = (d && d.trial) || {};
+    revealPending();
     if (!t.self_serve || (d.features && d.features.demo_registration === false)) return;  // no sign-up offer while sign-ups are closed
     var days = t.days > 0 ? t.days + "-day " : "";
+    if (!email) {
+      // a visitor reading about the trial, not someone who just requested a demo
+      document.getElementById("pendingView").hidden = true;
+      document.getElementById("trialView").hidden = false;
+      document.querySelector("section.auth-card").setAttribute("aria-labelledby", "trialTitle");
+      document.title = "How the free trial works · LeadAI";
+      document.getElementById("trialLead").textContent = "Your " + days + "free trial starts the moment you sign up. No approval and no card needed.";
+      if (t.credits > 0) document.getElementById("trialTokens").textContent =
+        "Your workspace opens at once, with " + t.credits + " free tokens for your first searches.";
+      document.getElementById("trialCta").textContent = "Start your free " + days + "trial";
+      return;
+    }
     document.getElementById("trialNoteText").textContent = "No approval needed: your " + days + "free trial starts the moment you sign up" +
       (t.credits > 0 ? ", with " + t.credits + " tokens" : "") + ".";
     document.getElementById("trialNoteLink").textContent = "Start your free " + days + "trial";
     document.getElementById("trialNote").hidden = false;
-  }).catch(function () {});
+  }).catch(revealPending);
 })();
 </script>
 <script src="/static/config.js?v=brand2" defer></script>

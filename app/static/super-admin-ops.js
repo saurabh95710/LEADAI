@@ -49,7 +49,7 @@
       '.ops-banner{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface);font-size:13px;margin-bottom:12px}',
       '.ops-banner .sa-spacer{min-width:8px}',
       '.ops-kpis4{grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}',
-      '.ops-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}',
+      '.ops-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}',
       '@media (max-width:900px){.ops-form{grid-template-columns:minmax(0,1fr)}}',
       '.ops-field-off{opacity:.55}'
     ].join('\n');
@@ -303,8 +303,8 @@
     var live = isLive(j), b = '';
     if (canM() && j.status === 'running') b += '<button type="button" class="btn btn-secondary btn-xs" data-act="cancel">Cancel</button>';
     if (canM() && !live) b += '<button type="button" class="btn btn-secondary btn-xs" data-act="retry">Retry</button>';
+    if (canS()) b += '<a class="btn btn-secondary btn-xs" href="#/ops/chain/' + esc(enc(j.run_id)) + '" title="Follow this run step by step: search, Apify job, pages, posts, comments, leads">Investigate</a>';
     if (canS() && !live) b += '<button type="button" class="btn btn-danger btn-xs" data-act="del" aria-label="Delete run ' + esc(j.run_id) + '">Delete</button>';
-    if (canS()) b += '<a class="btn btn-ghost btn-xs" href="#/ops/chain/' + esc(enc(j.run_id)) + '">Investigate</a>';
     return '<div class="row-actions">' + b + '</div>';
   }
   function bindJobButtons(tr, j, reload) {
@@ -353,10 +353,10 @@
     };
     var range = '<div class="ops-range" role="group" aria-label="Date range">' + [7, 30, 90].map(function (n) {
       return '<button type="button" class="sa-chip' + (!from && !to && days === n ? ' active' : '') + '" data-days="' + n + '" aria-pressed="' + (!from && !to && days === n) + '">' + n + 'd</button>';
-    }).join('') + '<label class="sr-only" for="opFrom">From</label><input class="form-input" type="date" id="opFrom" value="' + esc(from) + '">' +
-      '<label class="sr-only" for="opTo">To</label><input class="form-input" type="date" id="opTo" value="' + esc(to) + '">' +
+    }).join('') + '<label class="sa-small sa-muted" for="opFrom">From</label><input class="form-input" type="date" id="opFrom" value="' + esc(from) + '">' +
+      '<label class="sa-small sa-muted" for="opTo">To</label><input class="form-input" type="date" id="opTo" value="' + esc(to) + '">' +
       '<button type="button" class="btn btn-secondary btn-sm" id="opApply">Apply</button><button type="button" class="btn btn-ghost btn-sm" id="opRefresh">Refresh</button></div>';
-    var html = K.header('Operations', 'Scraping and lead activity across every organization: runs, collected data, AI analysis and alerts. ' + (d.range ? d.range.label : ''), range);
+    var html = K.header('Operations overview', 'Scraping and lead activity across every organization: runs, collected data, AI analysis and alerts. ' + (d.range ? d.range.label : ''), range);
 
     // hero: leads in range + the run figures (and what the old console received but never showed)
     var hero = '<div class="sa-grid sa-kpis">' +
@@ -422,10 +422,10 @@
     var keyword = '<div class="sa-card"><h3><span>Keyword filter <span class="sa-small sa-muted">runs before AI</span></span>' + lnk('#/keyword-rules', 'Manage rules →') + '</h3>' +
       '<div class="ops-banner">' + (rule ? '<span class="sa-dot ok" aria-hidden="true"></span><span>Active rule <b>' + esc(rule.name || '—') + '</b> applies to new scrapes without their own filter. <span class="sa-small sa-muted">' +
         esc(String(rule.match_mode || 'any').toUpperCase()) + ' · ' + fmtN((rule.include_keywords || []).length) + ' keywords · ' + fmtN((rule.categories || []).length) + ' categories</span></span>'
-        : '<span class="sa-dot" aria-hidden="true"></span><span><b>No active rule</b> — every comment is processed (NO_FILTER). Create and activate a rule to filter comments before the AI stage.</span>') + '</div>' +
+        : '<span class="sa-dot" aria-hidden="true"></span><span><b>No active rule</b> — every comment goes to the AI. Create and activate a rule to filter comments before the AI stage.</span>') + '</div>' +
       '<div class="sa-grid sa-kpis">' + kp('Comments', fmtN(kt.comments || 0), 'all collected', '#/keyword-rules?tab=comments&status=all') +
       kp('Matched → AI', fmtN(kt.matched || 0), '', '#/keyword-rules?tab=comments&status=MATCHED') +
-      kp('Skipped', fmtN(kt.not_matched || 0), 'NOT_MATCHED · kept stored', '#/keyword-rules?tab=comments&status=NOT_MATCHED') +
+      kp('Skipped', fmtN(kt.not_matched || 0), 'no keyword match · kept stored', '#/keyword-rules?tab=comments&status=NOT_MATCHED') +
       kp('Filter coverage', kt.coverage_pct != null ? kt.coverage_pct + '%' : '—', fmtN(kt.no_filter || 0) + ' with no filter', '#/keyword-rules?tab=rules') + '</div></div>';
 
     var plats = '<div class="sa-card"><h3><span>Platforms <span class="sa-small sa-muted">all time</span></span><a class="sa-link" href="#/platforms">Manage →</a></h3><div class="sa-table-wrap"><table class="sa-table"><thead><tr><th scope="col">Platform</th><th scope="col">Status</th><th scope="col" class="num">Pages</th><th scope="col" class="num">Posts</th><th scope="col" class="num">Comments</th><th scope="col" class="num">Leads</th></tr></thead><tbody>' +
@@ -901,12 +901,12 @@
     stopTimers();
     var ps = (await api(A + '/platforms')).platforms || [];
     var on = ps.filter(function (p) { return p.enabled; }).length;
-    root.innerHTML = K.header('Platforms', 'Turn platforms on or off for the whole service and choose the Apify actors each one scrapes with. Turning a platform off blocks every scrape entry point, including the user app.',
+    root.innerHTML = K.header('Platforms', 'Turn each social platform on or off for everyone, and choose the Apify actor (the ready-made scraper on Apify) it collects with. Turning a platform off stops all new searches on it, including in the customer app.',
       badge(on + '/' + ps.length + ' enabled', on === ps.length ? 'success' : 'warning') + readOnly()) +
       '<div class="sa-grid sa-2" data-tour="plat-cards">' + ps.map(function (p) {
         return '<div class="sa-card" data-plat="' + esc(p.platform) + '"><h3><a class="sa-link" href="#/platforms/' + esc(enc(p.platform)) + '" style="font-size:14px;font-weight:700">' + esc(platName(p.platform)) + '</a><span class="sa-row">' +
           pill(p.enabled ? 'active' : 'disabled', p.enabled ? 'Enabled' : 'Disabled') + platToggle(p) + '</span></h3>' + platKpis(p) +
-          '<h4 class="ops-h">Actors</h4>' + (p.actors || []).map(function (a) {
+          '<h4 class="ops-h">Actors <span class="sa-small sa-muted">Apify scrapers this platform uses</span></h4>' + (p.actors || []).map(function (a) {
             return '<div class="ops-actor">' + badge(a.kind, 'muted') + (canM() ? '<label class="sr-only" for="act_' + esc(a.key) + '">' + esc(a.key) + '</label><input class="form-input sa-mono" id="act_' + esc(a.key) + '" data-actor="' + esc(a.key) + '" data-kind="' + esc(a.kind) + '" data-orig="' + esc(a.value) + '" value="' + esc(a.value) + '" autocomplete="off">' +
               '<button type="button" class="btn btn-secondary btn-xs" data-test="' + esc(a.key) + '" title="Tests the saved actor id with LeadAI\'s Apify token">Test</button>' : '<span class="sa-mono">' + esc(a.value) + '</span>') + '</div>' +
               '<div class="sa-small sa-muted" style="margin:0 0 8px">' + (a.overridden ? 'Override of the default ' + esc(a.default) : 'Default actor') + '</div>';
@@ -1071,7 +1071,7 @@
     var m = canM();
     var intents = Object.keys(sm.intents || {}).sort(function (a, b) { return sm.intents[b] - sm.intents[a]; });
     var maxI = Math.max.apply(null, intents.map(function (i) { return sm.intents[i]; }).concat([1]));
-    root.innerHTML = K.header('Contact Intelligence', 'What the engine decided about each collected comment: intent, quality, confidence and the contact details it found. Click a comment for the full lead.',
+    root.innerHTML = K.header('Comments', 'Contact intelligence for every collected comment: the intent, quality and confidence the engine gave it, and any phone or email it found. Click a comment to see the full lead.',
       badge(fmtN(sm.analyzed || 0) + ' analysed', 'primary') + badge(fmtN(sm.leads || 0) + ' leads', 'success') + readOnly()) +
       (kr.comments ? '<div class="ops-banner"><span>Keyword filter: <b>' + fmtN(kr.matched || 0) + '</b> matched → AI · <b>' + fmtN(kr.not_matched || 0) + '</b> skipped (kept stored)' + (kr.coverage_pct != null ? ' · ' + esc(kr.coverage_pct) + '% coverage' : '') + '</span><span class="sa-spacer"></span>' + (canGo('#/keyword-rules') ? '<a class="btn btn-secondary btn-xs" href="#/keyword-rules">Manage rules</a>' : '') + '</div>' : '') +
       '<div class="sa-grid sa-2"><div class="sa-card"><h3>Pipeline <span class="sa-small sa-muted">all time</span></h3><div class="sa-grid ops-kpis4">' +
@@ -1265,7 +1265,7 @@
     platforms: [viewPlatforms, 'Platforms', viewPlatformDetail, 'viewer'],
     pages: [viewPages, 'Pages', null, 'viewer'],
     posts: [viewPosts, 'Posts', null, 'viewer'],
-    ci: [viewCI, 'Contact Intelligence', null, 'viewer'],
+    ci: [viewCI, 'Comments', null, 'viewer'],
     exports: [viewExports, 'Exports', null, 'viewer']
   }, countFailed);
 })();

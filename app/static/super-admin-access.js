@@ -24,7 +24,9 @@
       body: '<div class="sa-form-grid">' + fld('type', 'For', '<select class="form-select" id="ik_type" name="owner_type"><option value="organization">An organization (Customer API /api/v1)</option><option value="partner">A partner (Partner API /api/partner/v1, read-only)</option></select>') +
         fld('name', 'Key name', '<input class="form-input" id="ik_name" name="name" value="Super Admin key" maxlength="60">') + '</div>' +
         '<div id="ikOrg">' + fld('orgq', 'Find organization', '<input class="form-input" id="ik_orgq" type="search" placeholder="Type a name to search…">') + fld('org', 'Organization', '<select class="form-select" id="ik_org" name="org">' + opt(orgs, 'id', function (o) { return o.name + (o.status ? ' · ' + o.status : ''); }) + '</select>') +
-        '<div class="sa-row">' + ['leads:read', 'leads:write', 'search:create', 'webhooks:manage'].map(function (s) { return '<label class="sa-check"><input type="checkbox" name="scope" value="' + s + '"' + (s === 'leads:read' ? ' checked' : '') + '> ' + s + '</label>'; }).join('') + '</div></div>' +
+        '<fieldset class="sa-field" style="border:0;margin:0;padding:0;min-width:0"><legend style="font-size:12.5px;font-weight:600;color:var(--text-secondary);padding:0;margin-bottom:4px">What the key may do</legend><div class="sa-row">' +
+        [['leads:read', 'Read leads'], ['leads:write', 'Update leads'], ['search:create', 'Start searches'], ['webhooks:manage', 'Manage webhooks']].map(function (s) {
+          return '<label class="sa-check" title="' + s[0] + '"><input type="checkbox" name="scope" value="' + s[0] + '"' + (s[0] === 'leads:read' ? ' checked' : '') + '> ' + s[1] + ' <span class="sa-mono sa-muted">' + s[0] + '</span></label>'; }).join('') + '</div></fieldset></div>' +
         '<div id="ikPartner" hidden>' + fld('partner', 'Partner', '<select class="form-select" id="ik_partner" name="partner">' + opt(partners, 'id', function (p) { return (p.company || p.name) + ' · ' + p.partner_type; }) + '</select>') +
         '<label class="sa-check"><input type="checkbox" name="grant_api_access" checked> Also grant the partner API access if it is not enabled</label></div>' +
         fld('reason', 'Reason * (audited, shown to the owner)', '<textarea class="form-textarea" id="ik_reason" name="reason" rows="2" style="min-height:60px"></textarea>'),
@@ -47,11 +49,12 @@
   }
 
   async function viewAccess(root, q) {
-    root.innerHTML = K.header('Developer API & webhooks', 'Keys for LeadAI\'s own APIs (Customer API /api/v1, Partner API) and every outbound webhook — organizations\' and partners\'. Revoking or disabling takes effect immediately and notifies the owner. The Apify and Gemini keys are on the API keys page.', '<a class="btn btn-secondary btn-sm" href="#/provider-keys">Apify &amp; Gemini keys</a>') + '<div id="acTabs"></div>';
+    root.innerHTML = K.header('Developer API & webhooks', 'Keys that organizations and partners use to call LeadAI\'s own APIs (Customer API /api/v1, Partner API), and the webhook addresses they register. Revoking a key takes effect at once and the owner is told. The Apify and Gemini keys are on the API keys page.', '<a class="btn btn-secondary btn-sm" href="#/provider-keys">Apify &amp; Gemini keys</a>') + '<div id="acTabs"></div>';
     K.tabs($('#acTabs', root), [['keys', 'API keys'], ['webhooks', 'Webhooks']], q.tab || 'keys', function (key, el) {
       if (key === 'keys') {
-        el.innerHTML = '<div class="sa-row" style="justify-content:flex-end"><button type="button" class="btn btn-primary btn-sm" id="issueKey" data-tour="access-issue">+ Issue API key</button></div><div id="keyList"></div>';
+        el.innerHTML = '<div id="keyList"></div>';
         var lv = K.listView($('#keyList', el), {
+          toolbar: '<button type="button" class="btn btn-primary btn-sm" id="issueKey" data-tour="access-issue">+ Issue API key</button>',
           url: function (p) { return '/api/super-admin/api-keys' + qs({ page: p.page, limit: p.limit, owner_type: p.owner_type, active: p.active, q: p.q }); },
           limit: 50, key: 'sa_api_keys', initial: { active: 'true' },
           filters: [{ key: 'q', label: 'Search name or prefix…' }, { key: 'owner_type', type: 'select', label: 'Owner', options: [['', 'All owners'], ['organization', 'Organizations'], ['partner', 'Partners']] },
@@ -70,10 +73,13 @@
         $('#issueKey', el).onclick = issueKey.bind(null, function () { lv.reload(); });
         return lv;
       }
-      return K.listView(el, {
+      // outbound delivery is not built yet: endpoints are stored, nothing is sent — say so instead of implying deliveries
+      el.innerHTML = '<div class="alert alert-info" style="margin-bottom:12px"><div class="alert-body"><div class="alert-title">Webhook delivery is coming soon</div>' +
+        '<div>Organizations and partners can already register webhook addresses, and you can disable or enable them here. LeadAI does not send events to them yet, so “Last delivery” stays empty until delivery is switched on.</div></div></div><div id="whList"></div>';
+      return K.listView($('#whList', el), {
         url: function (p) { return '/api/super-admin/webhooks' + qs({ page: p.page, limit: p.limit, active: p.active }); },
         limit: 50, key: 'sa_webhooks',
-        filters: [{ key: 'active', type: 'select', label: 'Status', options: [['', 'All'], ['true', 'Active'], ['false', 'Disabled']] }],
+        filters: [{ key: 'active', type: 'select', label: 'Status', options: [['', 'All statuses'], ['true', 'Active'], ['false', 'Disabled']] }],
         columns: [{ label: 'Endpoint', render: function (w) { return '<span class="sa-mono sa-small">' + esc(w.url) + '</span>'; } },
           { label: 'Organization', render: function (w) { return w.organization_id ? '<a class="sa-link" href="#/organizations/' + esc(w.organization_id) + '">' + esc(w.organization_name || K.short(w.organization_id)) + '</a>' : '—'; } },
           { label: 'Events', render: function (w) { return '<span class="sa-small">' + esc((w.events || []).join(', ')) + '</span>'; } },
@@ -82,9 +88,9 @@
           { label: '', cls: 'num', render: function (w) { return '<button type="button" class="btn btn-' + (w.is_active ? 'danger' : 'secondary') + ' btn-xs" data-tw>' + (w.is_active ? 'Disable' : 'Enable') + '</button>'; } }],
         bindRow: function (tr, w, reload) { $('[data-tw]', tr).onclick = async function () {
           var a = w.is_active ? 'disable' : 'enable';
-          var c = await K.confirmDialog({ title: K.titleCase(a) + ' webhook', message: w.is_active ? 'No more events are delivered to this endpoint until it is enabled again.' : 'Deliveries resume.', confirmLabel: K.titleCase(a), danger: w.is_active, reason: 'optional' });
+          var c = await K.confirmDialog({ title: K.titleCase(a) + ' webhook', message: w.is_active ? 'This address will not receive events until it is enabled again (delivery itself is coming soon).' : 'This address will receive events again once webhook delivery is switched on.', confirmLabel: K.titleCase(a), danger: w.is_active, reason: 'optional' });
           if (!c) return; try { await api('/api/super-admin/webhooks/' + encodeURIComponent(w.webhook_id) + '/' + a, { method: 'POST', body: { reason: c.reason } }); K.toast('Webhook ' + a + 'd'); reload(); } catch (e) { K.toast(e.message, 'error'); } }; },
-        empty: { title: 'No webhooks', desc: 'Outbound webhooks organizations register appear here.' } });
+        empty: { title: 'No webhooks yet', desc: 'Webhook addresses that organizations and partners register appear here.' } });
     });
   }
   K.register('Access', 'Partners', [['access', 'Developer API & webhooks', 'plug']], { access: [viewAccess, 'Developer API & webhooks'] });

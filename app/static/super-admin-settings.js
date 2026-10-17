@@ -778,8 +778,12 @@
     if (!cat.description && !links.length) return '';
     return '<div class="gs-intro"><div style="min-width:0"><h2>' + esc(cat.label) + '</h2>' + (cat.description ? '<p>' + esc(cat.description) + '</p>' : '') + '</div>' +
       (links.length ? '<div class="gs-links" aria-label="Related pages"><span class="sa-small sa-muted">Related:</span>' + links.map(function (l) {
-        return '<a class="btn btn-secondary btn-sm" href="' + esc(l[1]) + '">' + esc(l[0]) + '</a>'; }).join('') + '</div>' : '') + '</div>';
+        return '<a class="btn btn-secondary btn-sm" href="' + esc(l[1]) + '">' + esc(PAGE_NAME[l[0]] || l[0]) + '</a>'; }).join('') + '</div>' : '') + '</div>';
   }
+  // the server's link labels → the page names used in the menu (sentence case)
+  var PAGE_NAME = { 'AI Management': 'AI management', 'Feature Flags': 'Feature flags', 'System Health': 'System health', 'Audit Logs': 'Audit logs',
+    'Security Center': 'Security center', 'Tokens & Usage': 'Tokens & usage', 'Reports / Exports': 'Account reports', 'Roles & Permissions': 'Roles & permissions',
+    'Partners & Resellers': 'Partners & resellers', 'API limits': 'API usage & limits' };
   function chrome() {
     if (!ST.root) return;
     var n = dirtyKeys().length;

@@ -157,10 +157,29 @@ function fmt(n) {
   const num = Number(n);
   if (isNaN(num)) return "—";
   if (num >= 1e9) return "∞";
-  if (num >= 10000000) return (num / 10000000).toFixed(1).replace(/\.0$/, "") + " Cr";
-  if (num >= 100000) return (num / 100000).toFixed(1).replace(/\.0$/, "") + " L";
-  if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, "") + "K";
-  return String(num);
+  // K / M like the other portals and the $ prices (was lakh / crore: "2 L tokens")
+  if (num >= 1e6) return (num / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (num >= 10000) return (num / 1000).toFixed(1).replace(/\.0$/, "") + "K";
+  // exact below 10,000 so small usage isn't rounded away (1,975 of 2,000 — not "2K / 2K")
+  return Number.isInteger(num) ? num.toLocaleString("en-US") : String(num);
+}
+
+/** "1 post" / "3 posts" — the count with the right singular or plural word. */
+function plural(n, one, many) {
+  const num = Number(n) || 0;
+  return `${fmt(num)} ${num === 1 ? one : (many || one + "s")}`;
+}
+
+/** Server text with "(s)" counts ("4 lead(s) are assigned", "1 posts", "2 search(es)")
+    read as plain English: the right singular/plural word and verb. */
+function tidyCounts(text) {
+  return String(text || "")
+    .replace(/\b(\d[\d,]*) (\w+?)\((s|es)\)( are| were)?/g, (_m, n, w, suf, verb) => {
+      const one = Number(String(n).replace(/,/g, "")) === 1;
+      return `${n} ${w}${one ? "" : suf}${verb ? (one ? (verb === " are" ? " is" : " was") : verb) : ""}`;
+    })
+    .replace(/\b1 (post|comment|lead|page|search|export|profile|token)(e?s)\b/g, "1 $1")
+    .replace(/(?<![./@\w-])(facebook|instagram|youtube|linkedin)(?![.\w-])/g, (p) => ({ facebook: "Facebook", instagram: "Instagram", youtube: "YouTube", linkedin: "LinkedIn" })[p]);
 }
 
 function toast(msg, type = "info", action = null) {
@@ -1613,8 +1632,9 @@ const GuidedSearch = {
       btn.onclick = () => this.selectBusinessType(btn.dataset.bt);
     });
 
-    // Default select first if not selected
-    if (!this.state.businessType && btypes.length) {
+    // Default select first if not selected (or if it belonged to the industry chosen before)
+    const customBiz = ($("customBusinessTypeInput") || {}).value;
+    if (btypes.length && (!this.state.businessType || (!btypes.includes(this.state.businessType) && this.state.businessType !== String(customBiz || "").trim()))) {
       this.selectBusinessType(btypes[0]);
     }
   },
@@ -1740,6 +1760,12 @@ const GuidedSearch = {
   syncReview() {
     const rInd = $("reviewIndustry");
     if (rInd) rInd.textContent = this.state.industryName || "Not set";
+    // step 4 says which business the leads are analysed for: the one picked here
+    // (sent with the search), else the workspace's default industry
+    if (this.state.industryName && $("industryHintName")) {
+      $("industryHintName").textContent = this.state.industryName + (this.state.businessType ? " · " + this.state.businessType : "");
+      $("industryHint").classList.remove("hidden");
+    }
 
     const rBiz = $("reviewBusinessType");
     if (rBiz) rBiz.textContent = this.state.businessType || "General";
@@ -1947,7 +1973,7 @@ let _pagesTimer = null;
 async function renderPagesScreen() {
   clearTimeout(_pagesTimer);
   if (!memory.runId) { $("pagesGrid").innerHTML = ""; $("pagesListEmpty").classList.remove("hidden"); return; }
-  setBadge("Viewing pages", "status-idle");
+  setBadge("Viewing results", "status-idle");
   const catSel = $("pagesCategoryFilter");
   if (catSel.dataset.run !== String(memory.runId || "")) catSel.value = "";  // new search: no stale category
   const category = catSel.value;
@@ -1999,7 +2025,7 @@ async function renderPagesScreen() {
         : " · open a page to analyze its posts")
     : "";
   const qualified = data.pages.filter((p) => p.has_qualifying_posts).length;
-  statusBox.innerHTML = `<div class="summary-line">Found <b>${data.pages.length}</b> page(s)/channel(s) · <b>${qualified} with qualifying high-intent posts</b>${collectNote}</div>`;
+  statusBox.innerHTML = `<div class="summary-line">Found <b>${plural(data.pages.length, "page")}</b> · <b>${qualified}</b> with qualifying high-intent posts${collectNote}</div>`;
   statusBox.classList.remove("hidden");
 
   tbody.innerHTML = data.pages.map((p) => {
@@ -2015,7 +2041,7 @@ async function renderPagesScreen() {
     if (postStatus === "running" && !stale) {
       actionBtn = `<span class="btn-secondary" style="cursor:default"><span class="mini-spinner"></span> Analyzing posts (${found} found)</span>`;
     } else if (postStatus === "completed" && found > 0) {
-      actionBtn = `<button class="btn-primary" data-open-page="${pid}">${ico("file")} View ${found} posts${qualifying > 0 ? ` (${qualifying} qualifying)` : ""}</button>`;
+      actionBtn = `<button class="btn-primary" data-open-page="${pid}">${ico("file")} View ${plural(found, "post")}${qualifying > 0 ? ` (${qualifying} qualifying)` : ""}</button>`;
     } else if (postStatus === "empty" || found === 0) {
       actionBtn = `<button class="btn-secondary" data-open-page="${pid}">↻ Re-analyze posts</button>`;
     } else {
@@ -2162,9 +2188,9 @@ async function renderPostsScreen() {
     const qual = data.qualifyingPosts || 0;
     const min = data.minComments || 10;
     const note = qual > 0
-      ? `<span class="status-success-text">${qual} qualifying post(s) (relevant & ≥ ${min} comments)</span>`
+      ? `<span class="status-success-text">${plural(qual, "qualifying post")} (relevant & ≥ ${min} comments)</span>`
       : `<span class="muted">No posts with ≥ ${min} comments</span>`;
-    statusBox.innerHTML = `<div class="summary-line">Total posts: <b>${esc(data.totalPosts)}</b> · Relevant: <b>${esc(data.relevantPosts)}</b> · Qualifying: <b>${qual}</b> · Comments on qualifying: <b>${fmt(data.commentsOnQualifying)}</b> · Latest post: <b>${esc(data.latestPostDate || "N/A")}</b><br>${note}</div>`;
+    statusBox.innerHTML = `<div class="summary-line">Total posts: <b>${esc(data.totalPosts)}</b> · Relevant: <b>${esc(data.relevantPosts)}</b> · Qualifying: <b>${qual}</b> · Comments on qualifying: <b>${fmt(data.commentsOnQualifying)}</b> · Latest post: <b>${esc(data.latestPostDate ? (formatDate(data.latestPostDate) || data.latestPostDate) : "unknown")}</b><br>${note}</div>`;
     statusBox.classList.remove("hidden");
   }
 
@@ -2191,7 +2217,7 @@ async function renderPostsScreen() {
     if (cStatus === "running") {
       actionBtn = `<span class="btn-secondary" style="cursor:default"><span class="mini-spinner"></span> Collecting (${scraped} found)</span>`;
     } else if (scraped > 0) {
-      actionBtn = `<button class="btn-primary" data-open-post="${id}">${ico("message")} View ${scraped} comments & leads</button>`;
+      actionBtn = `<button class="btn-primary" data-open-post="${id}">${ico("message")} View ${plural(scraped, "comment")} & leads</button>`;
     } else if (qualifying) {
       actionBtn = `<button class="btn-primary" data-open-post="${id}">${ico("message")} Collect comments (${total} available)</button>`;
     } else {
@@ -2224,7 +2250,7 @@ async function renderPostsScreen() {
         <div class="pt-body">
           <div class="pt-caption" title="${esc(captionText)}">${esc(captionText)}</div>
           <div class="pt-meta">
-            <span>${ico("calendar")} ${esc(post.published_date || "Date unknown")}</span>
+            <span title="${esc(post.published_date || "")}">${ico("calendar")} ${esc(post.published_date ? (formatDate(post.published_date) || post.published_date) : "Date unknown")}</span>
             ${relBadge}
             ${qualBadge}
             ${kfBadge}
@@ -2461,7 +2487,7 @@ async function renderCommentsScreen() {
   const searchNote = searchVal ? ` matching "<b>${esc(searchVal)}</b>"` : "";
   const qc = data.qualification_counts || {};
   const qualNote = (qc.qualified || 0) + (qc.not_qualified || 0) > 0
-    ? `<div class="summary-line qual-line">${ico("filter")} Comment qualification: <b>${esc(qc.qualified || 0)}</b> qualified and went to AI analysis · <b>${esc(qc.not_qualified || 0)}</b> not qualified (kept, not sent to AI)${qc.not_qualified ? ` · <button type="button" class="link-btn" onclick="showCommentsQualification('not_qualified')">Show them</button>` : ""}</div>`
+    ? `<div class="summary-line qual-line">${ico("filter")} Comment filter: <b>${esc(qc.qualified || 0)}</b> matched and were sent to AI · <b>${esc(qc.not_qualified || 0)}</b> didn't match (kept, not sent to AI)${qc.not_qualified ? ` · <button type="button" class="link-btn" onclick="showCommentsQualification('not_qualified')">Show them</button>` : ""}</div>`
     : "";
   statusBox.innerHTML = `<div class="summary-line">${activeLabel}${searchNote} · <b>${esc(data.total)}</b> of <b>${esc(data.all_count || 0)}</b> comments displayed</div>${qualNote}${collectAllBar(data)}`;
   statusBox.classList.remove("hidden");
@@ -2471,7 +2497,7 @@ async function renderCommentsScreen() {
     empty.classList.remove("hidden");
     empty.querySelector(".empty-sub").textContent =
       searchVal ? `No comments found matching "${searchVal}" under this filter`
-      : qualificationVal ? `${qualificationVal === "qualified" ? "No qualified comments here" : "No comments were skipped by your comment filter"} — choose "Qualified + not qualified" to see everything`
+      : qualificationVal ? `${qualificationVal === "qualified" ? "No comments here were sent to AI" : "No comments were skipped by your comment filter"} — choose "Sent to AI + not sent" to see everything`
       : activeCommentFilter !== "all" ? `No comments under this filter — choose "All comments" to see everything`
       : "No comments on this post yet — collect comments from the Posts screen";
     return;
@@ -2536,7 +2562,7 @@ async function renderCommentsScreen() {
       </div>
 
       <div class="lc-foot">
-        <button class="btn-ghost" style="font-size:0.76rem;padding:5px 12px" data-open-lead="${cid}">${ico("eye")} View full dossier</button>
+        <button class="btn-ghost" style="font-size:0.76rem;padding:5px 12px" data-open-lead="${cid}">${ico("eye")} Open lead details</button>
       </div>
     </article>`;
   }).join("");
@@ -2550,10 +2576,10 @@ async function renderCommentsScreen() {
 function qualificationBadge(c) {
   if (c.qualification === "qualified") {
     const kw = (c.matched_keywords || []).slice(0, 3).join(", ");
-    return `<span class="badge badge-qualified" title="${kw ? `Matched: ${esc(kw)}` : "Passed the comment filter"}">✓ Qualified</span>`;
+    return `<span class="badge badge-qualified" title="${kw ? `Matched: ${esc(kw)}` : "Passed your comment filter, so the AI scored it"}">✓ Sent to AI</span>`;
   }
   if (c.qualification === "not_qualified") {
-    return `<span class="badge badge-not-qualified" title="Didn't match your comment filter, so it wasn't sent to AI analysis">Not qualified</span>`;
+    return `<span class="badge badge-not-qualified" title="Didn't match your comment filter, so it wasn't sent to AI analysis">Not sent to AI</span>`;
   }
   return "";
 }
@@ -2591,7 +2617,7 @@ async function collectAllComments(target, total) {
   const ok = await confirmAction({
     title: target >= total ? `Collect all ${target} comments?` : `Collect ${target} comments?`,
     message: "Every comment is collected and kept. Only the ones that match your comment filter go to AI analysis; " +
-      "the others show as \"Not qualified\". Comments already analyzed are not analyzed again. This counts as one comment collection." +
+      "the others show as \"Not sent to AI\". Comments already analyzed are not analyzed again. This counts as one comment collection." +
       (target < total ? ` Your plan collects up to ${target} comments per post.` : ""),
     confirmLabel: "Collect comments",
   });
@@ -2694,6 +2720,69 @@ const LEAD_STATUS_CLASS = {
 function leadStatusPill(s) {
   const st = s || "new";
   return `<span class="status-pill ${LEAD_STATUS_CLASS[st] || "sp-neutral"}">${esc(LEAD_STATUS_LABELS[st] || st)}</span>`;
+}
+
+// ── Lead SLA (set when an assignment rule assigns a lead) ─────────────────
+// sla_due_at / sla_hours / sla_status ("on_track" | "breached"): the assignee must
+// contact the lead (move it past "new") before sla_due_at.
+function slaWhen(d) {
+  const sameWeek = Math.abs(d.getTime() - Date.now()) < 6 * 864e5;
+  return d.toLocaleString("en-GB", sameWeek
+    ? { weekday: "short", hour: "2-digit", minute: "2-digit" }
+    : { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).replace(",", "");
+}
+/** {state: "due" | "soon" | "missed" | "met" | "late", due, hours} or null when the lead has no SLA. */
+function slaInfo(l) {
+  const due = l && parseDate(l.sla_due_at);
+  if (!due) return null;
+  const hours = Number(l.sla_hours) || 0;
+  const open = !l.lead_status || l.lead_status === "new";
+  const left = due.getTime() - Date.now();
+  let state;
+  if (open) state = l.sla_status === "breached" || left <= 0 ? "missed" : left <= 3600e3 ? "soon" : "due";
+  else state = l.sla_status === "breached" ? "late" : "met";
+  return { state, due, hours, left };
+}
+function slaTimeLeft(ms) {
+  const m = Math.max(1, Math.round(ms / 60000));
+  if (m < 60) return `${m} min left`;
+  const h = Math.floor(m / 60), r = m % 60;
+  return h < 24 ? `${h}h${r ? " " + r + "m" : ""} left` : `${Math.round(h / 24)} days left`;
+}
+/** The SLA line in the lead details (empty when the lead has no SLA). */
+function slaDetailHtml(l) {
+  const s = slaInfo(l);
+  if (!s) return "";
+  const span = s.hours ? ` (${s.hours}-hour SLA)` : "";
+  const when = esc(slaWhen(s.due));
+  const body = {
+    due: `<b>Contact by ${when}</b>${esc(span)}<span class="sla-sub">${esc(slaTimeLeft(s.left))} · mark the lead as Contacted once you reach them.</span>`,
+    soon: `<b>Contact by ${when}</b>${esc(span)}<span class="sla-sub">Less than an hour left · mark the lead as Contacted once you reach them.</span>`,
+    missed: `<b>SLA missed — contact now</b><span class="sla-sub">It was due ${when}${esc(span)}. Mark the lead as Contacted once you reach them.</span>`,
+    met: `<b>SLA met</b>${esc(span)}<span class="sla-sub">Contacted before ${when}.</span>`,
+    late: `<b>SLA missed</b>${esc(span)}<span class="sla-sub">It was due ${when}. The lead was contacted late.</span>`,
+  }[s.state];
+  const icon = s.state === "met" ? "check" : s.state === "missed" || s.state === "late" ? "alert" : "clock";
+  return `<div class="sla-box sla-${s.state}" role="${s.state === "missed" ? "alert" : "status"}">${ico(icon)}<div>${body}</div></div>`;
+}
+/** Small badge for the leads list: only when the SLA is missed or due within an hour. */
+function slaBadgeHtml(l) {
+  const s = slaInfo(l);
+  if (!s || (s.state !== "missed" && s.state !== "soon")) return "";
+  return s.state === "missed"
+    ? `<span class="badge sla-badge sla-badge-missed" title="Was due ${esc(slaWhen(s.due))} — contact this lead now">SLA missed</span>`
+    : `<span class="badge sla-badge sla-badge-soon" title="Contact by ${esc(slaWhen(s.due))}">Due ${esc(s.due.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }))}</span>`;
+}
+// GET /api/me/leads carries the SLA fields (sla_due_at / sla_status / sla_hours),
+// so the badges come straight from the list rows.
+function fillLeadSlaBadges(items) {
+  items.filter((l) => l.assigned_to_me && (!l.lead_status || l.lead_status === "new")).forEach((l) => {
+    const html = slaBadgeHtml(l);
+    if (!html) return;
+    document.querySelectorAll(`#leadsList tr[data-open-lead="${CSS.escape(l.id)}"] .mini-title`).forEach((t) => {
+      if (!t.querySelector(".sla-badge")) t.insertAdjacentHTML("beforeend", html);
+    });
+  });
 }
 
 let _lastFocus = null;
@@ -2813,20 +2902,22 @@ async function openLeadDetail(commentId, event) {
       </div>
     </div>`;
 
-  $("leadDetailTitle").textContent = "Lead intelligence — " + (d.commenter_name || "Prospect");
+  $("leadDetailTitle").textContent = "Lead details — " + (d.commenter_name || "Prospect");
   const detailInfo = platformInfo(d.platform);
   const cUrl = safeUrl(d.comment_url);
   const web = safeUrl(d.website);
   const srcPage = safeUrl(page.facebook_url);
   const srcPost = safeUrl(post.post_url);
   const author = safeUrl(comment.author_profile_url);
+  const slaHtml = slaDetailHtml(d);
   $("leadDetailContent").innerHTML = `
     <div class="lead-detail-grid">
+      ${slaHtml ? `<div class="detail-block detail-block-wide">${slaHtml}</div>` : ""}
       <div class="detail-block detail-block-wide">
         <div class="detail-label">Original comment</div>
         <div class="detail-value quote-box">${esc(d.comment_text || "—")}</div>
         ${cUrl ? `<div class="mt-8"><a class="pc-link" href="${esc(cUrl)}" target="_blank" rel="noopener">Open original comment on ${esc(detailInfo.name || "platform")} ↗</a></div>` : ""}
-        ${d.reason ? `<div class="detail-reason">${ico("sparkles")} <b>AI rationale:</b> ${esc(d.reason)} ${d.analyzed_by ? `(${esc(d.analyzed_by)})` : ""}</div>` : ""}
+        ${d.reason ? `<div class="detail-reason">${ico("sparkles")} <b>Why it's a lead:</b> ${esc(d.reason)}${d.analyzed_by ? ` <span class="muted">(${esc(d.analyzed_by === "rules" ? "scored by keyword rules" : "scored by AI")})</span>` : ""}</div>` : ""}
         ${!isLead ? `<div class="detail-reason">This comment was not qualified as a lead.</div>` : ""}
       </div>
 
@@ -2863,7 +2954,7 @@ async function openLeadDetail(commentId, event) {
         <div class="detail-label">Platform</div>
         <div class="detail-value">${detailInfo.icon ? detailInfo.icon + " " : ""}${esc(detailInfo.name || "—")}</div>
         <div class="detail-label">Assigned to</div>
-        <div class="detail-value">${d.assigned_user_id && portal.user && d.assigned_user_id === portal.user.user_id ? '<span class="badge badge-lead">You</span>' : esc(d.assigned_to || "—")}</div>
+        <div class="detail-value">${d.assigned_user_id && portal.user && d.assigned_user_id === portal.user.user_id ? '<span class="badge badge-lead">You</span>' : esc(d.assigned_to || "—")}${d.assigned_at && (d.assigned_user_id || d.assigned_to) ? `<div class="note-meta">${d.assignment_rule_id ? "By an assignment rule · " : ""}${fmtTime(d.assigned_at)}</div>` : ""}</div>
       </div>
 
       <div class="detail-block detail-block-wide" data-tour="lead-lifecycle">
@@ -2877,7 +2968,7 @@ async function openLeadDetail(commentId, event) {
               ${statusOptions}
             </select>
             <button class="btn-ghost" data-lead-status="${leadId}">Update</button>
-          </div>` : canManage ? '<div class="muted-line">Terminal state — no transitions available</div>' : ""}
+          </div>` : canManage ? '<div class="muted-line">This lead is closed, so its status can no longer change.</div>' : ""}
       </div>
 
       <div class="detail-block detail-block-wide">
@@ -3038,8 +3129,8 @@ function alertText(a) {
   const copy = ENTITLEMENT_COPY[a.code] || {};
   const msg = trialWording(a.message);
   const same = (x, y) => String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, "") === String(y || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
-  if (copy.title && copy.msg && (!msg || same(msg, copy.title))) return copy.msg(a);
-  return msg;
+  if (copy.title && copy.msg && (!msg || same(msg, copy.title))) return tidyCounts(copy.msg(a));
+  return tidyCounts(msg);
 }
 
 function upgradeButtonHtml(code) {
@@ -4191,6 +4282,7 @@ async function loadLeads() {
     actions: (l) => `<button type="button" class="btn-ghost btn-sm" data-open-lead="${esc(l.id)}" aria-label="Open lead ${esc(l.commenter_name || "")}">Open</button>`,
   });
   renderPager($("leadsPager"), d, "leads");
+  fillLeadSlaBadges(items);
 }
 PAGERS.leads = (p) => { leadsState.page = p; loadLeads(); };
 
@@ -4341,7 +4433,8 @@ PAGERS.exports = (p) => { exportsState.page = p; loadExports(); };
 // ═════════════════════════════════════════════════════════════════════════
 const ledgerState = { page: 1 };
 const BOX_GO = '<span class="box-go" aria-hidden="true">→</span>';
-const REASON_LABELS = { search: "URL search", collect: "Collect posts / comments", ai_call: "AI analysis", export: "CSV export" };
+const REASON_LABELS = { search: "URL search", collect: "Collect posts / comments", ai_call: "AI analysis", export: "CSV export",
+  discover: "Keyword search", enrich: "Profile details", sample: "Recent posts check" };
 
 async function loadUsage() {
   const body = $("usageBody");
@@ -4487,7 +4580,7 @@ async function loadLedger() {
     filters: () => filtersOf(new URLSearchParams(ledgerUrl(1, 15).split("?")[1] || "")),
     columns: [
       { id: "activity", label: "Activity", required: true, cls: "col-main", text: (r) => REASON_LABELS[r.reason] || r.reason || r.type,
-        html: (r) => `<span class="dt-main"><span class="mini-main"><span class="mini-title">${esc(REASON_LABELS[r.reason] || r.reason || r.type)}</span><span class="mini-sub cell-mono">${esc(r.reference || "")}</span></span></span>` },
+        html: (r) => `<span class="dt-main"><span class="mini-main"><span class="mini-title">${esc(REASON_LABELS[r.reason] || r.reason || r.type)}</span></span></span>` },
       { id: "reference", label: "Reference", cls: "col-tag", text: (r) => r.reference || "", html: (r) => `<span class="cell-mono">${esc(r.reference || "—")}</span>` },
       { id: "tokens", label: "Tokens", cls: "col-num", text: (r) => (r.type === "consume" ? -1 : 1) * (Number(r.amount) || 0),
         html: (r) => `<span class="cell-mono ${r.type === "consume" ? "text-danger" : "text-success"}">${sign(r)}${esc(r.amount)}</span>` },
@@ -4763,11 +4856,20 @@ async function loadSessions() {
   const others = items.filter((s) => !s.current).length;
   $("revokeOthersBtn").disabled = !others;
   if (!items.length) { list.innerHTML = emptyState({ icon: "lock", title: "No active sessions", sub: "" }); return; }
-  list.innerHTML = `<ul class="session-list">${items.map((s) => `<li class="session-row">
+  // the current device first; long lists show 5 rows until "Show all"
+  items.sort((a, b) => (b.current ? 1 : 0) - (a.current ? 1 : 0));
+  const SHOW = 5;
+  const more = items.length - SHOW;
+  list.innerHTML = `<ul class="session-list">${items.map((s, i) => `<li class="session-row${i >= SHOW ? " hidden" : ""}">
       <span class="mini-main"><span class="mini-title">${esc(deviceName(s.user_agent))} ${s.current ? '<span class="badge badge-ok">This device</span>' : ""}${s.impersonated_by ? ' <span class="badge badge-warm">Support session</span>' : ""}</span>
       <span class="mini-sub">Signed in ${esc(formatDate(s.created_at))}${s.expires_at ? " · expires " + esc(formatDate(s.expires_at)) : ""}</span></span>
       ${s.current ? "" : `<button type="button" class="btn-ghost btn-sm btn-danger-text" data-revoke-session="${esc(s.id)}">Sign out</button>`}
-    </li>`).join("")}</ul>`;
+    </li>`).join("")}</ul>${more > 0 ? `<div class="session-more"><button type="button" class="btn-ghost btn-sm" id="sessionsShowAll">Show all ${esc(items.length)} sessions</button></div>` : ""}`;
+  const all = $("sessionsShowAll");
+  if (all) all.addEventListener("click", () => {
+    list.querySelectorAll(".session-row.hidden").forEach((li) => li.classList.remove("hidden"));
+    all.parentElement.remove();
+  });
 }
 
 async function revokeSession(id) {
@@ -4775,7 +4877,7 @@ async function revokeSession(id) {
   if (!(await confirmAction({ title: all ? "Sign out every other session?" : "Sign out this session?", message: "Those devices will need to sign in again.", confirmLabel: "Sign out", danger: true }))) return;
   const res = await api(`/api/auth/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!res.ok) { toast(errText(res.data, "Could not sign out the session"), "error"); return; }
-  toast(all ? `Signed out ${res.data.revoked || 0} session(s)` : "Session signed out", "success");
+  toast(all ? `Signed out ${plural(res.data.revoked || 0, "session")}` : "Session signed out", "success");
   loadSessions();
 }
 
@@ -4811,9 +4913,18 @@ function renderNotifications() {
   }
   list.innerHTML = notifItems.map((n) => `<button type="button" class="notif-item${n.read ? "" : " unread"}" data-notif="${esc(n.id)}">
       <span class="notif-sev sev-${esc(n.type === "api_limit_recovered" ? "success" : n.severity || "info")}" aria-hidden="true">${n.type === "api_limit_recovered" ? SEVERITY_ICON.success : SEVERITY_ICON[n.severity] || "i"}</span>
-      <span class="notif-body"><span class="notif-title">${esc(n.title)}</span>${n.message ? `<span class="notif-msg">${esc(n.message)}</span>` : ""}<span class="notif-time">${esc(relativeTime(n.created_at))}</span></span>
+      <span class="notif-body"><span class="notif-title">${esc(n.title)}</span>${n.message ? `<span class="notif-msg">${esc(notifText(n.message))}</span>` : ""}<span class="notif-time">${esc(relativeTime(n.created_at))}</span></span>
       ${n.read ? "" : '<span class="sr-only">(unread)</span>'}
     </button>`).join("");
+}
+
+/** Notification text in plain English: "Your Facebook search finished — 1 post" instead of
+    "you@x.com's facebook search finished — 1 posts". */
+function notifText(msg) {
+  let t = String(msg || "");
+  const me = portal.user && portal.user.email;
+  if (me && t.toLowerCase().startsWith(me.toLowerCase() + "'s ")) t = "Your " + t.slice(me.length + 3);
+  return tidyCounts(t);
 }
 
 async function openNotification(id) {
@@ -4824,7 +4935,11 @@ async function openNotification(id) {
   if (!n) return;
   const data = n.data || {};
   if (data.search_run_id) { reopenSearch(data.search_run_id); return; }
-  if (n.type === "lead_assigned") { setLeadsView("assigned", false); navigateToView("leads", { userInitiated: true }); return; }
+  if (n.type === "lead_assigned" || n.type === "lead_sla_breached" || n.type === "follow_up_overdue") {
+    setLeadsView("assigned", false); navigateToView("leads", { userInitiated: true });
+    if (data.lead_id) openLeadDetail(String(data.lead_id));
+    return;
+  }
   if (/^api_limit_|^quota_warning$/.test(n.type || "")) { navigateToView("usage", { userInitiated: true }); return; }
   if (/demo|subscription|payment|token/.test(n.type || "")) { navigateToView("billing", { userInitiated: true }); return; }
   if (n.link && typeof n.link === "string" && n.link.startsWith("/") && !n.link.startsWith("//")) location.href = n.link;
@@ -4975,9 +5090,9 @@ function defineGuides() {
     { before: guideSidebar, target: '[data-tour="nav-search"]', placement: "right", title: "Start a new search",
       body: "Click New search and paste a Facebook, Instagram, YouTube or LinkedIn link. A short form asks about your business and the words that show buying interest, then the agent collects the page, its posts and their comments for you.\n\nNo link yet? The Keyword search tab finds matching profiles for you from a few words.\n\nIf your role is view-only, you can open results but not start searches." },
     { before: guideSidebar, target: '[data-tour="nav-results"]', placement: "right", title: "Results: pages, posts, comments",
-      body: "Each search opens in three levels: the page it found, that page's posts, and the comments on each post.\n\nComments that match your keywords are \"qualified\" and go to AI analysis. A filter shows qualified, not qualified or both, and Collect all comments fetches the rest of a post's comments when you want them." },
+      body: "Each search opens in three levels: the page it found, that page's posts, and the comments on each post.\n\nComments that match your keywords are sent to AI analysis. A filter shows the ones sent to AI, the ones not sent, or both, and Collect all comments fetches the rest of a post's comments when you want them." },
     { before: guideSidebar, target: '[data-tour="nav-leads"]', placement: "right", title: "Your leads",
-      body: "Leads lists everyone the AI scored as a likely buyer, plus leads a teammate assigned to you. Click a lead to open its dossier: the comment, score, contact details, budget, notes, follow-ups and status." },
+      body: "Leads lists everyone the AI scored as a likely buyer, plus leads a teammate assigned to you. Click a lead to open its details: the comment, score, contact details, budget, notes, follow-ups and status." },
     { before: guideSidebar, target: '[data-tour="nav-history"]', placement: "right", title: "Search history",
       body: "Every search you ran is kept here. Open one to go back to its pages, posts, comments and leads without running it again." },
     { before: guideSidebar, target: '[data-tour="nav-exports"]', placement: "right", title: "Exports",
@@ -5028,7 +5143,7 @@ function defineGuides() {
     { route: searchMode("link"), target: '[data-tour="search-step-link"]', title: "Paste your link",
       body: "In Social Link, paste a Facebook page, Instagram profile, YouTube channel or LinkedIn company page; LeadAI detects which one it is. You also choose how many posts to analyse and how many comments to collect per post, within your plan's limits." },
     { route: guideView("search"), target: '[data-tour="search-step-review"]', title: "Review and run",
-      body: "The last step shows everything you chose and how many tokens the search uses. Click Find Leads Now and follow the live progress: page, posts, comments, qualification, AI scoring and results." },
+      body: "The last step shows everything you chose and how many tokens the search uses. Click Find leads now and follow the live progress: page, posts, comments, qualification, AI scoring and results." },
   ].concat(keywordSteps) : [
     { route: guideView("search"), target: '[data-tour="search-permission"]', title: "Searching needs search access",
       body: "Your role is view-only, so the search form is hidden. You can still open results, comments and leads. Ask your workspace admin if you need to run searches." },
@@ -5062,12 +5177,12 @@ function defineGuides() {
     resultStep({ route: guideResultsView("posts"), target: '[data-tour="post-tile"]', optional: true, title: "2. Its posts",
       body: "Posts come with their likes and comment counts. Qualifying posts are relevant and have enough comments to be worth collecting.\n\nCollect comments fetches and analyses a post's comments; View comments & leads opens them once they're in." }),
     resultStep({ route: guideResultsView("comments"), target: '[data-tour="qualification-filter"]', optional: true, title: "3. Comments: qualified or not",
-      body: "These are the comments of one post. Qualified comments matched your keywords and were scored by AI. Not qualified comments are kept too, so nothing is lost, but they aren't sent to AI. Pick one group here, or see both.\n\nThe quick filters above narrow them to qualified leads, people who left a phone or email, hot leads, pricing questions or other inquiries." }),
+      body: "These are the comments of one post. Comments marked \"Sent to AI\" matched your keywords and were scored by AI. The others are kept too, so nothing is lost, but they aren't sent to AI. Pick one group here, or see both.\n\nThe quick filters above narrow them to qualified leads, people who left a phone or email, hot leads, pricing questions or other inquiries." }),
     resultStep({ route: guideResultsView("comments"), target: () => tourEl("collect-all") || tourEl("comments-summary"), optional: true,
       title: "Collect all comments",
       body: "A search collects a set number of comments per post. When a post has more, a Collect all button appears here and fetches the rest in one go. It counts as one comment collection, and comments already analysed aren't analysed again." }),
     resultStep({ route: guideResultsView("comments"), target: '[data-tour="lead-card"]', optional: true, title: "Read a lead",
-      body: "Each card shows the comment, an AI score from 0 to 100 (hot, warm or cold), why the AI thinks it's a lead, and any phone, email, budget or location it found. View full dossier opens everything, including status and notes." }),
+      body: "Each card shows the comment, an AI score from 0 to 100 (hot, warm or cold), why the AI thinks it's a lead, and any phone, email, budget or location it found. Open lead details shows everything, including status and notes." }),
     resultStep({ route: guideResultsView("comments"), target: '[data-tour="workflow-steps"]', optional: true, title: "Move between levels",
       body: "Jump back to the search, the pages or the posts at any time with these steps. Export CSV, at the top of each list, downloads what you see." }),
   ] });
@@ -5082,11 +5197,11 @@ function defineGuides() {
       get title() { return tourEl("lead-row") ? "One row per lead" : "Nothing here yet"; },
       get body() {
         return tourEl("lead-row")
-          ? "Each row shows the lead's score, quality, status and contact details. Click a phone number or email to reach out, or click the row to open the full dossier."
+          ? "Each row shows the lead's score, quality, status and contact details. Click a phone number or email to reach out, or click the row to open the lead details."
           : "Leads appear once your searches find people showing buying interest, or when a teammate assigns one to you. If filters are on, clear them to see more.";
       } },
-    { before: guideOpenDossier, target: '[data-tour="lead-score"]', optional: true, wait: QUICK, title: "The lead dossier",
-      body: "Clicking a lead opens its dossier. The score shows how likely the person is to buy, with the quality, priority and the AI's confidence. Above it are the original comment and the AI's reasoning; below are contact details, budget, requirement and location." },
+    { before: guideOpenDossier, target: '[data-tour="lead-score"]', optional: true, wait: QUICK, title: "The lead details",
+      body: "Clicking a lead opens its details. The score shows how likely the person is to buy, with the quality, priority and the AI's confidence. Above it are the original comment and the AI's reasoning; below are contact details, budget, requirement and location." },
     { before: guideOpenDossier, target: '[data-tour="lead-lifecycle"]', optional: true, wait: QUICK, title: "Work the pipeline",
       body: can("leads.manage")
         ? "Move each lead from New to Contacted, Qualified, Follow-up and Converted. Change the status here, add notes for your team and set follow-ups with a due date so nobody is forgotten."
@@ -5422,8 +5537,10 @@ async function checkAuth() {
   $("sidebarRole").textContent = ROLE_LABELS[user.org_role] || user.org_role || "";
   // lead analysis uses the organization's industry (set by the org Admin)
   const ind = user.industry || {};
-  $("industryHintName").textContent = ind.name || "";
-  $("industryHint").classList.toggle("hidden", !ind.name);
+  if (!(window.GuidedSearch && GuidedSearch.state && GuidedSearch.state.industryName)) {
+    $("industryHintName").textContent = ind.name || "";
+    $("industryHint").classList.toggle("hidden", !ind.name);
+  }
 
   const isAdmin = user.org_role === "owner" || user.org_role === "admin";
   const showAdminPortal = Boolean(user.admin_portal_enabled) && isAdmin;

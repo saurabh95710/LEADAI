@@ -22,3 +22,8 @@ htmlcov/
 
 # partner marketing files (private, served by permission-checked endpoints)
 data/
+
+# QA run output: Edge videos, Playwright traces, screenshots, raw logs and the
+# QA report (it describes security findings; keep it out of the public repo)
+reports/
+question_extractor.db

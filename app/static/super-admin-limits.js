@@ -434,7 +434,7 @@
     }).catch(function () { /* the page shows errors */ });
   }
 
-  K.register('Platform', null, [['api-limits', 'API limits', 'activity', 'apilimits', 'viewer']],
+  K.register('Platform', null, [['api-limits', 'API usage & limits', 'activity', 'apilimits', 'viewer']],
     { 'api-limits': [viewApiLimits, 'API usage & limits', null, 'viewer'] }, count);
 
   // ── guide ───────────────────────────────────────────────

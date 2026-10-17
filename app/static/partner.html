@@ -9,8 +9,8 @@
   <meta name="color-scheme" content="dark light"/>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
   <link rel="stylesheet" href="/static/design/tokens.css?v=r1005"/>
-  <link rel="stylesheet" href="/static/design/components.css?v=r1005"/>
-  <link rel="stylesheet" href="/static/org-admin.css?v=lim1"/>
+  <link rel="stylesheet" href="/static/design/components.css?v=r1006"/>
+  <link rel="stylesheet" href="/static/org-admin.css?v=ux2"/>
   <link rel="stylesheet" href="/static/design/tour.css?v=tour1"/>
   <script src="/static/design/theme.js?v=r1006" defer></script>
   <style>
@@ -23,6 +23,7 @@
     .pp-bars span:hover { opacity:1; }
     .pp-axis { display:flex; justify-content:space-between; font-size:var(--text-xs); color:var(--text-muted); margin-top:6px; }
     .pp-money { font-variant-numeric:tabular-nums; font-weight:600; white-space:nowrap; }
+    .pp-nowrap { white-space:nowrap; }
     .pp-asset { display:flex; flex-direction:column; gap:8px; }
     .pp-asset pre { white-space:pre-wrap; background:var(--surface); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:10px; font-size:var(--text-xs); max-height:180px; overflow:auto; margin:0; }
     .pp-asset img { max-width:100%; max-height:160px; object-fit:contain; border-radius:var(--radius-md); background:var(--surface); }
@@ -123,8 +124,8 @@
 
 <div id="oa-modal-root"></div>
 <div class="oa-toasts" id="oa-toasts" role="status" aria-live="polite"></div>
-<script src="/static/design/tour.js?v=tour1" defer></script>
-<script src="/static/partner.js?v=tour1" defer></script>
+<script src="/static/design/tour.js?v=tour2" defer></script>
+<script src="/static/partner.js?v=ux2" defer></script>
 <!-- Global Settings brand colours / font / default colour mode (name, logo: theme.js) -->
 <script src="/static/config.js?v=brand2" defer></script>
 <script>window.addEventListener("DOMContentLoaded", function () { if (window.AppConfig) AppConfig.load(); });</script>

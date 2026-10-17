@@ -601,7 +601,9 @@ def _lead_view(doc: Dict[str, Any], ctx: TenantContext) -> Dict[str, Any]:
         "lead_status", "lead_priority", "priority", "intent", "phone", "email", "whatsapp",
         "location", "budget", "requirement", "confidence", "reason", "assigned_to",
         "assigned_user_id", "lead_created_at", "created_at", "search_run_id",
-        "comment_ref", "post_ref", "page_ref")} | {
+        "comment_ref", "post_ref", "page_ref",
+        # set when an assignment rule gave the lead an owner (contact before sla_due_at)
+        "assigned_at", "assignment_rule_id", "sla_hours", "sla_due_at", "sla_status")} | {
         "assigned_to_me": doc.get("assigned_user_id") == ctx.user_id,
         "owned_by_me": doc.get("user_id") == ctx.user_id or (
             not doc.get("user_id") and doc.get("created_by") == ctx.email),
@@ -675,7 +677,9 @@ def _alerts(usage: Dict[str, Any], sub: Optional[Dict[str, Any]], counts: Dict[s
                        "action": "billing"})
     if counts.get("assigned_to_me"):
         alerts.append({"level": "info", "code": "LEADS_ASSIGNED",
-                       "message": f"{counts['assigned_to_me']} lead(s) are assigned to you.",
+                       "message": (f"{counts['assigned_to_me']} lead is assigned to you."
+                                   if counts["assigned_to_me"] == 1 else
+                                   f"{counts['assigned_to_me']} leads are assigned to you."),
                        "action": "assigned"})
     if failed_recent:
         alerts.append({"level": "warning", "code": "SEARCHES_FAILED",

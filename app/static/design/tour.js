@@ -213,7 +213,7 @@
     document.documentElement.classList.remove("lt-open");
     var back = a.prevFocus && document.contains(a.prevFocus) && a.prevFocus.offsetParent !== null ? a.prevFocus : a.returnFocus;
     if (!back || !document.contains(back)) back = document.querySelector(".lt-launch-btn");
-    if (back && document.contains(back)) { try { back.focus(); } catch (e) { /* ignore */ } }
+    if (back && document.contains(back)) { try { back.focus({ preventScroll: true }); } catch (e) { /* ignore */ } }
     try { if (a.tour.onEnd) a.tour.onEnd(finished); } catch (e) { /* ignore */ }
     try { window.dispatchEvent(new CustomEvent("leadtour:end", { detail: { id: a.id, finished: finished } })); } catch (e) { /* ignore */ }
     refreshLaunchers();

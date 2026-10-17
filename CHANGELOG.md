@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (UI pass 2026-10-16)
+- **Org Admin → Assignment rules** (`/org-admin#assignment`): create rules that share new leads round-robin between chosen members with a contact time (SLA), see who gets which leads, delete rules. Explains how rules work.
+- **Lead SLA in the customer app**: lead details show "Contact by … (4-hour SLA)" or "SLA missed — contact now"; the leads list marks overdue leads.
+- **Public opt-out page** (`/opt-out`): people whose public comments were collected can remove their email or phone without an account (email link or SMS code). Linked from the footer, privacy page and contact page.
+- Mistyped public addresses show the 404 page instead of the sign-in page.
+
+### Changed (UI pass 2026-10-16)
+- All portals: clearer plain-English wording, correct singular/plural ("1 lead", not "1 lead(s)"), exact token counts below 10,000 ("1,975 / 2,000" instead of "2K / 2K"), readable KPI labels (no more "ACTIVE SUBSCR…"), menu names that match page titles, sentence case, phone-width fixes.
+- Sign-in page uses the green brand style like the rest of the product; primary buttons have readable contrast across the whole button.
+- Closing the welcome guide no longer scrolls the page under the top bar.
+- Partner Portal: plain labels, "Request payout" disabled when there is nothing to pay, real plan names.
+- Super Admin: honest "Webhook delivery is coming soon" notice, help text on Partner Program settings, pricing preview no longer lists features twice.
+
+### Fixed (QA run 2026-10-16, see reports/QA_REPORT.md)
+- **Revoke all sessions did nothing** (Super Admin → Security): the epoch was a counter compared with cookie times in seconds. It is now the revocation time, and every tracked session in every portal is revoked.
+- **Bulk search skipped every rule**: `POST /api/search/bulk` queued Apify runs without the search switches, plan caps, tokens or monthly quota. Each URL is now admitted like a single search.
+- **Public opt-out**: it purged every organization's matching leads at once and any signed-in customer could call it. A prospect now opts out without an account, confirmed by an email link or SMS code; usernames are refused.
+- **Assignment rules were never applied**: rules now assign new leads round-robin, stamp an SLA, accept only active members, and the background sweep flags missed SLAs and overdue follow-ups.
+- **Environment guard password** could be guessed without limit: 5 wrong tries per account lock it for 15 minutes.
+- Security: 2FA can no longer be replaced with only a session; webhook listings no longer return the signing secret; AI model audit entries can no longer name someone else; partner records no longer store the Super Admin's session object; a partner editing a coupon no longer undoes the Super Admin's commission decision; verification emails are only sent to existing unverified accounts.
+- Broken flows: `GET /api/search/scheduled` (shadowed, and now scoped to the member); Apify control center wrote actor keys the scrapers never read; AI models created through the API could not be read; `DELETE /api/admin/apify/token`, AI model list and category rename answered 500; admin lead PATCH lost the status when a note was sent; legacy env overrides could not be removed; the keyword library ignored custom industries; the emailed verification link had no page (`/verify-email`); right-to-be-forgotten by name missed capitalised names.
+- Validation: negative trial extensions and credit grants are refused; admin lead search combines text and contact filters with AND; notes on a missing lead answer 404.
+
 ### Added
 - **Partner / Reseller / Affiliate Program** (see `docs/PARTNERS.md`): public `/partners` application page; Super Admin Partner Management (applications, partners, commissions, payouts, rules, tiers, coupons, marketing assets, program settings); Partner Portal at `/partner` with permission-based modules; `partner` session scope; referral links and campaigns with signed first- and last-touch attribution; reseller onboarding through the existing demo flow; partner coupons applied at checkout; commissions from subscription confirmation and renewal; derived wallet with a ledger; payouts; read-only partner API keys; new platform permissions `partners.view` / `partners.manage`.
 

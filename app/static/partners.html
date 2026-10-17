@@ -9,14 +9,14 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap"/>
   <link rel="stylesheet" href="/static/design/tokens.css?v=r1005"/>
-  <link rel="stylesheet" href="/static/design/components.css?v=r1005"/>
-  <link rel="stylesheet" href="/static/website.css?v=apicov1"/>
+  <link rel="stylesheet" href="/static/design/components.css?v=r1006"/>
+  <link rel="stylesheet" href="/static/website.css?v=ui2"/>
   <script src="/static/design/theme.js?v=r1006"></script>
   <style>
     .pp-facts { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin-top:8px; }
     .pp-fact { background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:var(--radius-lg); padding:18px; text-align:center; }
     .pp-fact b { display:block; font-size:var(--text-2xl); font-weight:800; color:var(--text-primary); letter-spacing:-0.02em; }
-    .pp-fact span { color:var(--text-secondary); font-size:var(--text-sm); }
+    .pp-fact span { display:block; margin-top:4px; color:var(--text-secondary); font-size:var(--text-sm); line-height:1.45; }
     .pp-types { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:18px; }
     .pp-type { background:var(--glass-bg); border:1px solid var(--glass-border); border-radius:var(--radius-lg); padding:20px; }
     .pp-type h3 { font-size:var(--text-lg); font-weight:700; color:var(--text-primary); margin:0 0 6px; }
@@ -99,24 +99,28 @@
                   <input class="form-input" id="ap-company" autocomplete="organization" maxlength="160"/></div>
                 <div class="form-group"><label class="form-label" for="ap-phone">Phone <span class="optional">(optional)</span></label>
                   <input class="form-input" type="tel" id="ap-phone" autocomplete="tel" maxlength="30" data-error="ap-phone-err" aria-describedby="ap-phone-err"/><p class="field-error" id="ap-phone-err"></p></div>
-                <div class="form-group"><label class="form-label" for="ap-country">Country</label>
+                <div class="form-group"><label class="form-label" for="ap-country">Country <span class="optional">(optional)</span></label>
                   <input class="form-input" id="ap-country" autocomplete="country-name" maxlength="80"/></div>
-                <div class="form-group"><label class="form-label" for="ap-city">City</label>
+                <div class="form-group"><label class="form-label" for="ap-city">City <span class="optional">(optional)</span></label>
                   <input class="form-input" id="ap-city" autocomplete="address-level2" maxlength="80"/></div>
                 <div class="form-group"><label class="form-label" for="ap-website">Website <span class="optional">(optional)</span></label>
                   <input class="form-input" type="url" id="ap-website" placeholder="https://" maxlength="300" data-error="ap-website-err" aria-describedby="ap-website-err"/><p class="field-error" id="ap-website-err"></p></div>
-                <div class="form-group"><label class="form-label" for="ap-btype">Business type</label>
+                <div class="form-group"><label class="form-label" for="ap-btype">Business type <span class="optional">(optional)</span></label>
                   <select class="form-select form-input" id="ap-btype">
                     <option value="">Choose…</option><option>Marketing agency</option><option>Consultant</option><option>Software reseller</option>
                     <option>Content creator / influencer</option><option>System integrator</option><option>Other</option>
                   </select></div>
               </div>
 
-              <p class="pp-legend">Your plan</p>
-              <div class="form-group"><label class="form-label" for="ap-exp">Sales / marketing experience</label>
-                <textarea class="form-input form-textarea" id="ap-exp" rows="3" maxlength="2000" data-error="ap-exp-err" aria-describedby="ap-exp-err"></textarea><p class="field-error" id="ap-exp-err"></p></div>
+              <p class="pp-legend">Your experience and ideas</p>
+              <div class="form-group"><label class="form-label" for="ap-exp">Sales or marketing experience</label>
+                <textarea class="form-input form-textarea" id="ap-exp" rows="3" maxlength="2000" data-error="ap-exp-err" aria-describedby="ap-exp-hint ap-exp-err"
+                          placeholder="e.g. I run a small marketing agency with 40 local clients."></textarea>
+                <p class="form-hint" id="ap-exp-hint">A few sentences is enough.</p><p class="field-error" id="ap-exp-err"></p></div>
               <div class="form-group"><label class="form-label" for="ap-plan">How will you promote LeadAI?</label>
-                <textarea class="form-input form-textarea" id="ap-plan" rows="3" maxlength="3000" data-error="ap-plan-err" aria-describedby="ap-plan-err"></textarea><p class="field-error" id="ap-plan-err"></p></div>
+                <textarea class="form-input form-textarea" id="ap-plan" rows="3" maxlength="3000" data-error="ap-plan-err" aria-describedby="ap-plan-hint ap-plan-err"
+                          placeholder="e.g. Tell my clients, write a blog post, post on LinkedIn."></textarea>
+                <p class="form-hint" id="ap-plan-hint">For example: to your clients, on your website, on social media or at events.</p><p class="field-error" id="ap-plan-err"></p></div>
               <div class="form-grid">
                 <div class="form-group"><label class="form-label" for="ap-li">LinkedIn <span class="optional">(optional)</span></label><input class="form-input" type="url" id="ap-li" placeholder="https://linkedin.com/in/…" maxlength="300"/></div>
                 <div class="form-group"><label class="form-label" for="ap-tw">Other profile <span class="optional">(optional)</span></label><input class="form-input" type="url" id="ap-tw" placeholder="https://…" maxlength="300"/></div>
@@ -134,8 +138,14 @@
 
               <p class="pp-legend">Partner account</p>
               <div class="form-group"><label class="form-label" for="ap-pw">Password</label>
-                <input class="form-input" type="password" id="ap-pw" autocomplete="new-password" data-error="ap-pw-err" aria-describedby="ap-pw-err ap-pw-hint"/>
-                <p class="form-hint" id="ap-pw-hint">8+ characters with an uppercase letter and a number. Already a LeadAI customer? Use your existing email and password.</p>
+                <div class="input-wrap">
+                  <input class="form-input" type="password" id="ap-pw" autocomplete="new-password" data-error="ap-pw-err" aria-describedby="ap-pw-err ap-pw-hint"/>
+                  <button type="button" class="input-affix" data-toggle-password="ap-pw" aria-label="Show password" aria-pressed="false">
+                    <svg class="icon-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    <svg class="icon-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                  </button>
+                </div>
+                <p class="form-hint" id="ap-pw-hint">You'll use it to sign in to the Partner Portal. Use 8+ characters with an uppercase letter and a number. Already a LeadAI customer? Use your existing email and password.</p>
                 <p class="field-error" id="ap-pw-err"></p></div>
               <label class="pp-check"><input type="checkbox" id="ap-terms" data-error="ap-terms-err" aria-describedby="ap-terms-err"/>
                 <span>I agree to the LeadAI Partner Program terms, the <a class="link" href="/terms" target="_blank" rel="noopener">Terms of Service</a> and the <a class="link" href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>, and confirm I won't spam or use misleading claims.</span></label>
@@ -146,7 +156,7 @@
           </div>
           <div id="success-view" hidden tabindex="-1">
             <div class="auth-icon tone-success" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
-            <h2>Application received</h2>
+            <h2 style="font-size:var(--text-xl);font-weight:700;color:var(--text-primary);margin-bottom:8px">Application received</h2>
             <p class="text-secondary" id="success-text"></p>
             <div class="cta-row" style="margin-top:20px"><a class="btn btn-primary" href="/login?partner=1">Check application status</a><a class="btn btn-secondary" href="/website">Back to the website</a></div>
           </div>
@@ -157,7 +167,7 @@
   <footer class="site-footer" id="site-footer"></footer>
 </div>
 
-<script src="/static/website.js?v=brand2"></script>
+<script src="/static/website.js?v=ui2"></script>
 <script>
 (function () {
   'use strict';
@@ -175,6 +185,7 @@
 
   async function boot() {
     S.initChrome(null);
+    if (UI.bindPasswordToggles) UI.bindPasswordToggles($('apply-form'));
     // self-serve free trial: referred businesses start a trial themselves
     S.soft(S.api('/api/public/config')).then(cfg => {
       const t = (cfg && cfg.trial) || {};
@@ -191,10 +202,13 @@
     }
     const p = res.data.program;
     const c = p.commission;
-    facts.appendChild(fact(c ? (c.type === 'percentage' ? c.value + '%' : money(c.value)) : '—', 'commission per payment'));
-    facts.appendChild(fact(c && c.recurring ? (c.duration_months ? c.duration_months + ' mo' : 'Lifetime') : 'First payment', 'recurring commission'));
-    facts.appendChild(fact(p.attribution_window_days + ' days', 'referral cookie window'));
-    facts.appendChild(fact(money(p.min_payout), 'minimum payout'));
+    facts.appendChild(fact(c ? (c.type === 'percentage' ? c.value + '%' : money(c.value)) : '—',
+      c && c.type === 'percentage' ? 'of each customer payment' : 'for each customer payment'));
+    facts.appendChild(c && c.recurring
+      ? fact(c.duration_months ? c.duration_months + (c.duration_months === 1 ? ' month' : ' months') : 'For life', 'you keep earning on their payments')
+      : fact('First payment', 'you earn on their first payment only'));
+    facts.appendChild(fact(p.attribution_window_days + ' days', 'for a click on your link to count'));
+    facts.appendChild(fact(money(p.min_payout), 'balance needed for a payout'));
     const types = S.clear($('pp-types'));
     (p.partner_types || []).forEach(t => types.appendChild(S.h('div', { class: 'pp-type' }, S.h('h3', { text: t.name }), S.h('p', { text: t.summary }))));
     const sel = $('ap-method');
@@ -211,8 +225,8 @@
     if (!UI.isEmail(f.email.value)) e.email = 'Enter a valid email address.';
     if (f.phone.value.trim() && !/^[+()\-.\s\d]{6,30}$/.test(f.phone.value.trim())) e.phone = 'Use digits, spaces and + ( ) - only.';
     if (f.website.value.trim() && !URL_RE.test(f.website.value.trim())) e.website = 'Use a full URL starting with https://';
-    if (f.experience.value.trim().length < 10) e.experience = 'Tell us a little about your experience.';
-    if (f.promotion_plan.value.trim().length < 10) e.promotion_plan = 'Tell us how you plan to promote LeadAI.';
+    if (f.experience.value.trim().length < 10) e.experience = 'Tell us a little about your experience (at least 10 characters).';
+    if (f.promotion_plan.value.trim().length < 10) e.promotion_plan = 'Tell us how you plan to promote LeadAI (at least 10 characters).';
     if (!f.password.value) e.password = 'Choose a password (or enter your existing LeadAI password).';
     if (!f.terms.checked) e.terms = 'Please accept the Partner Program terms.';
     return e;

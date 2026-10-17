@@ -120,10 +120,12 @@
 }
 .btn:disabled { opacity:0.5; cursor:not-allowed; pointer-events:none; }
 .btn-primary {
-  background: linear-gradient(135deg, var(--primary-fill) 0%, var(--primary-dark) 100%);
+  /* both ends light: the dark label stays readable across the whole button
+     (ending on --primary-dark dropped it to ~3:1 on narrow buttons) */
+  background: linear-gradient(135deg, var(--primary-fill) 0%, var(--primary-fill-hover) 100%);
   color:var(--on-primary); box-shadow:0 6px 20px var(--primary-soft);
 }
-.btn-primary:hover { background:linear-gradient(135deg,var(--primary-fill-hover) 0%,var(--primary-dark) 100%); box-shadow:var(--glow-strong); transform:translateY(-1px); }
+.btn-primary:hover { background:linear-gradient(135deg,var(--primary-fill-hover) 0%,var(--primary-fill) 100%); box-shadow:var(--glow-strong); transform:translateY(-1px); }
 .btn-secondary {
   background:var(--surface); color:var(--text-primary);
   border:1px solid var(--border);

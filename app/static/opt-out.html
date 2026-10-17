@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en" data-appconfig="brand-only">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Remove my contact details · LeadAI</title>
+  <meta name="description" content="Ask LeadAI to stop using your email address or phone number. We remove it from all collected leads and block it from future use."/>
+  <meta name="referrer" content="no-referrer"/>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>"/>
+  <link rel="stylesheet" href="/static/design/tokens.css?v=r1005"/>
+  <link rel="stylesheet" href="/static/design/components.css?v=r1006"/>
+  <script src="/static/design/theme.js?v=r1006"></script>
+  <style>
+    .oo-facts { list-style:none; display:grid; gap:12px; margin:0 0 24px; padding:16px 18px; border:1px solid var(--border); border-radius:var(--radius-lg); background:var(--surface); }
+    .oo-facts li { display:grid; grid-template-columns:22px minmax(0,1fr); gap:10px; align-items:start; font-size:var(--text-sm); color:var(--text-secondary); line-height:1.55; }
+    .oo-facts svg { width:18px; height:18px; margin-top:1px; color:var(--success-text); }
+    .oo-facts li.is-note svg { color:var(--info-text); }
+    .oo-facts strong { color:var(--text-primary); font-weight:600; }
+    .oo-label { display:block; font-size:var(--text-sm); font-weight:600; color:var(--text-primary); margin-bottom:8px; }
+    .method-switch { display:flex; width:100%; margin-bottom:18px; }
+    .method-switch button { flex:1 1 0; min-width:0; min-height:40px; display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:8px 10px; font-size:var(--text-sm); }
+    .method-switch svg { width:16px; height:16px; flex-shrink:0; }
+    .method-panel[hidden] { display:none; }
+    .code-input { font-family:var(--font-mono); font-size:1.375rem !important; letter-spacing:0.45em; text-align:center; padding-left:calc(14px + 0.45em) !important; }
+    .code-input::placeholder { letter-spacing:0.45em; color:var(--text-muted); }
+    .char-count { font-size:var(--text-xs); color:var(--text-muted); text-align:right; }
+    .oo-small { margin-top:20px; font-size:var(--text-xs); color:var(--text-muted); line-height:1.6; text-align:center; }
+    .oo-small a { color:var(--text-secondary); }
+    .oo-list { font-size:var(--text-sm); color:var(--text-secondary); padding-left:18px; display:grid; gap:6px; line-height:1.55; }
+    .resend-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; margin-top:20px; font-size:var(--text-sm); color:var(--text-secondary); }
+    .resend-row .btn-link { font:inherit; font-weight:600; cursor:pointer; border-radius:4px; }
+    .resend-row .btn-link:disabled { color:var(--text-muted); cursor:default; text-decoration:none; font-weight:500; }
+    .resend-row .btn-link:focus-visible { outline:none; box-shadow:var(--focus-ring); }
+    .auth-subtitle strong { overflow-wrap:anywhere; }
+    @media (max-width:520px) { .oo-facts { padding:14px; } }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="auth-shell">
+  <header class="brand-bar">
+    <a class="brand" href="/website">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.1 6.4 6.4 2.1-6.4 2.1L12 19.5l-2.1-6.4L3.5 11l6.4-2.1z"/></svg></span>
+      <span data-brand-name>LeadAI</span>
+    </a>
+    <div class="brand-actions">
+      <button type="button" class="btn theme-toggle" data-theme-toggle aria-label="Switch theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="auth-main" id="main">
+    <section class="auth-card auth-card-wide">
+
+      <!-- ── View: the request form ── -->
+      <div data-view="form" hidden>
+        <div class="auth-header">
+          <div class="auth-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+          </div>
+          <p class="auth-eyebrow">Your privacy</p>
+          <h1 class="auth-title" tabindex="-1">Stop using my contact details</h1>
+          <p class="auth-subtitle">Businesses use <span data-brand-name>LeadAI</span> to find customers in public social media comments. If you wrote your email or phone number in a public comment, you can ask us to remove it. You don't need an account.</p>
+        </div>
+
+        <ul class="oo-facts" aria-label="What happens">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            <span>We <strong>remove</strong> your email or phone number from every lead our customers collected.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            <span>We <strong>block</strong> it, so it is not collected or used again.</span></li>
+          <li class="is-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <span>First we check that it is really yours. <strong>Nothing changes until you confirm.</strong></span></li>
+        </ul>
+
+        <span class="oo-label" id="methodLabel">What do you want to remove?</span>
+        <div class="segmented method-switch" role="tablist" aria-labelledby="methodLabel">
+          <button type="button" role="tab" id="tabEmail" aria-controls="panelEmail" aria-selected="true" data-method="email">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            <span>Email address</span>
+          </button>
+          <button type="button" role="tab" id="tabPhone" aria-controls="panelPhone" aria-selected="false" tabindex="-1" data-method="phone">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+            <span>Phone number</span>
+          </button>
+        </div>
+
+        <div class="alert alert-danger hidden" id="formAlert" role="alert" style="margin-bottom:18px">
+          <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div class="alert-body" id="formAlertText"></div>
+        </div>
+
+        <form class="auth-form" id="optForm" novalidate>
+          <div class="method-panel" id="panelEmail" role="tabpanel" aria-labelledby="tabEmail">
+            <div class="form-group">
+              <label class="form-label" for="ooEmail">Your email address</label>
+              <input class="form-input" type="email" id="ooEmail" name="email" autocomplete="email" inputmode="email"
+                     spellcheck="false" autocapitalize="off" maxlength="320" placeholder="name@example.com"
+                     aria-describedby="ooEmailHint ooEmailError" data-error="ooEmailError"/>
+              <div class="form-hint" id="ooEmailHint">We will email you a link to confirm.</div>
+              <div class="field-error" id="ooEmailError" aria-live="polite"></div>
+            </div>
+          </div>
+          <div class="method-panel" id="panelPhone" role="tabpanel" aria-labelledby="tabPhone" hidden>
+            <div class="form-group">
+              <label class="form-label" for="ooPhone">Your phone number</label>
+              <input class="form-input" type="tel" id="ooPhone" name="phone" autocomplete="tel" inputmode="tel" maxlength="30"
+                     placeholder="+91 98765 43210"
+                     aria-describedby="ooPhoneHint ooPhoneError" data-error="ooPhoneError"/>
+              <div class="form-hint" id="ooPhoneHint">Include the country code. We will text you a 6-digit code to confirm.</div>
+              <div class="field-error" id="ooPhoneError" aria-live="polite"></div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="ooReason">Reason <span class="optional">(optional)</span></label>
+            <textarea class="form-input form-textarea" id="ooReason" name="reason" rows="2" maxlength="500" style="min-height:72px"
+                      placeholder="e.g. I don't want businesses to contact me" aria-describedby="ooReasonCount"></textarea>
+            <div class="char-count" id="ooReasonCount" aria-live="off"><span id="ooReasonLen">0</span> / 500</div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-lg btn-block" id="sendBtn">
+            <span class="spinner" aria-hidden="true"></span><span class="btn-label">Send confirmation link</span>
+          </button>
+        </form>
+        <p class="oo-small">We only use what you type here to handle this request.
+          Is it about something else, like a social media username? <a href="/contact?topic=support">Contact us</a>.
+          Read our <a href="/privacy">Privacy Policy</a>.</p>
+      </div>
+
+      <!-- ── View: email link sent ── -->
+      <div data-view="email-sent" hidden>
+        <div class="auth-header">
+          <div class="auth-icon tone-success" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          </div>
+          <h1 class="auth-title" tabindex="-1">Check your inbox</h1>
+          <p class="auth-subtitle" role="status">We sent a confirmation link to <strong id="sentEmail"></strong>. Open it within <strong>24 hours</strong>. Your details are removed when you open the link.</p>
+        </div>
+        <ul class="oo-list">
+          <li>Until you open the link, nothing changes.</li>
+          <li>The link works only once.</li>
+          <li>No email after a few minutes? Check your spam or promotions folder, or check the address and try again.</li>
+        </ul>
+        <div class="auth-actions">
+          <a class="btn btn-primary btn-lg btn-block" href="/website">Back to home</a>
+          <button type="button" class="btn btn-ghost btn-block" data-again="email">Use a different email</button>
+        </div>
+      </div>
+
+      <!-- ── View: enter the SMS code ── -->
+      <div data-view="code" hidden>
+        <div class="auth-header">
+          <div class="auth-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+          </div>
+          <h1 class="auth-title" tabindex="-1">Enter your code</h1>
+          <p class="auth-subtitle" role="status">We sent a 6-digit code by text message to <strong id="codePhone"></strong>. The code works for 15 minutes.</p>
+        </div>
+        <div class="alert alert-danger hidden" id="codeAlert" role="alert" style="margin-bottom:18px">
+          <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div class="alert-body" id="codeAlertText"></div>
+        </div>
+        <form class="auth-form" id="codeForm" novalidate>
+          <div class="form-group">
+            <label class="form-label" for="ooCode">6-digit code</label>
+            <input class="form-input code-input" type="text" id="ooCode" name="code" inputmode="numeric" autocomplete="one-time-code"
+                   pattern="[0-9]*" maxlength="6" placeholder="••••••" spellcheck="false"
+                   aria-describedby="ooCodeError" data-error="ooCodeError"/>
+            <div class="field-error" id="ooCodeError" aria-live="polite"></div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-lg btn-block" id="confirmBtn">
+            <span class="spinner" aria-hidden="true"></span><span class="btn-label">Confirm and remove my number</span>
+          </button>
+        </form>
+        <div class="resend-row">
+          <button type="button" class="btn-link" id="resendBtn" aria-describedby="resendWait">Send a new code</button>
+          <span class="sr-only" id="resendWait"></span>
+          <button type="button" class="btn-link" data-again="phone">Use a different number</button>
+        </div>
+      </div>
+
+      <!-- ── View: confirm from the emailed link (/opt-out?token=…&email=…) ── -->
+      <div data-view="link" hidden>
+        <div class="auth-header">
+          <div class="auth-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+          </div>
+          <h1 class="auth-title" tabindex="-1">Confirm your request</h1>
+          <p class="auth-subtitle">Remove <strong id="linkEmail"></strong> from all collected leads and block it from future use?</p>
+        </div>
+        <div class="alert alert-danger hidden" id="linkAlert" role="alert" style="margin-bottom:18px">
+          <div class="alert-body" id="linkAlertText"></div>
+        </div>
+        <button type="button" class="btn btn-primary btn-lg btn-block" id="linkBtn">
+          <span class="spinner" aria-hidden="true"></span><span class="btn-label">Yes, remove my email</span>
+        </button>
+        <p class="auth-alt">Didn't ask for this? Close this page. Nothing will change.</p>
+      </div>
+
+      <!-- ── View: done ── -->
+      <div data-view="done" hidden>
+        <div class="auth-header text-center">
+          <div class="auth-icon tone-success" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </div>
+          <h1 class="auth-title" tabindex="-1">Your details are removed</h1>
+          <p class="auth-subtitle" role="status"><strong id="doneValue"></strong> was removed from the leads our customers collected. It is now blocked, so it will not be collected or used again. You don't need to do anything else.</p>
+        </div>
+        <a class="btn btn-primary btn-lg btn-block" href="/website">Back to home</a>
+      </div>
+
+      <!-- ── View: link expired / already used ── -->
+      <div data-view="invalid" hidden>
+        <div class="auth-header text-center">
+          <div class="auth-icon tone-warning" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <h1 class="auth-title" tabindex="-1">This link has expired or was already used</h1>
+          <p class="auth-subtitle">Links work once and for 24 hours. If you already opened it, your request is done. If not, start again and we'll send a new link.</p>
+        </div>
+        <div class="auth-actions" style="margin-top:0">
+          <a class="btn btn-primary btn-lg btn-block" href="/opt-out">Start again</a>
+          <a class="btn btn-ghost btn-block" href="/website">Back to home</a>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <footer class="auth-footer">
+    <nav aria-label="Footer"><a href="/website">Home</a><a href="/contact">Contact</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+    <p style="margin-top:6px">© 2026 <span data-brand-name>LeadAI</span></p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var UI = window.LeadAIUI;
+  var $ = function (id) { return document.getElementById(id); };
+  var PHONE_RE = /^[+()\-.\s\d]{6,30}$/;
+  var RESEND_WAIT = 60;               // seconds before "Send a new code" works again
+  var TITLES = { form: "Remove my contact details", "email-sent": "Check your inbox", code: "Enter your code",
+                 link: "Confirm your request", done: "Details removed", invalid: "Link expired" };
+
+  function show(view, focus) {
+    document.querySelectorAll("[data-view]").forEach(function (el) {
+      el.hidden = el.getAttribute("data-view") !== view;
+    });
+    document.title = (TITLES[view] || TITLES.form) + " · LeadAI";
+    if (focus) {
+      var h = document.querySelector('[data-view="' + view + '"] .auth-title');
+      if (h) h.focus({ preventScroll: true });
+      window.scrollTo(0, 0);
+    }
+  }
+  function alertBox(prefix, msg) {
+    var box = $(prefix + "Alert");
+    if (!msg) { box.classList.add("hidden"); return; }
+    $(prefix + "AlertText").textContent = msg;
+    box.classList.remove("hidden");
+  }
+  function phoneProblem(v) {
+    v = String(v || "").trim();
+    if (!v) return "Enter your phone number.";
+    if (!PHONE_RE.test(v) || v.replace(/\D/g, "").length < 7) return "Enter a valid phone number, like +91 98765 43210.";
+    return "";
+  }
+  function emailProblem(v) {
+    v = String(v || "").trim();
+    if (!v) return "Enter your email address.";
+    return UI.isEmail(v) ? "" : "Enter a valid email address, like name@example.com.";
+  }
+
+  // ── Email or phone ──────────────────────────────────────────────────────
+  var method = "email";
+  var tabs = [$("tabEmail"), $("tabPhone")];
+  var email = $("ooEmail"), phone = $("ooPhone"), reason = $("ooReason");
+  function selectMethod(m, focusTab) {
+    method = m;
+    tabs.forEach(function (tab) {
+      var on = tab.getAttribute("data-method") === m;
+      tab.setAttribute("aria-selected", String(on));
+      tab.tabIndex = on ? 0 : -1;
+      $(tab.getAttribute("aria-controls")).hidden = !on;
+      if (on && focusTab) tab.focus();
+    });
+    $("sendBtn").querySelector(".btn-label").textContent = m === "email" ? "Send confirmation link" : "Send code";
+    alertBox("form", "");
+  }
+  tabs.forEach(function (tab, i) {
+    tab.addEventListener("click", function () { selectMethod(tab.getAttribute("data-method"), false); });
+    tab.addEventListener("keydown", function (e) {
+      var next = null;
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") next = tabs[(i + 1) % tabs.length];
+      else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = tabs[(i - 1 + tabs.length) % tabs.length];
+      else if (e.key === "Home") next = tabs[0];
+      else if (e.key === "End") next = tabs[tabs.length - 1];
+      if (!next) return;
+      e.preventDefault();
+      selectMethod(next.getAttribute("data-method"), true);
+    });
+  });
+  reason.addEventListener("input", function () { $("ooReasonLen").textContent = String(reason.value.length); });
+  email.addEventListener("input", function () { if (email.getAttribute("aria-invalid") && !emailProblem(email.value)) UI.fieldError(email, ""); });
+  phone.addEventListener("input", function () { if (phone.getAttribute("aria-invalid") && !phoneProblem(phone.value)) UI.fieldError(phone, ""); });
+
+  // POST /api/compliance/opt-out — always answers "confirmation_sent" (it never
+  // tells whether we hold data on the contact).
+  async function request(type, value, btn, busy) {
+    if (btn) UI.setBusy(btn, true, busy);
+    var res = await UI.api("/api/compliance/opt-out", { method: "POST",
+      body: { contact_type: type, contact_value: value, reason: reason.value.trim() || undefined } });
+    if (btn) UI.setBusy(btn, false);
+    if (res.networkError) return { error: "We couldn't reach the server. Check your connection and try again." };
+    if (res.status === 429) return { error: "Too many requests. Please wait a few minutes and try again." };
+    if (res.status === 422) return { field: UI.errorMessage(res.data, type === "email" ? "Enter a valid email address." : "Enter a valid phone number.") };
+    if (!res.ok) return { error: UI.errorMessage(res.data, "We couldn't send your request right now. Please try again.") };
+    return { ok: true };
+  }
+
+  var smsPhone = "";
+  $("optForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    alertBox("form", "");
+    var input = method === "email" ? email : phone;
+    var value = input.value.trim();
+    var problem = method === "email" ? emailProblem(value) : phoneProblem(value);
+    UI.fieldError(input, problem);
+    if (problem) { input.focus(); return; }
+    var out = await request(method, value, $("sendBtn"), "Sending…");
+    if (out.field) { UI.fieldError(input, out.field); input.focus(); return; }
+    if (out.error) { alertBox("form", out.error); return; }
+    if (method === "email") {
+      $("sentEmail").textContent = value;
+      show("email-sent", true);
+    } else {
+      smsPhone = value;
+      $("codePhone").textContent = value;
+      code.value = "";
+      UI.fieldError(code, "");
+      alertBox("code", "");
+      startResendCooldown();
+      show("code", false);
+      code.focus();
+    }
+  });
+
+  document.querySelectorAll("[data-again]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      clearInterval(resendTimer);
+      selectMethod(b.getAttribute("data-again"), false);
+      show("form", false);
+      var input = method === "email" ? email : phone;
+      input.select();
+      input.focus();
+    });
+  });
+
+  // ── Phone: confirm the 6-digit code ─────────────────────────────────────
+  var code = $("ooCode");
+  var resendTimer = null;
+  code.addEventListener("input", function () {
+    var digits = code.value.replace(/\D/g, "").slice(0, 6);
+    if (digits !== code.value) code.value = digits;
+    if (code.getAttribute("aria-invalid") && digits.length === 6) UI.fieldError(code, "");
+  });
+  function startResendCooldown() {
+    var btn = $("resendBtn");
+    var left = RESEND_WAIT;
+    clearInterval(resendTimer);
+    var tick = function () {
+      if (left <= 0) {
+        clearInterval(resendTimer);
+        btn.disabled = false;
+        btn.textContent = "Send a new code";
+        $("resendWait").textContent = "";
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = "Send a new code in " + left + "s";
+      $("resendWait").textContent = "Available in " + left + " seconds.";
+      left -= 1;
+    };
+    tick();
+    resendTimer = setInterval(tick, 1000);
+  }
+  $("resendBtn").addEventListener("click", async function () {
+    var btn = this;
+    alertBox("code", "");
+    btn.disabled = true;
+    btn.textContent = "Sending…";
+    var out = await request("phone", smsPhone, null, "");
+    if (out.error || out.field) {
+      btn.disabled = false;
+      btn.textContent = "Send a new code";
+      alertBox("code", out.error || out.field);
+      return;
+    }
+    code.value = "";
+    UI.fieldError(code, "");
+    $("codePhone").textContent = smsPhone;
+    alertBox("code", "");
+    startResendCooldown();
+    code.focus();
+  });
+  $("codeForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    alertBox("code", "");
+    var digits = code.value.replace(/\D/g, "");
+    var problem = !digits ? "Enter the 6-digit code from the text message." : (digits.length !== 6 ? "The code has 6 digits." : "");
+    UI.fieldError(code, problem);
+    if (problem) { code.focus(); return; }
+    var btn = $("confirmBtn");
+    UI.setBusy(btn, true, "Confirming…");
+    var res = await UI.api("/api/compliance/opt-out/confirm", { method: "POST", body: { contact_value: smsPhone, code: digits } });
+    UI.setBusy(btn, false);
+    if (res.ok) {
+      clearInterval(resendTimer);
+      $("doneValue").textContent = smsPhone;
+      show("done", true);
+      return;
+    }
+    if (res.networkError) { alertBox("code", "We couldn't reach the server. Nothing has changed yet. Check your connection and try again."); return; }
+    if (res.status === 429) { alertBox("code", "Too many attempts. Please wait a few minutes and try again."); return; }
+    if (res.status === 400) {
+      UI.fieldError(code, "This code is wrong or has expired. Check it and try again, or send a new code.");
+      code.focus();
+      code.select();
+      return;
+    }
+    alertBox("code", UI.errorMessage(res.data, "We couldn't confirm your code. Please try again."));
+  });
+
+  // ── Email: confirm from the emailed link (/opt-out?token=…&email=…) ─────
+  var params = new URLSearchParams(location.search);
+  var token = (params.get("token") || "").trim();
+  var linkEmail = (params.get("email") || "").trim();
+  if (token && window.history && history.replaceState) {
+    try { history.replaceState(null, "", location.pathname); } catch (_) {}
+  }
+  // Mail scanners open links, so the opt-out is applied only when the person presses the button.
+  $("linkBtn").addEventListener("click", async function () {
+    var btn = this;
+    alertBox("link", "");
+    UI.setBusy(btn, true, "Removing…");
+    var url = "/api/compliance/opt-out/confirm?token=" + encodeURIComponent(token) + "&email=" + encodeURIComponent(linkEmail);
+    var ok = false, status = 0;
+    try {
+      var r = await fetch(url, { credentials: "same-origin" });
+      ok = r.ok; status = r.status;
+    } catch (_) { status = -1; }
+    UI.setBusy(btn, false);
+    if (ok) { $("doneValue").textContent = linkEmail; show("done", true); return; }
+    if (status === -1) { alertBox("link", "We couldn't reach the server. Nothing has changed yet. Check your connection and try again."); return; }
+    if (status === 429) { alertBox("link", "Too many attempts. Please wait a few minutes and try again."); return; }
+    show("invalid", true);
+  });
+
+  if (params.get("phone")) { selectMethod("phone", false); phone.value = params.get("phone").slice(0, 30); }
+  else if (params.get("email") && !token && UI.isEmail(params.get("email"))) email.value = params.get("email");
+  if (token && linkEmail) { $("linkEmail").textContent = linkEmail; show("link", false); }
+  else show("form", false);
+})();
+</script>
+<script src="/static/config.js?v=brand2" defer></script>
+<script>window.addEventListener("DOMContentLoaded", function () { if (window.AppConfig) AppConfig.load(); });</script>
+</body>
+</html>

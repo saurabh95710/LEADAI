@@ -298,7 +298,14 @@
     clear(host);
     s = s || {};
     const groups = []; const byName = {};
-    (nav.footer || []).forEach(it => {
+    const footerItems = (nav.footer || []).slice();
+    // People whose public comments were collected (no account) must find the
+    // opt-out page: add it to the legal column unless the CMS already links it.
+    if (!footerItems.some(it => /^\/opt-out/.test(txt(it.url)))) {
+      const legal = footerItems.find(it => /legal/i.test(txt(it.group)));
+      footerItems.push({ label: 'Remove my contact details', url: '/opt-out', group: legal ? legal.group : 'Legal' });
+    }
+    footerItems.forEach(it => {
       const g = it.group || '';
       if (!byName[g]) { byName[g] = []; groups.push(g); }
       byName[g].push(it);
@@ -569,7 +576,7 @@
           h('div', { class: 'billing-toggle', role: 'group', 'aria-labelledby': gid },
             mk('leadai', 'LeadAI provides'), mk('own', 'I’ll use my own key')));
       })),
-      h('p', { class: 'api-choice-note', text: 'Bring your own key = lower price; you pay Apify / Google directly.' })) : null;
+      h('p', { class: 'api-choice-note', text: 'With your own key the plan costs less, and you pay Apify or Google yourself.' })) : null;
 
     const hasYearly = plans.some(p => Number(p.price_yearly) > 0);
     const cycleToggle = hasYearly ? (function () {
@@ -610,6 +617,12 @@
         h('a', { class: 'btn w-full ' + (p.popular ? 'btn-primary' : 'btn-secondary'), href: planHref(safeUrl(cta.url), p, opt), text: cta.label,
           'aria-label': cta.label + ' — ' + p.name }));
     })));
+    // "tokens" appear in every plan: say what they are
+    if (plans.some(p => (p.highlights || []).some(f => /token/i.test(txt(f))))) {
+      host.appendChild(h('p', { class: 'plans-note' },
+        h('strong', { text: 'What are tokens? ' }),
+        'Tokens are your usage credits. Each search step (collecting posts and comments, AI analysis) uses some tokens. You see the cost before a search starts.'));
+    }
   }
 
   R.testimonials = function (sec, ctx, alt) {

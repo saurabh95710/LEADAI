@@ -11,14 +11,15 @@
   <script src="/static/design/theme.js?v=r1006" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500;1,9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
   <style>
     /* ═══ LeadAI Login — built on the shared design tokens ═══
        Surfaces, text, borders and shadows come from design/tokens.css, so the
        page follows light/dark (theme.js) and stays AA in both themes. Brand
        hues are plain aliases that config.js (Global Settings → branding) may
-       override at runtime. */
+       override at runtime. The accent is the brand primary (green), like the
+       website and every other sign-in page (reset password, sign-up…). */
     :root {
       /* brand hues (runtime-overridable by config.js) */
       --amber: var(--secondary);
@@ -46,17 +47,17 @@
       --text: var(--text-primary);
       --text-dim: var(--text-secondary);
       --text-faint: var(--text-muted);
-      --link: var(--secondary-text);
-      --on-amber: var(--on-secondary);
+      --link: var(--text-link);
+      --on-amber: var(--on-primary);
       --grid-line: rgba(128, 128, 160, 0.05);
       --autofill-bg: var(--bg-secondary);
 
       --radius: 16px;
       --radius-sm: 10px;
       --radius-lg: 20px;
-      --font-display: "Fraunces", Georgia, serif;
+      --font-display: "Inter", system-ui, -apple-system, sans-serif;
       --font-ui: "Inter", system-ui, -apple-system, sans-serif;
-      --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+      --font-mono: "Inter", system-ui, -apple-system, sans-serif;
       --ease: var(--ease-out);
     }
 
@@ -90,8 +91,8 @@
     }
 
     .bg-orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.55; animation: orbDrift 22s ease-in-out infinite alternate; }
-    .orb-1 { width: 520px; height: 520px; top: -180px; right: -100px; background: rgba(240, 165, 49, 0.12); }
-    .orb-2 { width: 450px; height: 450px; bottom: -150px; left: -110px; background: rgba(124, 92, 255, 0.12); animation-delay: -7s; }
+    .orb-1 { width: 520px; height: 520px; top: -180px; right: -100px; background: var(--ambient-2); }
+    .orb-2 { width: 450px; height: 450px; bottom: -150px; left: -110px; background: var(--ambient); animation-delay: -7s; }
     .orb-3 { width: 360px; height: 360px; top: 40%; left: 55%; background: rgba(15, 184, 164, 0.06); animation-delay: -14s; }
 
     @keyframes orbDrift {
@@ -114,7 +115,7 @@
       border-radius: var(--radius-lg);
       background: var(--surface);
       border: 1px solid var(--border);
-      box-shadow: var(--shadow-md), 0 0 0 1px rgba(124, 92, 255, 0.04);
+      box-shadow: var(--shadow-lg);
       animation: cardIn 0.6s var(--ease) both;
       animation-delay: 0.05s;
     }
@@ -122,10 +123,10 @@
     /* top accent line */
     .login-card::before {
       content: "";
-      position: absolute; inset: 0 0 auto 0;
-      height: 3px;
-      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-      background: linear-gradient(90deg, var(--amber) 0%, var(--violet) 55%, var(--blue) 100%);
+      position: absolute; top: 0; left: 28px; right: 28px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--primary), var(--secondary), transparent);
+      opacity: 0.8;
     }
 
     @keyframes cardIn {
@@ -135,24 +136,25 @@
 
     /* ── Logo (matches main-site brand) ── */
     .logo { display: flex; align-items: center; justify-content: center; gap: 13px; margin-bottom: 6px; }
+    .logo-badge svg { width: 24px; height: 24px; }
     .logo-badge {
       width: 48px; height: 48px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 22px; color: #ffffff;
-      border-radius: var(--radius-sm);
-      background: linear-gradient(135deg, var(--amber) 0%, var(--amber-deep) 100%);
-      box-shadow: 0 4px 12px rgba(240, 165, 49, 0.35);
+      font-size: 22px; color: var(--on-primary);
+      border-radius: 13px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--primary-fill) 55%, var(--primary) 100%);
+      box-shadow: 0 4px 14px var(--primary-soft), inset 0 1px 0 rgba(255, 255, 255, 0.35);
     }
     .logo-text { text-align: left; }
     .logo-name {
       font-family: var(--font-display);
-      font-size: 1.35rem; font-weight: 600; font-style: italic;
-      letter-spacing: 0.01em;
+      font-size: 1.3rem; font-weight: 800;
+      letter-spacing: -0.01em;
       color: var(--text);
     }
     .logo-tag {
       font-family: var(--font-mono);
-      font-size: 0.68rem; font-weight: 600; letter-spacing: 0.12em;
+      font-size: 0.68rem; font-weight: 600; letter-spacing: 0.08em;
       color: var(--text-faint); text-transform: uppercase;
       margin-top: 2px;
     }
@@ -160,8 +162,8 @@
     /* ── Headings ── */
     .title {
       font-family: var(--font-display);
-      font-size: 2rem; font-weight: 500; font-style: italic;
-      letter-spacing: -0.02em; line-height: 1.15;
+      font-size: 1.75rem; font-weight: 800;
+      letter-spacing: -0.025em; line-height: 1.2; text-wrap: balance;
       text-align: center;
       margin: 24px 0 10px;
       color: var(--text);
@@ -277,9 +279,9 @@
     }
     .checkmark svg { width: 11px; height: 11px; color: var(--on-amber); opacity: 0; transform: scale(0.4); transition: all 0.25s ease; }
     .remember input:checked + .checkmark {
-      background: linear-gradient(135deg, #f5b342 0%, var(--amber) 100%);
-      border-color: transparent;
-      box-shadow: 0 2px 8px rgba(240, 165, 49, 0.35);
+      background: var(--primary-fill);
+      border-color: var(--primary);
+      box-shadow: 0 2px 8px var(--primary-soft);
     }
     .remember input:checked + .checkmark svg { opacity: 1; transform: scale(1); }
     .remember input:focus-visible + .checkmark { box-shadow: 0 0 0 3px var(--violet-soft); }
@@ -296,7 +298,7 @@
       content: "";
       position: absolute; left: 0; bottom: 2px;
       width: 100%; height: 1.5px;
-      background: var(--amber);
+      background: var(--primary);
       transform: scaleX(0); transform-origin: right;
       transition: transform 0.3s var(--ease);
     }
@@ -321,8 +323,8 @@
       display: inline-block; margin-top: 4px; font-weight: 600; color: inherit;
       text-decoration: underline; text-underline-offset: 2px;
     }
-    .login-error.tone-warn { background: var(--amber-soft); border-color: var(--secondary-border); animation: none; }
-    .login-error.tone-warn svg { color: var(--link); }
+    .login-error.tone-warn { background: var(--warning-soft); border-color: var(--warning-border); animation: none; }
+    .login-error.tone-warn svg { color: var(--warning-text); }
     .login-notice { animation: none; margin-bottom: 18px; background: var(--green-soft); border-color: var(--success-border); }
     .login-notice svg { color: var(--success-text); }
     .login-notice.tone-info { background: var(--violet-soft); border-color: var(--primary-border); }
@@ -370,20 +372,20 @@
       position: relative;
       width: 100%; height: 52px;
       display: flex; align-items: center; justify-content: center; gap: 10px;
-      border: 1px solid rgba(208, 130, 26, 0.35);
+      border: 1px solid transparent;
       border-radius: 12px;
       font-family: var(--font-ui);
       font-size: 15.5px; font-weight: 600; letter-spacing: 0.01em;
       color: var(--on-amber);
-      background: linear-gradient(135deg, #f5b342 0%, var(--amber) 100%);
-      box-shadow: 0 2px 10px rgba(240, 165, 49, 0.35);
+      background: linear-gradient(135deg, var(--primary-fill) 0%, var(--primary-fill-hover) 100%) border-box;
+      box-shadow: 0 6px 20px var(--primary-soft);
       cursor: pointer;
       overflow: hidden;
       transition: transform 0.2s ease, box-shadow 0.25s ease, filter 0.2s ease, opacity 0.2s ease;
     }
     .signin-btn:hover:not(:disabled) {
       transform: translateY(-2px);
-      box-shadow: 0 6px 18px rgba(240, 165, 49, 0.45);
+      box-shadow: var(--glow-strong, 0 8px 24px var(--primary-soft));
       filter: brightness(1.04);
     }
     .signin-btn:active:not(:disabled) { transform: translateY(0) scale(0.985); }
@@ -393,7 +395,7 @@
 
     .btn-spinner {
       width: 19px; height: 19px;
-      border: 2.5px solid rgba(36, 21, 0, 0.25);
+      border: 2.5px solid rgba(13, 53, 39, 0.25);
       border-top-color: var(--on-amber);
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
@@ -410,7 +412,9 @@
       font-size: 12px; color: var(--text-faint);
       letter-spacing: 0.04em;
     }
+    .foot-note { text-wrap: balance; }
     .foot-note.foot-meta { margin-top: 7px; }
+    .foot-help:has([data-brand-support]:empty) { display: none; }
     .foot-meta a { color: var(--text-dim); text-decoration: none; }
     .foot-meta a:hover { color: var(--link); }
 
@@ -428,6 +432,7 @@
 
     /* ── Responsive ── */
     @media (max-width: 600px) {
+      .login-wrap { padding-top: 68px; }   /* clear the fixed theme button */
       .login-card { padding: 36px 24px 28px; }
       .title { font-size: 1.7rem; }
       .input-shell { height: 50px; }
@@ -461,9 +466,9 @@
   <main class="login-wrap">
     <div class="login-card">
       <div class="logo">
-        <a class="logo-link" href="/website">
+        <a class="logo-link" href="/website" aria-label="LeadAI home">
           <span class="logo" style="margin:0">
-            <span class="logo-badge" data-brand-logo="login" aria-hidden="true">✦</span>
+            <span class="logo-badge" data-brand-logo="login" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.1 6.4 6.4 2.1-6.4 2.1L12 19.5l-2.1-6.4L3.5 11l6.4-2.1z"/></svg></span>
             <span class="logo-text">
               <span class="logo-name" data-brand-name style="display:block">LeadAI</span>
               <span class="logo-tag" data-brand-sub style="display:block">AI Lead Intelligence</span>
@@ -566,7 +571,7 @@
 
       <p class="foot-note" data-brand-footer>Protected by secure authentication · LeadAI © 2026</p>
       <p class="foot-note foot-meta" data-brand-company></p>
-      <p class="foot-note foot-meta" data-brand-support></p>
+      <p class="foot-note foot-meta foot-help">Need help? <span data-brand-support></span></p>
       <nav class="foot-note foot-meta" data-brand-links aria-label="Help and legal"></nav>
     </div>
   </main>

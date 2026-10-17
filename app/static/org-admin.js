@@ -89,7 +89,8 @@
   function pill(status, text) {
     const raw = String(status || 'unknown').toLowerCase();
     const s = STATUS_ALIAS[raw] || raw;
-    return `<span class="oa-pill s-${attr(s)}" data-status="${attr(s)}" data-tone="${TONE_OF[s] || 'neutral'}"${LIVE[s] ? ' data-live' : ''}>${esc(text || label(s))}</span>`;
+    // sentence case ("Follow up", "Needs attention"): the first letter only, the rest as written
+    return `<span class="oa-pill s-${attr(s)}" data-status="${attr(s)}" data-tone="${TONE_OF[s] || 'neutral'}"${LIVE[s] ? ' data-live' : ''}>${esc(cap(text || label(s)))}</span>`;
   }
   const ROLE_LABELS = { owner: 'Admin (Owner)', admin: 'Admin', manager: 'Manager', member: 'User', viewer: 'Viewer' };
   const roleTag = (r) => `<span class="oa-role r-${attr(r)}">${esc(ROLE_LABELS[r] || r || '—')}</span>`;
@@ -122,7 +123,7 @@
   const PLAT_NAME = Object.fromEntries(PLATFORMS);
   const plat = (p) => PLAT_NAME[String(p || '').toLowerCase()] || label(p);
   const LEAD_STATUSES = ['new', 'contacted', 'qualified', 'follow_up', 'converted', 'lost', 'disqualified', 'archived'];
-  const LEAD_TABS = [['#leads', 'All leads'], ['#leads/assigned', 'Assigned'], ['#pipeline', 'Lifecycle'], ['#rules', 'Keyword library']];
+  const LEAD_TABS = [['#leads', 'All leads'], ['#leads/assigned', 'Assigned'], ['#assignment', 'Assignment rules'], ['#pipeline', 'Lifecycle'], ['#keywords', 'Keyword library']];
 
   // ── Icons (stroke SVG paths) ────────────────────────────────────────
   const IC = {
@@ -162,6 +163,9 @@
     gauge: '<path d="M3.3 17a10 10 0 1 1 17.4 0"/><path d="M12 14l4-4"/><circle cx="12" cy="14" r="1.3"/>',
     key: '<circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3L20 3M16 7l3 3M14 9l2 2"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    repeat: '<path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+    trash: '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>',
+    check: '<path d="M20 6L9 17l-5-5"/>',
   };
   const ico = (n, cls) => `<svg class="${cls || 'oa-ico'}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n] || IC.info}</svg>`;
 
@@ -284,7 +288,8 @@
     const c = S.crumb || {};
     if (c.key === 'dashboard' && !back) return '';
     const items = [['#dashboard', 'Home']];
-    if (c.group) items.push([c.groupHref || '', c.group]);
+    // "Home / Organization / Organization" → "Home / Organization": the group is named once
+    if (c.group && c.group !== title) items.push([c.groupHref || '', c.group]);
     if (back) items.push([back[0], back[1]]);
     else if (c.section && c.section !== title) items.push([c.sectionHref || '', c.section]);
     items.push(['', title]);
@@ -686,7 +691,7 @@
     { group: 'Overview', items: [['dashboard', 'Dashboard', 'home']] },
     { group: 'Organization', items: [['organization', 'Organization', 'building'], ['team', 'Team', 'users'], ['integrations', 'API keys & plan', 'key'], ['api-limits', 'API usage & limits', 'gauge']] },
     { group: 'LeadAI', items: [['search', 'URL Search', 'search'], ['searches', 'Searches', 'list'], ['pages', 'Pages', 'file'], ['posts', 'Posts', 'message'], ['comments', 'Comments', 'chat']] },
-    { group: 'Lead management', items: [['leads', 'All leads', 'target'], ['leads/assigned', 'Assigned leads', 'userCheck'], ['pipeline', 'Lifecycle', 'flow'], ['rules', 'Keyword library', 'filter']] },
+    { group: 'Lead management', items: [['leads', 'All leads', 'target'], ['leads/assigned', 'Assigned leads', 'userCheck'], ['assignment', 'Assignment rules', 'repeat'], ['pipeline', 'Lifecycle', 'flow'], ['keywords', 'Keyword library', 'filter']] },
     { group: 'Operations', items: [['apify', 'Apify jobs', 'cpu'], ['analytics', 'Analytics & reports', 'chart'], ['exports', 'Exports', 'download']] },
     { group: 'Account', items: [['subscription', 'Subscription', 'card'], ['notifications', 'Notifications', 'bell'], ['audit', 'Audit logs', 'shield'], ['support', 'Support', 'help'], ['profile', 'Profile & security', 'user']] },
   ];
@@ -793,18 +798,18 @@
       const bizCardHtml = bizSum && bizSum.success ? `
         <div class="oa-biz-summary-card">
           <div class="oa-biz-head">
-            <span class="oa-biz-title">${ico('building')} LeadAI Business Context</span>
+            <span class="oa-biz-title">${ico('building')} What LeadAI looks for</span>
             <div class="oa-actions">
-              <a class="btn btn-secondary btn-sm" href="#organization/business">${ico('file')} Edit Business Profile</a>
-              <a class="btn btn-secondary btn-sm" href="#rules">${ico('target')} Manage Keywords</a>
+              <a class="btn btn-secondary btn-sm" href="#organization/business">${ico('file')} Edit business profile</a>
+              <a class="btn btn-secondary btn-sm" href="#keywords">${ico('filter')} Keyword library</a>
             </div>
           </div>
           <div class="oa-biz-grid">
             ${[['#organization/business', 'Industry', esc(bizSum.industry || 'Not set'), ''],
-              ['#organization/business', 'Business Type', esc(bizSum.business_type || 'General'), ''],
-              ['#organization/business', 'Target Customer', esc((bizSum.target_customers || []).join(', ') || 'Buyers'), ''],
-              ['#rules?tab=active', 'Active Keywords', num(bizSum.active_keywords_count), 'color:var(--primary)'],
-              ['#rules?tab=excluded', 'Excluded Terms', num(bizSum.excluded_keywords_count), ''],
+              ['#organization/business', 'Business type', esc(bizSum.business_type || 'General'), ''],
+              ['#organization/business', 'Target customers', esc((bizSum.target_customers || []).join(', ') || 'Buyers'), ''],
+              ['#keywords?tab=active', 'Active keywords', num(bizSum.active_keywords_count), 'color:var(--text-link)'],
+              ['#keywords?tab=excluded', 'Excluded terms', num(bizSum.excluded_keywords_count), ''],
             ].map(([h, k, val, style]) => `<a class="oa-biz-stat" href="${h}">
               <div class="oa-biz-stat-label">${esc(k)}</div>
               <div class="oa-biz-stat-val"${style ? ` style="${style}"` : ''}>${val}</div>
@@ -910,9 +915,9 @@
             ${fld('default_posts_per_search', 'Posts per search', s.default_posts_per_search || '', 'number', ro, `min="1" ${maxPosts ? 'max="' + maxPosts + '"' : ''} placeholder="${attr(maxPosts ? Math.min(maxPosts, caps.default_posts || maxPosts) : (caps.default_posts || ''))}"`, maxPosts ? 'Plan maximum: ' + maxPosts : '')}
             ${fld('default_comments_per_post', 'Comments per post', s.default_comments_per_post || '', 'number', ro, `min="1" ${maxComments ? 'max="' + maxComments + '"' : ''} placeholder="${attr(maxComments ? Math.min(maxComments, caps.default_comments_per_post || maxComments) : (caps.default_comments_per_post || ''))}"`, maxComments ? 'Plan maximum: ' + maxComments : '')}
           </div></div>
-          <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Lead settings</div><a class="oa-link oa-small" href="#rules">Lead keywords →</a></div><div class="oa-form-grid">
+          <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Lead settings</div><a class="oa-link oa-small" href="#keywords">Keyword library →</a></div><div class="oa-form-grid">
             ${fld('min_lead_score', 'Minimum lead score', s.min_lead_score == null ? '' : s.min_lead_score, 'number', ro, 'min="0" max="100" placeholder="0"', 'Comments scoring below this are not counted as leads in new searches (0 = platform default).')}
-            <div class="oa-field"><label for="f-lead_assignment">Lead assignment</label><select class="form-select" id="f-lead_assignment" name="lead_assignment" ${ro}>${selectOpts([['manual', 'Manual (Admin assigns)'], ['creator', 'Whoever ran the search'], ['round_robin', 'Round robin']], s.lead_assignment === 'search_owner' ? 'creator' : (s.lead_assignment || 'manual'))}</select><span class="oa-hint">Applies to new leads. Round robin rotates across active members who can view leads (viewers are skipped).</span></div>
+            <div class="oa-field"><label for="f-lead_assignment">Lead assignment</label><select class="form-select" id="f-lead_assignment" name="lead_assignment" ${ro}>${selectOpts([['manual', 'Manual (Admin assigns)'], ['creator', 'Whoever ran the search'], ['round_robin', 'Round robin']], s.lead_assignment === 'search_owner' ? 'creator' : (s.lead_assignment || 'manual'))}</select><span class="oa-hint">Applies to new leads that no <a class="oa-link" href="#assignment">assignment rule</a> matches. Round robin takes turns between active members who can see leads (viewers are skipped).</span></div>
           </div></div>
           <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Notifications</div></div>
             ${switchRow('email_notifications', 'Email notifications', 'Send organization alerts by email as well as in-app.', s.email_notifications !== false, !editable)}
@@ -926,8 +931,8 @@
             <div class="oa-field"><label for="f-default_member_role">Default role for new members</label><select class="form-select" id="f-default_member_role" name="default_member_role" ${ro}>${selectOpts([['member', 'User'], ['manager', 'Manager'], ['viewer', 'Viewer']], s.default_member_role || 'member')}</select></div>
           </div></div>
           <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Data visibility</div></div>
-            ${switchRow('shared_workspace', 'Shared workspace', 'When ON, every member of your organization can see ALL searches, pages, posts, comments and leads — not only their own or those assigned to them. Leave OFF to keep each member\'s data private (Admins always see everything).', s.shared_workspace, !editable)}
-            ${s.shared_workspace ? '<div class="alert alert-warning" style="margin-top:8px">' + ico('alert', 'alert-icon') + '<div class="alert-body">Shared workspace is ON — all members currently see all organization data.</div></div>' : ''}
+            ${switchRow('shared_workspace', 'Shared workspace', 'When on, every member can see all searches, pages, posts, comments and leads in your organization, not only their own or the ones assigned to them. Leave it off to keep each member\'s data private. Admins always see everything.', s.shared_workspace, !editable)}
+            ${s.shared_workspace ? '<div class="alert alert-warning" style="margin-top:8px">' + ico('alert', 'alert-icon') + '<div class="alert-body">Shared workspace is on: every member can see all of your organization\'s data.</div></div>' : ''}
           </div>
           ${editable ? '<div class="oa-form-foot" style="border:0"><button type="submit" class="btn btn-primary">Save settings</button></div>' : readonlyNote()}
         </form>`;
@@ -998,33 +1003,33 @@
     const curTargets = new Set(Array.isArray(p.target_customer_types) ? p.target_customer_types : (p.target_customers ? [p.target_customers] : ['Buyers']));
 
     v.el.innerHTML = head('Organization', 'Your organization profile, workspace branding and settings.') + tabs(ORG_TABS, '#organization/business', 'oa-org-tabs') +
-      `<div class="oa-note">${ico('info')}<span>LeadAI adapts to any business. Your industry, business model, and target customers configure how LeadAI filters social posts and qualifies high-intent leads across your entire organization.</span></div>
+      `<div class="oa-note">${ico('info')}<span>Tell LeadAI what you sell and who you sell to. It uses your industry, business type and target customers to pick out comments from people who want to buy, for every search in your organization.</span></div>
       <form class="oa-card oa-form" data-form data-tour="oa-biz-form" novalidate><div class="oa-form-grid">
         <div class="oa-field"><label for="f-industry">Industry</label><select class="form-select" id="f-industry" name="industry" ${ro}>${selectOpts(d.industries.map(i => [i.key, (i.icon ? i.icon + ' ' : '') + i.name]), d.industry)}</select><span class="oa-hint" data-ind-desc></span></div>
-        ${fld('custom_industry', 'Custom industry label (optional)', p.custom_industry, 'text', ro, 'maxlength="80" placeholder="e.g. Clean Energy, Heavy Machinery"', 'Your specific niche name; shown to the AI instead of the generic sector.')}
-        <div class="oa-field"><label for="f-business_type">Business Type</label><select class="form-select" id="f-business_type" name="business_type" ${ro}></select><span class="oa-hint">Your specific business model or specialization</span></div>
-        ${fld('custom_business_type', 'Custom business type (optional)', p.custom_business_type, 'text', ro, 'maxlength="80" placeholder="e.g. Luxury Penthouse Brokerage"', 'Specify your precise business type if not in the dropdown.')}
-        
+        ${fld('custom_industry', 'Custom industry label (optional)', p.custom_industry, 'text', ro, 'maxlength="80" placeholder="e.g. Clean Energy, Heavy Machinery"', 'Your niche, in your own words. The AI sees this instead of the general industry.')}
+        <div class="oa-field"><label for="f-business_type">Business type</label><select class="form-select" id="f-business_type" name="business_type" ${ro}></select><span class="oa-hint">How your business works, for example dealer or agency.</span></div>
+        ${fld('custom_business_type', 'Custom business type (optional)', p.custom_business_type, 'text', ro, 'maxlength="80" placeholder="e.g. Luxury penthouse brokerage"', 'Use this when your business type is not in the list.')}
+
         <div class="oa-field span-2">
-          <span class="oa-label">Target Customer Types</span>
+          <span class="oa-label">Target customers</span>
           <div class="target-customers-row" id="oaTargetCustomers" style="margin-top:6px">
             ${TARGET_OPTIONS.map(t => `<span class="target-cust-chip ${curTargets.has(t) ? 'selected' : ''}" data-target="${attr(t)}" role="button" aria-pressed="${curTargets.has(t)}" ${edit ? 'tabindex="0"' : 'aria-disabled="true"'}>${esc(t)}</span>`).join('')}
           </div>
-          <span class="oa-hint">Select the personas your organization actively seeks to acquire.</span>
+          <span class="oa-hint">Pick the kinds of people you want to reach. Choose at least one.</span>
         </div>
 
         <div class="oa-field span-2">
-          <span class="oa-label" id="off-l">Primary Products / Offerings</span>
+          <span class="oa-label" id="off-l">Main products or services</span>
           <div class="oa-chips" data-chips="offerings" aria-labelledby="off-l"></div>
-          <span class="oa-hint">Specific models, services, or product categories you provide (e.g. 3 BHK flats, Pre-owned SUVs, Web design).</span>
+          <span class="oa-hint">What you sell, for example 3 BHK flats, pre-owned SUVs or web design. Press Enter after each one.</span>
         </div>
 
         ${area('description', 'About your business', 600, 'e.g. We are a certified pre-owned car dealership in Pune specializing in warranty-backed SUVs and sedans.')}
         ${area('lead_criteria', 'What qualifies as a high-intent lead', 600, 'e.g. Asks for price, quotation, brochure, availability, financing, or leaves phone/email', 'Leave empty to use the industry default guidance.')}
-        <div class="oa-field span-2"><span class="oa-label" id="rt-l">Extra requirement terms <span class="optional">(optional)</span></span><div class="oa-chips" data-chips="terms" aria-labelledby="rt-l"></div><span class="oa-hint">Words customers use for what they want. They aid comment classification even prior to AI processing.</span></div>
-        <div class="oa-field span-2">${switchRow('filter_by_industry', 'Only analyse comments relevant to my industry', 'When ON and you have no custom lead keywords, comments are pre-filtered by your industry keywords plus universal intent phrases before AI analysis (saves usage).', d.filter_by_industry, !edit)}</div>
+        <div class="oa-field span-2"><span class="oa-label" id="rt-l">Extra requirement terms <span class="optional">(optional)</span></span><div class="oa-chips" data-chips="terms" aria-labelledby="rt-l"></div><span class="oa-hint">Words your customers use for what they want. They help sort comments, even before the AI reads them.</span></div>
+        <div class="oa-field span-2">${switchRow('filter_by_industry', 'Only analyse comments relevant to my industry', 'When on, and you have no keywords of your own, LeadAI first keeps only comments that match your industry or show buying intent. This uses less of your plan.', d.filter_by_industry, !edit)}</div>
       </div>
-      <div class="oa-card" style="margin-top:14px;background:var(--surface-2,transparent)"><div class="oa-card-head"><div class="oa-card-title">What the lead AI will be told</div><a class="oa-link oa-small" href="#rules">Keyword Library →</a></div><p class="oa-small" data-preview style="white-space:pre-wrap">${esc(d.ai_context_preview)}</p><p class="oa-hint">Saved changes immediately apply to all new searches conducted by members in your organization.</p></div>
+      <div class="oa-card" style="margin-top:14px;background:var(--surface-2,transparent)"><div class="oa-card-head"><div class="oa-card-title">What the AI is told about your business</div><a class="oa-link oa-small" href="#keywords">Keyword library →</a></div><p class="oa-small" data-preview style="white-space:pre-wrap">${esc(d.ai_context_preview)}</p><p class="oa-hint">Saved changes apply to every new search in your organization.</p></div>
       ${edit ? '<div class="oa-form-foot"><button type="submit" class="btn btn-primary">Save business profile</button></div>' : readonlyNote()}</form>`;
 
     const form = $('[data-form]', v.el);
@@ -2089,7 +2094,7 @@
           <div class="oa-field span-2"><label for="s-url">Profile / page URL</label><input class="form-input" id="s-url" name="url" type="url" required placeholder="https://www.facebook.com/yourcompetitor" maxlength="300" aria-describedby="e-url"/><span class="oa-err" id="e-url" role="alert"></span></div>
           ${fld('max_posts', 'Posts to scan', Math.min(s.default_posts_per_search || caps.default_posts || maxP, maxP), 'number', '', `min="1" ${maxP < 100000 ? 'max="' + maxP + '"' : ''}`, maxP < 100000 ? 'Plan maximum: ' + maxP : '')}
           ${fld('max_comments_per_post', 'Comments per post', Math.min(s.default_comments_per_post || caps.default_comments_per_post || maxC, maxC), 'number', '', `min="1" ${maxC < 100000 ? 'max="' + maxC + '"' : ''}`, maxC < 100000 ? 'Plan maximum: ' + maxC : '')}
-          <div class="oa-field span-2"><label for="s-kw">Only analyse comments containing <span class="optional">(optional)</span></label><input class="form-input" id="s-kw" name="include_keywords" placeholder="e.g. price, interested, buy — leave empty to use your organization's lead rules"/><span class="oa-hint">Comma separated. Leave empty to apply your <a class="oa-link" href="#rules">lead rules</a>.</span></div>
+          <div class="oa-field span-2"><label for="s-kw">Only analyse comments containing <span class="optional">(optional)</span></label><input class="form-input" id="s-kw" name="include_keywords" placeholder="e.g. price, interested, buy"/><span class="oa-hint">Separate words with commas. Leave empty to use your <a class="oa-link" href="#keywords">keyword library</a>.</span></div>
         </div><div class="oa-form-foot"><button type="submit" class="btn btn-primary">${ico('search')} Start search</button></div></form><div data-status></div>`;
       const f = $('[data-f]', v.el);
       liveValidate(f);
@@ -2135,7 +2140,7 @@
       dataTable($('[data-host]', v.el), {
         url: '/api/org-admin/searches', caption: 'Searches', defaultSort: 'newest', initial: v.query,
         exportUrl: can('exports.create') && can('search.export') ? (p) => '/api/org-admin/exports/searches.csv' + qs(p) : null,
-        filters: [{ name: 'q', label: 'Search', placeholder: 'Search URL or run id' },
+        filters: [{ name: 'q', label: 'Search', placeholder: 'Search URL or run ID' },
           { name: 'user_id', label: 'User', type: 'select', all: 'All users', options: memberOptions(members) },
           { name: 'platform', label: 'Platform', type: 'select', all: 'All platforms', options: PLATFORMS },
           { name: 'status', label: 'Status', type: 'select', all: 'All statuses', options: [['running', 'Running'], ['completed', 'Completed'], ['error', 'Failed'], ['cancelled', 'Cancelled']] },
@@ -2273,7 +2278,7 @@
           { label: 'Updated', sort: 'updated', render: r => timeTag(r.updated_at) },
         ],
         rowHref: r => '#lead/' + r.id,
-        empty: { title: assignedView ? 'No assigned leads' : 'No leads yet', desc: assignedView ? 'Open a lead and assign it to a member.' : 'Leads appear here as searches analyse comments.' },
+        empty: { title: assignedView ? 'No assigned leads' : 'No leads yet', desc: assignedView ? 'Open a lead and assign it to a member, or add an assignment rule so new leads are shared out automatically.' : 'Leads appear here as searches analyse comments.', action: assignedView ? '<a class="btn btn-secondary" href="#assignment">Assignment rules</a>' : '<a class="btn btn-primary" href="#search">Start a search</a>' },
       });
     },
   };
@@ -2391,13 +2396,13 @@
         tabs(LEAD_TABS, '#pipeline', 'oa-lead-tabs') +
         (d.total ? `<div class="oa-pipeline" data-tour="oa-pipeline">${Object.entries(d.statuses).map(([s, n]) => `<a class="oa-stage" href="#leads?status=${attr(s)}">${pill(s)}<b>${num(n)}</b><span class="oa-small oa-muted">${d.total ? Math.round(n / d.total * 100) : 0}% of leads</span></a>`).join('')}</div>
         <div class="oa-grid oa-grid-2">${hbars('Leads by owner', Object.fromEntries(d.owners.map(o => [o.name || o.email || 'Unknown', o.leads])))}
-        <div class="oa-card"><div class="oa-card-head"><div class="oa-card-title">Allowed transitions</div></div><ul class="oa-feed">${Object.entries(d.transitions).map(([k, arr]) => `<li><div class="oa-feed-main">${pill(k)} → ${arr.length ? arr.map(a => pill(a)).join(' ') : '<span class="oa-muted oa-small">final</span>'}</div><span></span></li>`).join('')}</ul></div></div>`
+        <div class="oa-card"><div class="oa-card-head"><div><div class="oa-card-title">Allowed status changes</div><div class="oa-card-sub">From each status (left), a lead can move to the statuses on the right.</div></div></div><ul class="oa-feed">${Object.entries(d.transitions).map(([k, arr]) => `<li><div class="oa-feed-main">${pill(k)} <span aria-hidden="true">→</span><span class="sr-only">can move to</span> ${arr.length ? arr.map(a => pill(a)).join(' ') : '<span class="oa-muted oa-small">Final status: no further changes</span>'}</div><span></span></li>`).join('')}</ul></div></div>`
           : `<div class="oa-card">${stateHtml('empty', 'No leads yet', 'Once searches find leads you will see them move through the pipeline here.', '<a class="btn btn-primary" href="#search">Start a search</a>')}</div>`);
     },
   };
   // Industries offered by the keyword generator (the organization's own industry is preselected).
   const REC_INDUSTRIES = [['real_estate', 'Real Estate'], ['automotive', 'Automotive'], ['education', 'Education'], ['healthcare', 'Healthcare'], ['travel', 'Travel & Hospitality'], ['ecommerce', 'E-commerce & Retail'], ['saas', 'SaaS & Software'], ['wedding', 'Wedding & Events'], ['interior_design', 'Interior Design'], ['agency', 'Marketing & Digital Agency'], ['professional_services', 'Professional Services']];
-  ROUTES.rules = {
+  ROUTES.keywords = {
     title: () => 'Keyword library',
     async render(v) {
       const d = await api('/api/org-admin/keyword-library'); if (!v.alive()) return;
@@ -2411,11 +2416,11 @@
       const KW_STATUS = { active: ['active', 'Active'], suggested: ['info', 'Suggested'], excluded: ['disqualified', 'Excluded'] };
       const inTab = (k, t) => t === 'all' || (t === 'active' ? k.status === 'active' : t === 'suggested' ? k.status === 'suggested' : t === 'custom' ? k.type === 'custom' && k.status === 'active' : k.status === 'excluded');
       // Summary tiles: [tab, icon, label, count, meta, value style]. Each opens its tab of the library.
-      const KW_TABS = [['active', 'check', 'Active Keywords', sum.active_count, 'Used in comment analysis', 'color:var(--primary)'],
-        ['suggested', 'cpu', 'Suggested Terms', sum.suggested_count, 'Ready to activate', ''],
-        ['custom', 'plus', 'Custom Added', sum.custom_count, 'Organization specific', ''],
-        ['excluded', 'x', 'Excluded Terms', sum.excluded_count, 'Conversations ignored', '']];
-      const tabHash = (t) => t === 'all' ? '#rules' : '#rules?tab=' + t;
+      const KW_TABS = [['active', 'check', 'Active keywords', sum.active_count, 'Used in every search', 'color:var(--text-link)'],
+        ['suggested', 'cpu', 'Suggested', sum.suggested_count, 'Ready to switch on', ''],
+        ['custom', 'plus', 'Your own', sum.custom_count, 'Keywords you added', ''],
+        ['excluded', 'x', 'Excluded', sum.excluded_count, 'Comments with these are skipped', '']];
+      const tabHash = (t) => t === 'all' ? '#keywords' : '#keywords?tab=' + t;
       let activeTab = KW_TABS.some(t => t[0] === v.query.tab) ? v.query.tab : 'all'; // all | active | suggested | custom | excluded
       let searchQuery = '';
       // Bring the keyword table (on the chosen tab) into view, e.g. after a summary tile is used.
@@ -2433,12 +2438,12 @@
           return true;
         });
 
-        v.el.innerHTML = head('Keyword library', 'Manage organization-wide suggested, active, custom, and excluded keywords.') +
-          tabs(LEAD_TABS, '#rules', 'oa-lead-tabs') +
-          
+        v.el.innerHTML = head('Keyword library', 'The words that tell LeadAI which comments may be leads. They apply to every search in your organization.') +
+          tabs(LEAD_TABS, '#keywords', 'oa-lead-tabs') +
+
           `<div class="alert ${d.using_defaults ? 'alert-info' : 'alert-success'}" style="margin-bottom:16px">${ico('info', 'alert-icon')}<div class="alert-body">
-            <div class="alert-title">${d.using_defaults ? 'Using LeadAI Default Business Intelligence' : 'Custom Organization Keywords Active'}</div>
-            <span>${d.using_defaults ? 'Your organization currently uses standard AI lead signals for ' + esc(ind.name || 'your industry') + '. Add keywords or generate suggestions below to customize lead discovery.' : 'Searches run by any member in your organization prioritize these keywords for qualifying prospects.'}</span>
+            <div class="alert-title">${d.using_defaults ? 'You are using LeadAI\'s standard keywords' : 'Your own keywords are in use'}</div>
+            <span>${d.using_defaults ? 'LeadAI uses its standard buying signals for ' + esc(ind.name || 'your industry') + '. Switch on suggestions or add your own keywords below to find leads that fit your business better.' : 'Every search in your organization uses these keywords to pick out possible leads.'}</span>
           </div></div>
 
           <!-- Stats Strip -->
@@ -2453,21 +2458,21 @@
                 <button type="button" class="oa-kw-tab ${activeTab === 'all' ? 'active' : ''}" data-tab="all" aria-pressed="${activeTab === 'all'}">All (${num(allKws.length)})</button>
                 <button type="button" class="oa-kw-tab ${activeTab === 'active' ? 'active' : ''}" data-tab="active" aria-pressed="${activeTab === 'active'}">Active (${num(sum.active_count)})</button>
                 <button type="button" class="oa-kw-tab ${activeTab === 'suggested' ? 'active' : ''}" data-tab="suggested" aria-pressed="${activeTab === 'suggested'}">Suggested (${num(sum.suggested_count)})</button>
-                <button type="button" class="oa-kw-tab ${activeTab === 'custom' ? 'active' : ''}" data-tab="custom" aria-pressed="${activeTab === 'custom'}">Custom (${num(sum.custom_count)})</button>
+                <button type="button" class="oa-kw-tab ${activeTab === 'custom' ? 'active' : ''}" data-tab="custom" aria-pressed="${activeTab === 'custom'}">Your own (${num(sum.custom_count)})</button>
                 <button type="button" class="oa-kw-tab ${activeTab === 'excluded' ? 'active' : ''}" data-tab="excluded" aria-pressed="${activeTab === 'excluded'}">Excluded (${num(sum.excluded_count)})</button>
               </div>
               ${edit ? `
               <div class="oa-actions" data-tour="oa-kw-actions" style="flex-wrap:wrap">
-                <button type="button" class="btn btn-secondary btn-sm" id="btnGenSuggestions">${ico('cpu')} Generate Suggestions</button>
-                <button type="button" class="btn btn-secondary btn-sm" id="btnAddKeywordModal">${ico('plus')} Add Keyword</button>
-                <button type="button" class="btn btn-secondary btn-sm" id="btnAddBulkModal">${ico('list')} Add Multiple</button>
-                <button type="button" class="btn btn-ghost btn-sm" id="btnRestoreDefaults">${ico('refresh')} Defaults</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btnGenSuggestions">${ico('cpu')} Suggest keywords</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btnAddKeywordModal">${ico('plus')} Add keyword</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btnAddBulkModal">${ico('list')} Add several</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnRestoreDefaults" title="Go back to LeadAI's standard keywords">${ico('refresh')} Restore defaults</button>
               </div>` : ''}
             </div>
 
             <!-- Search Bar -->
             <div style="margin-bottom:14px">
-              <input type="search" class="form-input" id="kwSearchInput" placeholder="Filter keywords by name…" value="${esc(searchQuery)}" style="max-width:320px">
+              <label class="sr-only" for="kwSearchInput">Find a keyword</label><input type="search" class="form-input" id="kwSearchInput" placeholder="Find a keyword…" value="${esc(searchQuery)}" style="max-width:320px">
             </div>
 
             <!-- Table -->
@@ -2486,7 +2491,7 @@
                   ${filtered.length ? filtered.map(k => `
                     <tr>
                       <td><b>${esc(k.keyword)}</b></td>
-                      <td>${pill(k.type === 'suggested' ? 'info' : k.type === 'custom' ? 'demo' : 'disqualified', cap(k.type))}</td>
+                      <td>${pill(k.type === 'suggested' ? 'info' : k.type === 'custom' ? 'demo' : 'disqualified', k.type === 'custom' ? 'Your own' : cap(k.type))}</td>
                       <td><span class="oa-muted oa-small">${esc(label(k.category || 'General'))}</span></td>
                       <td>${pill((KW_STATUS[k.status] || KW_STATUS.suggested)[0], (KW_STATUS[k.status] || KW_STATUS.suggested)[1])}</td>
                       ${edit ? `<td style="text-align:right">
@@ -2511,17 +2516,17 @@
 
           <!-- Test a Comment Card -->
           <div class="oa-card" style="margin-top:20px">
-            <div class="oa-card-head"><div class="oa-card-title">${ico('chat')} Test a comment against saved rules</div></div>
+            <div class="oa-card-head"><div><div class="oa-card-title">${ico('chat')} Try a comment</div><div class="oa-card-sub">Paste a comment to see whether your saved keywords would send it for lead analysis.</div></div></div>
             <form data-test>
-              <textarea class="form-textarea" id="rt" name="text" rows="3" maxlength="2000" placeholder="e.g. Hi, what is the price for a 3 BHK apartment and when is it available for site visit?" style="min-height:80px"></textarea>
+              <textarea class="form-textarea" id="rt" name="text" aria-label="Comment to check" rows="3" maxlength="2000" placeholder="e.g. Hi, what is the price for a 3 BHK apartment and when is it available for site visit?" style="min-height:80px"></textarea>
               <div class="oa-actions" style="justify-content:flex-end;margin-top:8px">
-                <button type="submit" class="btn btn-secondary btn-sm">Test comment qualification</button>
+                <button type="submit" class="btn btn-secondary btn-sm">Check comment</button>
               </div>
               <div data-res aria-live="polite" style="margin-top:8px"></div>
             </form>
           </div>`;
 
-        // Summary tiles are real links (#rules?tab=…); a plain click switches the tab in place
+        // Summary tiles are real links (#keywords?tab=…); a plain click switches the tab in place
         // instead of reloading the library, and still records the URL for Back / sharing.
         $$('[data-kwtab]', v.el).forEach(a => {
           a.onclick = (e) => {
@@ -2568,7 +2573,7 @@
           const defBtn = $('#btnRestoreDefaults', v.el);
           if (defBtn) {
             defBtn.onclick = async () => {
-              if (!(await confirmDialog('Restore LeadAI Defaults?', 'Your custom keywords will be replaced with standard defaults for your industry.', { confirm: 'Restore Defaults' }))) return;
+              if (!(await confirmDialog('Restore the standard keywords?', 'Your active and excluded keywords are removed, and LeadAI goes back to its standard keywords for your industry.', { danger: true, confirm: 'Restore defaults' }))) return;
               try {
                 await api('/api/org-admin/keyword-library', { method: 'PUT', body: { active_keywords: [], excluded_keywords: [] } });
                 toast('Defaults restored', 'success');
@@ -2610,34 +2615,35 @@
 
         try {
           await api('/api/org-admin/keyword-library', { method: 'PUT', body: { active_keywords: active, excluded_keywords: excluded } });
-          toast(`Updated keyword: ${kw}`, 'success');
+          toast({ exclude: `“${kw}” moved to Excluded.`, restore: `“${kw}” is active again.`, activate: `“${kw}” is now active.`, remove: `“${kw}” removed.` }[act] || `“${kw}” updated.`, 'success');
           route();
         } catch (e) { toast(e.message, 'error'); }
       };
 
       const showAddKeywordModal = (isBulk) => {
         const close = openModal({
-          title: isBulk ? 'Add Multiple Keywords' : 'Add Keyword',
+          title: isBulk ? 'Add several keywords' : 'Add a keyword',
           body: `
             <div class="oa-form-grid">
               <div class="oa-field span-2">
-                <label for="kwModalInput">${isBulk ? 'Enter keywords (comma or newline separated)' : 'Keyword or phrase'}</label>
-                ${isBulk ? '<textarea class="form-textarea" id="kwModalInput" rows="4" placeholder="apartment, flat, villa, penthouse, 3 bhk"></textarea>' : '<input class="form-input" id="kwModalInput" type="text" placeholder="e.g. 3 BHK, Penthouse" maxlength="80"/>'}
+                <label for="kwModalInput">${isBulk ? 'Keywords' : 'Keyword or phrase'}</label>
+                ${isBulk ? '<textarea class="form-textarea" id="kwModalInput" rows="4" placeholder="apartment, flat, villa, penthouse, 3 bhk" aria-describedby="kwModalErr"></textarea><span class="oa-hint">Separate them with commas or put each on its own line.</span>' : '<input class="form-input" id="kwModalInput" type="text" placeholder="e.g. 3 BHK" maxlength="80" aria-describedby="kwModalErr"/>'}
+                <span class="oa-err" id="kwModalErr" role="alert"></span>
               </div>
               <div class="oa-field span-2">
-                <label for="kwModalType">Keyword Type</label>
+                <label for="kwModalType">Add to</label>
                 <select class="form-select" id="kwModalType">
-                  <option value="active">Active Lead Keyword (qualifies conversations)</option>
-                  <option value="excluded">Exclude Keyword (disqualifies / ignores)</option>
+                  <option value="active">Active keywords: comments with this may be leads</option>
+                  <option value="excluded">Excluded: skip comments with this</option>
                 </select>
               </div>
             </div>`,
-          foot: `<button type="button" class="btn btn-secondary" data-close>Cancel</button><button type="button" class="btn btn-primary" id="btnConfirmAddKw">Add to Library</button>`,
+          foot: `<button type="button" class="btn btn-secondary" data-close>Cancel</button><button type="button" class="btn btn-primary" id="btnConfirmAddKw">Add to library</button>`,
           onMount(root, closeFn) {
             $('#btnConfirmAddKw', root).onclick = async () => {
               const raw = $('#kwModalInput', root).value.trim();
               const type = $('#kwModalType', root).value;
-              if (!raw) return;
+              if (!raw) { $('#kwModalErr', root).textContent = isBulk ? 'Type at least one keyword.' : 'Type a keyword.'; $('#kwModalInput', root).focus(); return; }
               const items = raw.split(/[\n,]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
               let active = allKws.filter(x => x.status === 'active').map(x => x.keyword);
               let excluded = allKws.filter(x => x.status === 'excluded').map(x => x.keyword);
@@ -2669,10 +2675,10 @@
         const selExclusions = new Set();
 
         const close = openModal({
-          title: '🤖 LeadAI Keyword Recommendation Generator',
+          title: 'Suggest keywords',
           body: `
             <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:14px">
-              Select your business context and LeadAI will automatically generate categorized keyword signals tailored for your industry.
+              Tell LeadAI about your business and it suggests keywords for your industry, in groups. Pick the ones you want, then add them to your library.
             </div>
             <div class="oa-form-grid" id="recForm">
               <div class="oa-field">
@@ -2683,7 +2689,7 @@
                 </select>
               </div>
               <div class="oa-field">
-                <label for="recTarget">Target Customer</label>
+                <label for="recTarget">Target customer</label>
                 <select class="form-select" id="recTarget">
                   <option value="Buyers">Buyers</option>
                   <option value="Sellers">Sellers</option>
@@ -2693,22 +2699,22 @@
                 </select>
               </div>
               <div class="oa-field span-2">
-                <label for="recBizType">Business Model / Type</label>
-                <input class="form-input" id="recBizType" type="text" placeholder="e.g. Residential Agency, Commercial Brokerage, Pre-owned Cars" value="${attr(ind.business_type || '')}"/>
+                <label for="recBizType">Business type <span class="optional">(optional)</span></label>
+                <input class="form-input" id="recBizType" type="text" placeholder="e.g. Residential agency, Pre-owned cars" value="${attr(ind.business_type || '')}"/>
               </div>
             </div>
             <div style="margin:14px 0">
-              <button type="button" class="btn btn-secondary btn-sm" id="btnRunRecGen">✦ Generate Keyword Groups</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnRunRecGen">${ico('cpu')} Get suggestions</button>
             </div>
             <div id="recResultsArea" class="hidden" style="max-height:280px;overflow-y:auto;padding-right:6px">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                <span class="field-label" style="margin:0">Generated Recommendations:</span>
+                <span class="field-label" style="margin:0">Suggestions (click to pick or unpick)</span>
                 <button type="button" class="oa-link oa-small" id="btnSelectAllRec" style="background:none;border:none;cursor:pointer;color:var(--primary)">+ Select all</button>
               </div>
               <div id="recGroupsContainer"></div>
             </div>
           `,
-          foot: `<button type="button" class="btn btn-secondary" data-close>Cancel</button><button type="button" class="btn btn-primary" id="btnSaveRecToOrg" disabled>Save to Organization</button>`,
+          foot: `<button type="button" class="btn btn-secondary" data-close>Cancel</button><button type="button" class="btn btn-primary" id="btnSaveRecToOrg" disabled title="Get suggestions first">Add picked keywords</button>`,
           onMount(root, closeFn) {
             const runBtn = $('#btnRunRecGen', root);
             const saveBtn = $('#btnSaveRecToOrg', root);
@@ -2738,10 +2744,10 @@
                   const groups = res.keyword_groups || {};
                   let html = '';
                   const map = [
-                    ['📦 Product / Service', groups.product_service || []],
-                    ['🔥 Buyer Intent', groups.intent || []],
-                    ['📋 Requirement & Specs', groups.requirement || []],
-                    ['📍 Location & Terms', groups.location || []],
+                    ['Products and services', groups.product_service || []],
+                    ['Buying intent', groups.intent || []],
+                    ['Requirements and details', groups.requirement || []],
+                    ['Location and terms', groups.location || []],
                   ];
                   map.forEach(([title, list]) => {
                     html += `<div style="margin-bottom:10px"><div style="font-size:0.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">${title}</div><div style="display:flex;flex-wrap:wrap;gap:6px">`;
@@ -2749,7 +2755,7 @@
                     html += `</div></div>`;
                   });
                   if ((res.recommended_exclusions || []).length) {
-                    html += `<div style="margin-bottom:10px"><div style="font-size:0.75rem;font-weight:700;color:var(--danger);text-transform:uppercase;margin-bottom:4px">⛔ Recommended Exclusions</div><div style="display:flex;flex-wrap:wrap;gap:6px">`;
+                    html += `<div style="margin-bottom:10px"><div style="font-size:0.75rem;font-weight:700;color:var(--danger);text-transform:uppercase;margin-bottom:4px">Suggested to exclude</div><div style="display:flex;flex-wrap:wrap;gap:6px">`;
                     html += res.recommended_exclusions.map(k => `<span class="kw-chip-add ${selExclusions.has(k) ? 'added' : ''}" data-exkw="${attr(k)}" role="button" tabindex="0" aria-pressed="${selExclusions.has(k)}" style="cursor:pointer;border-color:var(--danger)">${selExclusions.has(k) ? '✓ ' : '+ '}${esc(k)}</span>`).join('');
                     html += `</div></div>`;
                   }
@@ -2778,7 +2784,7 @@
                   renderRecChips();
                 };
 
-                saveBtn.disabled = false;
+                saveBtn.disabled = false; saveBtn.removeAttribute('title');
               } catch (err) { toast(err.message, 'error'); }
               finally { busy(runBtn, false); }
             };
@@ -2799,7 +2805,7 @@
               busy(saveBtn, true, 'Saving…');
               try {
                 await api('/api/org-admin/keyword-library', { method: 'PUT', body: { active_keywords: active, excluded_keywords: excluded } });
-                toast('Saved suggestions to organization keyword library', 'success');
+                toast('Keywords added to your library.', 'success');
                 closeFn();
                 route();
               } catch (e) { toast(e.message, 'error'); busy(saveBtn, false); }
@@ -2812,6 +2818,177 @@
       if (activeTab !== 'all') { v.parts._keepFocus = true; showLibrary(); }
     },
   };
+  // old links (#rules, #rules?tab=…) open the keyword library under its own name
+  ROUTES.rules = {
+    nav: () => 'keywords', title: () => 'Keyword library',
+    render(v) { history.replaceState(null, '', '#keywords' + qs({ tab: v.query.tab })); return route(); },
+  };
+
+  // ── Assignment rules ───────────────────────────────────────────────
+  // GET / POST / DELETE /api/org-admin/assignment-rules. A rule gives new leads
+  // that match its filters to its people in turn (round robin), with a time to
+  // contact each lead (SLA). Rules are tried oldest first; when none matches,
+  // the organization's "Lead assignment" setting applies. Viewers and inactive
+  // members can't get leads (the backend refuses them and skips them later).
+  const RULE_PRIORITY = [['high', 'High'], ['medium', 'Medium'], ['low', 'Low']];
+  const RULE_PRIORITY_TEXT = { high: 'High priority', medium: 'Medium priority', low: 'Low priority', hot: 'Hot leads', warm: 'Warm leads', cold: 'Cold leads' };
+  const RULE_INTENTS = [['purchase_inquiry', 'Wants to buy'], ['pricing_inquiry', 'Asks about price'], ['partnership', 'Partnership'], ['support', 'Needs support'], ['job_seeker', 'Looking for a job'], ['other', 'Other']];
+  const RULE_INTENT_TEXT = Object.fromEntries(RULE_INTENTS);
+  const ASSIGN_MODE = { manual: 'manual (an admin assigns each lead)', creator: 'whoever ran the search', search_owner: 'whoever ran the search', round_robin: 'round robin across everyone who can see leads' };
+  const canGetLeads = (m) => !!m && (!m.status || m.status === 'active') && m.role !== 'viewer';
+  const ordinal = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th'));
+  function fmtHours(h) {
+    const n = Math.max(1, parseInt(h, 10) || 0);
+    if (n >= 24 && n % 24 === 0) { const d = n / 24; return d + (d === 1 ? ' day' : ' days'); }
+    return n + (n === 1 ? ' hour' : ' hours');
+  }
+  /** a rule's filters as short plain-English lines ("All new leads" without filters) */
+  function ruleCriteria(c) {
+    c = c || {};
+    const out = [];
+    if (c.priority) out.push(RULE_PRIORITY_TEXT[String(c.priority).toLowerCase()] || cap(label(c.priority)) + ' priority');
+    if (c.intent) out.push('Intent: ' + (RULE_INTENT_TEXT[c.intent] || cap(label(c.intent))));
+    if (c.min_score != null && c.min_score !== '') out.push('Score ' + num(c.min_score) + ' or higher');
+    return out.length ? out : ['All new leads'];
+  }
+  ROUTES.assignment = {
+    title: () => 'Assignment rules', skel: 'table',
+    async render(v) {
+      const [d, members, org] = await Promise.all([api('/api/org-admin/assignment-rules'), getMembers(true), getOrg().catch(() => S.org || {})]);
+      if (!v.alive()) return;
+      const edit = can('settings.manage');
+      const rules = d.items || [];
+      const byId = new Map((members || []).map(m => [String(m.user_id), m]));
+      const mode = ((org && org.settings) || {}).lead_assignment || 'manual';
+      const newBtn = (attrs) => `<button type="button" class="btn btn-primary" data-newrule ${attrs || ''}>${ico('plus')} New rule</button>`;
+      const people = (r) => {
+        const ids = (r.assignees || []).map(String);
+        if (!ids.length) return '<span class="oa-muted">Nobody</span>';
+        return `<ul class="oa-rule-people">${ids.map(id => {
+          const m = byId.get(id); const name = m ? (m.name || m.email) : 'Former member';
+          const ok = canGetLeads(m);
+          return `<li class="oa-rule-person${ok ? '' : ' is-off'}"${ok ? '' : ' title="Skipped: this person is inactive, a viewer or no longer in the team"'}>${avatar(name)}<span class="oa-trunc">${esc(name)}</span>${ok ? '' : '<span class="oa-small">(skipped)</span>'}</li>`;
+        }).join('')}</ul>`;
+      };
+      v.el.innerHTML = head('Assignment rules', 'Share new leads between the right people automatically, and make sure each lead is contacted in time.', edit ? newBtn('data-tour="oa-rule-new"') : '') +
+        tabs(LEAD_TABS, '#assignment', 'oa-lead-tabs') +
+        `<section class="oa-card oa-rules-how" aria-labelledby="ar-how-t" data-tour="oa-rules-how">
+          <h2 class="oa-card-title" id="ar-how-t">How assignment rules work</h2>
+          <ol class="oa-rules-steps">
+            <li>When a new lead matches a rule, LeadAI gives it to the rule's people <b>in turn</b> (round robin): the first person, then the next, and so on.</li>
+            <li>That person must contact the lead within the rule's <b>contact time</b>. A lead that is still "New" after that is <b>flagged as overdue</b>, and they are told.</li>
+            <li>Rules are checked <b>from oldest to newest</b>. The first rule that matches wins.</li>
+            <li>When no rule matches, your organization's assignment setting is used: <b>${esc(ASSIGN_MODE[mode] || label(mode))}</b>.${can('settings.view') ? ' <a class="oa-link" href="#organization/settings">Change setting</a>' : ''}</li>
+          </ol>
+        </section>
+        <div class="oa-rules-host" data-host data-tour="oa-rules-list"></div>${edit ? '' : readonlyNote()}`;
+      const host = $('[data-host]', v.el);
+      dataTable(host, {
+        local: rules, caption: 'Assignment rules', key: 'oa-assign-rules', export: false,
+        columns: [
+          { label: 'Order', id: 'order', cls: 'oa-rc-order', render: r => { const n = rules.indexOf(r) + 1; return `<span class="oa-rule-order" title="${attr('Checked ' + ordinal(n))}">${n}</span>`; }, csv: r => rules.indexOf(r) + 1 },
+          { label: 'Rule', cls: 'oa-rc-rule', render: r => `<b>${esc(r.name || 'Rule')}</b><div class="oa-small oa-muted">Round robin${r.created_at ? ' · added ' + esc(fmtDate(ikUtc(r.created_at))) : ''}</div>`, csv: r => r.name },
+          { label: 'Gets the leads', cls: 'oa-rule-people-cell oa-rc-who', render: people, csv: r => (r.assignees || []).map(id => { const m = byId.get(String(id)); return m ? (m.name || m.email) : 'Former member'; }).join(', ') },
+          { label: 'Which leads', cls: 'oa-rc-which', render: r => ruleCriteria(r.criteria).map(esc).join('<br>'), csv: r => ruleCriteria(r.criteria).join('; ') },
+          { label: 'Contact within', cls: 'oa-rc-sla', render: r => esc(fmtHours(r.sla_hours)) },
+          { label: 'Status', cls: 'oa-rc-status', render: r => pill(r.is_active === false ? 'paused' : 'active', r.is_active === false ? 'Paused' : 'Active') },
+          { label: '', cls: 'oa-rc-act', render: r => edit ? `<div class="oa-actions" style="justify-content:flex-end"><button type="button" class="btn btn-ghost btn-sm oa-rule-del" data-act="delete" aria-label="${attr('Delete rule ' + (r.name || ''))}">${ico('trash')} Delete</button></div>` : '' },
+        ],
+        empty: {
+          title: 'No assignment rules yet',
+          desc: 'A rule shares new leads between the people you choose, one after the other, and gives them a time to make contact. Without rules, new leads follow your organization\'s assignment setting.',
+          action: edit ? newBtn() : '',
+        },
+        async onAction(act, r, btn) {
+          if (act !== 'delete') return;
+          if (!(await confirmDialog(`Delete “${r.name || 'this rule'}”?`, 'New leads stop going to this rule\'s people. Leads it already assigned keep their assignee.', { danger: true, confirm: 'Delete rule' }))) return;
+          busy(btn, true, 'Deleting…');
+          try { await api('/api/org-admin/assignment-rules/' + encodeURIComponent(r.rule_id || r.id), { method: 'DELETE' }); toast('Rule deleted.', 'success'); route(); }
+          catch (e) { toast(e.message, 'error'); busy(btn, false); }
+        },
+      });
+      // a short list: no search, export or column picker above it
+      const tb = $('[data-tbwrap]', host); if (tb) tb.hidden = true;
+      // the head button and the empty-state button both open the form
+      const open =(e) => { if (e.target.closest('[data-newrule]')) ruleModal(members || [], () => route()); };
+      host.addEventListener('click', open);
+      const hb = $('.oa-head [data-newrule]', v.el); if (hb) hb.onclick = open;
+    },
+  };
+  function ruleModal(members, done) {
+    const eligible = members.filter(canGetLeads);
+    const left = members.length - eligible.length;
+    const nameOf = (id) => { const m = members.find(x => String(x.user_id) === String(id)); return m ? (m.name || m.email) : 'someone'; };
+    const list = eligible.length
+      ? `<div class="oa-tm-people oa-rule-pick" role="group" aria-labelledby="ar-l-people" aria-describedby="ar-h-people ar-e-people">${eligible.map(m => `<label class="oa-tm-person"><input type="checkbox" name="assignee" value="${attr(m.user_id)}"/>${avatar(m.name || m.email)}<span class="oa-tm-who"><b class="oa-trunc">${esc(m.name || m.email)}${m.is_me ? ' <span class="oa-you">You</span>' : ''}</b><span class="oa-small oa-muted oa-trunc">${esc(m.email || '')}</span></span><span class="oa-tm-meta">${roleTag(m.role)}</span></label>`).join('')}</div>`
+      : `<div class="oa-mini-empty">${ico('users')}<span>Nobody in your team can get leads yet. Invite a User or Manager under <a class="oa-link" href="#team/users">Team</a> first.</span></div>`;
+    openModal({
+      title: 'New assignment rule', wide: true,
+      body: `<form class="oa-form oa-rule-form" data-f novalidate>
+        <div class="oa-field"><label for="ar-name">Rule name</label><input class="form-input" id="ar-name" name="name" maxlength="120" required autocomplete="off" placeholder="e.g. Hot leads to the sales team" aria-describedby="ar-e-name"/><span class="oa-err" id="ar-e-name" role="alert"></span></div>
+        <fieldset class="oa-tm-fs"><legend class="oa-label" id="ar-l-people">Who gets the leads</legend>
+          <span class="oa-hint" id="ar-h-people">Pick one or more people. New leads go to them in turn.${left ? ' Viewers and inactive members are not listed because they can\'t get leads.' : ''}</span>
+          ${list}<span class="oa-err" id="ar-e-people" role="alert"></span></fieldset>
+        <div><h3 class="oa-section-title">Which leads <span class="optional">(optional)</span></h3><p class="oa-hint" style="margin-top:8px">Leave these empty to match every new lead.</p></div>
+        <div class="oa-form-grid oa-rule-grid">
+          <div class="oa-field"><label for="ar-pri">Priority</label><select class="form-select" id="ar-pri" name="priority">${selectOpts([['', 'Any priority']].concat(RULE_PRIORITY), '')}</select></div>
+          <div class="oa-field"><label for="ar-int">Intent</label><select class="form-select" id="ar-int" name="intent">${selectOpts([['', 'Any intent']].concat(RULE_INTENTS), '')}</select></div>
+          <div class="oa-field"><label for="ar-min">Minimum score</label><input class="form-input" id="ar-min" name="min_score" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="Any score" aria-describedby="ar-h-min ar-e-min"/><span class="oa-hint" id="ar-h-min">From 0 to 100.</span><span class="oa-err" id="ar-e-min" role="alert"></span></div>
+          <div class="oa-field"><label for="ar-sla">Contact within (hours)</label><input class="form-input" id="ar-sla" name="sla_hours" type="number" min="1" max="720" step="1" inputmode="numeric" value="24" required aria-describedby="ar-h-sla ar-e-sla"/><span class="oa-hint" id="ar-h-sla">Leads still "New" after this time are flagged as overdue.</span><span class="oa-err" id="ar-e-sla" role="alert"></span></div>
+        </div>
+        <p class="oa-tm-summary" data-sum aria-live="polite"></p>
+        <p class="oa-err" id="ar-e-form" role="alert"></p></form>`,
+      foot: `<button type="button" class="btn btn-secondary" data-close>Cancel</button><button type="button" class="btn btn-primary" data-save ${eligible.length ? '' : 'disabled'}>${ico('check')} Create rule</button>`,
+      onMount(root, close) {
+        const f = $('[data-f]', root), save = $('[data-save]', root);
+        const err = (id, msg) => { const el = $('#' + id, root); if (el) el.textContent = msg || ''; };
+        const picked = () => $$('input[name=assignee]:checked', f).map(i => i.value);
+        const intVal = (s) => (/^\d+$/.test(String(s).trim()) ? parseInt(s, 10) : NaN);
+        const summary = () => {
+          const who = picked().map(nameOf);
+          const crit = [];
+          if (f.priority.value) crit.push(RULE_PRIORITY_TEXT[f.priority.value].toLowerCase());
+          if (f.intent.value) crit.push('intent “' + RULE_INTENT_TEXT[f.intent.value].toLowerCase() + '”');
+          const ms = intVal(f.min_score.value); if (!isNaN(ms) && ms <= 100) crit.push('a score of ' + ms + ' or higher');
+          const sla = intVal(f.sla_hours.value);
+          const whoTxt = !who.length ? '<b>the people you pick</b>' : who.length === 1 ? '<b>' + esc(who[0]) + '</b>' : who.slice(0, -1).map(n => '<b>' + esc(n) + '</b>').join(', ') + ' and <b>' + esc(who[who.length - 1]) + '</b>, in turn';
+          $('[data-sum]', root).innerHTML = `${crit.length ? 'New leads with ' + esc(crit.join(', ')) : 'All new leads'} go to ${whoTxt}.` + (sla >= 1 ? ` Each lead must be contacted within <b>${esc(fmtHours(sla))}</b>.` : '');
+        };
+        // a message goes away as soon as its field is being fixed
+        const errFor = { name: 'ar-e-name', min_score: 'ar-e-min', sla_hours: 'ar-e-sla' };
+        f.addEventListener('input', (e) => { const t = e.target; if (errFor[t.name] && t.getAttribute('aria-invalid')) { t.removeAttribute('aria-invalid'); err(errFor[t.name], ''); } summary(); });
+        f.addEventListener('change', (e) => { if (e.target.name === 'assignee') err('ar-e-people', ''); summary(); });
+        summary();
+        const submit = async () => {
+          ['ar-e-name', 'ar-e-people', 'ar-e-min', 'ar-e-sla', 'ar-e-form'].forEach(id => err(id));
+          $$('[aria-invalid]', f).forEach(i => i.removeAttribute('aria-invalid'));
+          const bad = (input, id, msg) => { err(id, msg); if (input) { input.setAttribute('aria-invalid', 'true'); input.focus(); } return false; };
+          const name = f.name.value.trim(), who = picked();
+          const minRaw = f.min_score.value.trim(), min = intVal(minRaw), sla = intVal(f.sla_hours.value);
+          if (name.length < 2) return bad(f.name, 'ar-e-name', 'Give the rule a name (at least 2 characters).');
+          if (!who.length) return bad($('input[name=assignee]', f), 'ar-e-people', 'Pick at least one person.');
+          if (minRaw && (isNaN(min) || min > 100)) return bad(f.min_score, 'ar-e-min', 'Enter a whole number from 0 to 100, or leave it empty.');
+          if (isNaN(sla) || sla < 1 || sla > 720) return bad(f.sla_hours, 'ar-e-sla', 'Enter a whole number of hours from 1 to 720 (30 days).');
+          const criteria = {};
+          if (f.priority.value) criteria.priority = f.priority.value;
+          if (f.intent.value) criteria.intent = f.intent.value;
+          if (minRaw) criteria.min_score = min;
+          busy(save, true, 'Creating…');
+          try {
+            await api('/api/org-admin/assignment-rules', { method: 'POST', body: { name, rule_type: 'round_robin', assignees: who, criteria, sla_hours: sla } });
+            toast(`Rule “${name}” created.`, 'success'); close(); if (done) done();
+          } catch (e) {
+            busy(save, false);
+            // the API lists refused member ids: say it in words instead
+            err('ar-e-form', /active members/i.test(e.message || '') ? 'Some of the people you picked can\'t get leads any more (they are inactive or viewers). Close this form, reload the page and pick again.' : (e.message || 'Could not create the rule.'));
+          }
+          return true;
+        };
+        save.onclick = submit;
+        f.addEventListener('submit', (e) => { e.preventDefault(); submit(); });
+      },
+    });
+  }
   function chipEditor(box, initial, readonly, danger) {
     let vals = (initial || []).slice();
     const draw = () => {
@@ -2853,7 +3030,7 @@
       if (tab === 'jobs') {
         dataTable($('[data-host]', v.el), {
           url: '/api/org-admin/apify/jobs', caption: 'Scrape jobs', initial: v.query,
-          filters: [{ name: 'q', label: 'Search', placeholder: 'Search URL or run id' },
+          filters: [{ name: 'q', label: 'Search', placeholder: 'Search URL or run ID' },
             { name: 'status', label: 'Status', type: 'select', all: 'All statuses', options: [['running', 'Running'], ['completed', 'Completed'], ['error', 'Failed'], ['cancelled', 'Cancelled']] },
             { name: 'platform', label: 'Platform', type: 'select', all: 'All platforms', options: PLATFORMS },
             { name: 'from', label: 'From date', type: 'date' }, { name: 'to', label: 'To date', type: 'date' }],
@@ -2862,7 +3039,7 @@
             { label: 'Target', cls: 'oa-trunc', render: r => `<span title="${attr(r.url)}">${esc(r.url || '—')}</span>` },
             { label: 'Platform', render: r => esc(plat(r.platform)) },
             { label: 'Status', render: r => pill(r.status) },
-            { label: 'Phase', render: r => esc(label(r.phase || '—')) },
+            { label: 'Phase', render: r => esc(cap(label(r.phase || '—'))) },
             { label: 'Apify run', render: r => r.apify_run_id ? `<span class="oa-mono">${esc(r.apify_run_id)}</span>` : '<span class="oa-muted">—</span>' },
             { label: 'Duration', num: true, render: r => r.duration_seconds != null ? esc(r.duration_seconds + ' s') : '—' },
             { label: 'Error', cls: 'oa-trunc', render: r => r.error ? `<span class="oa-small" style="color:var(--danger-text)" title="${attr(r.error)}">${esc(r.error)}</span>` : '' },
@@ -2974,7 +3151,7 @@
             <div style="margin-top:12px">${kv(subState === 'demo' ? [['Billing', 'Free — no payment yet'],
               ['API keys', `<a class="oa-link" href="#integrations">${esc(integ ? (integ.label || ikCovLabel(myCov)) : 'View')}</a>`],
               [trial && trial.expired ? 'Ended' : 'Trial ends', esc(trial && trial.expires_at ? fmtDate(trial.expires_at) : '—')],
-              ['Time left', esc(trial ? trialLeft(trial) : '—')]] : [['Billing', esc(label(sub.billing_cycle || '—'))],
+              ['Time left', esc(trial ? trialLeft(trial) : '—')]] : [['Billing', esc(cap(label(sub.billing_cycle || '—')))],
               ['API keys', `<a class="oa-link" href="#integrations">${esc(integ ? (integ.label || ikCovLabel(myCov)) : 'View')}</a>`],
               ['Started', esc(fmtDate(sub.started_at || sub.current_period_start))], [sub.cancel_at_period_end ? 'Ends' : 'Renews', esc(fmtDate(sub.current_period_end))], ['Amount', esc(sub.amount != null ? money(sub.amount, sub.currency) : '—')],
               isub && !sub.cancel_at_period_end ? ['Next renewal', esc(ikPrice(isub.next_price, (integ.plan || {}).currency, isub.billing_cycle)) + (Number(isub.next_price) < Number(isub.amount) ? ' <span class="oa-ik-good">· lower price</span>' : '')] : null])}</div>
@@ -2985,7 +3162,7 @@
             ${usage ? Object.entries(usage.metrics || {}).filter(([, m]) => m.limit).map(([k, m]) => meter(metricNames[k] || label(k), m.used, m.limit, m.percentage)).join('') || '<p class="oa-muted oa-small">Your plan has no metered limits.</p>' : '<p class="oa-muted oa-small">Usage unavailable.</p>'}
             ${usage && usage.tokens ? meter('Tokens', usage.tokens.used, usage.tokens.allocated) + `<p class="oa-hint" style="margin-top:6px">${num(usage.tokens.remaining)} tokens remaining</p>` : ''}</div>
         </div>
-        <div class="oa-card" data-tour="oa-plans"><div class="oa-card-head" style="flex-wrap:wrap;gap:12px"><div class="oa-card-title">Plans & Pricing</div>
+        <div class="oa-card" data-tour="oa-plans"><div class="oa-card-head" style="flex-wrap:wrap;gap:12px"><div class="oa-card-title">Plans &amp; pricing</div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
             <div class="oa-seg" role="group" aria-label="Billing cycle"><button type="button" data-cycle="monthly" aria-pressed="${cycle === 'monthly'}">Monthly</button><button type="button" data-cycle="yearly" aria-pressed="${cycle === 'yearly'}">Yearly</button></div>
           </div>
@@ -3142,7 +3319,7 @@
       dataTable($('[data-host]', v.el), {
         url: '/api/org-admin/audit-logs', caption: 'Audit logs', limit: 25, initial: v.query,
         exportUrl: (p) => '/api/org-admin/audit-logs.csv' + qs(Object.assign({}, p, { page: '', limit: '' })),
-        filters: [{ name: 'q', label: 'Search', placeholder: 'Search action, user or resource' },
+        filters: [{ name: 'q', label: 'Search action, user or resource', placeholder: 'Action, user or resource' },
           { name: 'action', label: 'Action', type: 'select', all: 'All actions', options: f.actions.map(a => [a, a]) },
           { name: 'category', label: 'Category', type: 'select', all: 'All categories', options: f.categories.map(a => [a, label(a)]) },
           { name: 'user', label: 'User', placeholder: 'User email' },
@@ -3379,8 +3556,8 @@
       { route: '#team/users', target: tourPick(tourSel('oa-invite'), tourSel('oa-team-tabs')), title: 'Your team',
         body: 'Invite people by email with Invite user. They get a secure one-time link to join, so no password is ever emailed.\n\nGive each person a role: User, Manager, Viewer or Admin (only the owner can make Admins). Roles & permissions sets what each role may do, and opening a person lets you change their role, set a password or change their sign-in email.' },
       { route: '#leads', target: tourSel('oa-lead-tabs'), title: 'Leads',
-        body: 'Every lead your organization finds lands in All leads. Select leads to assign them to a teammate or change their status in one go, or open one for notes and history.\n\nAssigned shows who is working on what, and Lifecycle shows where your leads are in the pipeline.' },
-      { route: '#rules', target: tourSel('oa-kw-stats'), title: 'Keyword library',
+        body: 'Every lead your organization finds lands in All leads. Select leads to assign them to a teammate or change their status in one go, or open one for notes and history.\n\nAssigned shows who is working on what, Assignment rules share new leads out automatically, and Lifecycle shows where your leads are in the pipeline.' },
+      { route: '#keywords', target: tourSel('oa-kw-stats'), title: 'Keyword library',
         body: 'Keywords decide which comments are worth a closer look. Active keywords are used in every search, Suggested ones are ready to switch on, Custom ones are your own, and Excluded terms are ignored.\n\nClick a box to jump to that list.' },
       { route: '#searches', target: tourSel('oa-searches-list'), title: 'Searches and data',
         body: 'Every search anyone in your organization runs is listed here, with its status and results. Start a new one by pasting a Facebook, Instagram, YouTube or LinkedIn link.\n\nPages, Posts and Comments in the menu show the data each search collected.' },
@@ -3431,16 +3608,18 @@
     ] });
 
     LT.define('oa-leads', { title: 'Leads & keyword library', steps: [
-      { route: '#leads', target: tourSel('oa-lead-tabs'), title: 'Four views of your leads',
-        body: 'All leads, Assigned (who\'s working on what), Lifecycle (your pipeline) and the Keyword library that shapes which comments become leads.' },
+      { route: '#leads', target: tourSel('oa-lead-tabs'), title: 'Five views of your leads',
+        body: 'All leads, Assigned (who\'s working on what), Assignment rules (who gets new leads), Lifecycle (your pipeline) and the Keyword library that shapes which comments become leads.' },
       { target: tourSel('oa-leads-list'), title: 'Work your leads',
         body: 'Filter by status, assignee, quality, score or date. Tick leads to assign them, change their status or priority, or export them.\n\nClick a lead to see the full comment, notes and history.' },
       { route: '#pipeline', target: tourPick(tourSel('oa-pipeline'), tourSel('oa-lead-tabs')), title: 'Lifecycle',
         body: 'See how many leads are at each stage, from new to converted or lost. Click a stage to open its leads.' },
-      { route: '#rules', target: tourSel('oa-kw-stats'), title: 'Your keyword library',
+      { route: '#assignment', target: tourPick(tourSel('oa-rules-how'), tourSel('oa-lead-tabs')), title: 'Assignment rules',
+        body: 'A rule gives new leads to the people you choose, in turn, and sets how quickly they must make contact. Leads that are not contacted in time are flagged.\n\nRules are checked from oldest to newest. When none matches, the assignment setting in Organization → Settings applies.' },
+      { route: '#keywords', target: tourSel('oa-kw-stats'), title: 'Your keyword library',
         body: 'Active keywords are used in every search, Suggested ones are ready to switch on, Custom ones are your own, and Excluded terms make LeadAI ignore a conversation. Click a box to open that list.' },
       { target: tourSel('oa-kw-actions'), optional: true, title: 'Grow your list',
-        body: 'Generate Suggestions builds keywords for your industry. Add Keyword and Add Multiple add your own, and Defaults brings back LeadAI\'s standard list.' },
+        body: 'Suggest keywords builds keywords for your industry. Add keyword and Add several add your own, and Restore defaults brings back LeadAI\'s standard list.' },
       { target: tourSel('oa-kw-lib'), title: 'Fine-tune each keyword',
         body: 'Filter the list, then activate, exclude, restore or remove keywords one by one. Changes apply to new searches by everyone in your organization.' },
       { route: '#organization/business', target: tourSel('oa-biz-form'), title: 'Business profile',

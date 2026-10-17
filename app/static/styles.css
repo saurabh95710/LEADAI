@@ -248,7 +248,7 @@ a:hover { color: var(--amber-deep); }
 }
 
 .docs-link:hover {
-  color: var(--violet);
+  color: var(--violet-text);
   background: var(--violet-soft);
   border-color: var(--violet);
 }
@@ -679,7 +679,7 @@ select.form-input {
   transition: all 0.15s;
   font-family: var(--font-ui);
 }
-.btn-ghost:hover { color: var(--violet); border-color: var(--violet); background: var(--violet-soft); }
+.btn-ghost:hover { color: var(--violet-text); border-color: var(--violet); background: var(--violet-soft); }
 
 .btn-export, .btn-refresh {
   background: var(--surface);
@@ -1699,7 +1699,7 @@ select.form-input {
 
 .rs-open {
   font-size: 0.72rem;
-  color: var(--violet);
+  color: var(--violet-text);
   font-weight: 600;
   white-space: nowrap;
   opacity: 0;
@@ -1822,14 +1822,14 @@ select.form-input {
 
 .pc-link {
   font-size: 0.76rem;
-  color: var(--violet);
+  color: var(--violet-text);
   text-decoration: none;
   font-weight: 500;
   display: inline-block;
   margin-bottom: 6px;
   font-family: var(--font-mono);
 }
-.pc-link:hover { color: var(--violet-deep); text-decoration: underline; }
+.pc-link:hover { color: var(--violet-text); text-decoration: underline; }
 
 .pc-about-snippet {
   font-size: 0.78rem;
@@ -1895,9 +1895,9 @@ select.form-input {
   text-decoration: none;
   transition: all 0.15s;
 }
-.pc-chip:hover { border-color: var(--violet); color: var(--violet-deep); }
+.pc-chip:hover { border-color: var(--violet); color: var(--violet-text); }
 
-.pc-chip-link { color: var(--violet); }
+.pc-chip-link { color: var(--violet-text); }
 .pc-chip-link:hover { text-decoration: underline; }
 
 .pc-chip-addr { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1961,6 +1961,7 @@ select.form-input {
   flex-direction: column;
   gap: 14px;
   cursor: pointer;
+  align-items: stretch;
 }
 
 .post-tile:hover {
@@ -2181,7 +2182,7 @@ select.form-input {
   text-decoration: none;
   transition: all 0.15s;
 }
-.lc-chip:hover { border-color: var(--violet); color: var(--violet-deep); }
+.lc-chip:hover { border-color: var(--violet); color: var(--violet-text); }
 
 .lc-chip-intent {
   color: var(--violet-text);
@@ -2244,11 +2245,11 @@ select.form-input {
 /* Page link */
 .page-link {
   font-size: 0.72rem;
-  color: var(--violet);
+  color: var(--violet-text);
   text-decoration: none;
   font-family: var(--font-mono);
 }
-.page-link:hover { color: var(--violet-deep); text-decoration: underline; }
+.page-link:hover { color: var(--violet-text); text-decoration: underline; }
 
 /* Lead detail modal content */
 .lead-detail-grid {
@@ -2453,7 +2454,7 @@ select.form-input {
   letter-spacing: 0.03em;
 }
 .site-footer a {
-  color: var(--violet);
+  color: var(--violet-text);
   text-decoration: none;
 }
 .site-footer a:hover { text-decoration: underline; }
@@ -2480,7 +2481,7 @@ select.form-input {
 .topbar-pill-btn:hover {
   background: var(--surface);
   border-color: var(--violet);
-  color: var(--violet);
+  color: var(--violet-text);
   box-shadow: 0 0 10px color-mix(in srgb, var(--primary) 15%, transparent);
 }
 
@@ -2492,12 +2493,12 @@ select.form-input {
   border-radius: 999px;
   letter-spacing: 0.04em;
   background: var(--violet-soft);
-  color: var(--violet);
+  color: var(--violet-text);
   border: 1px solid var(--primary-border);
 }
 .plan-badge-pill.free { background: var(--gray-soft); color: var(--text-dim); border-color: var(--border); }
 .plan-badge-pill.starter { background: var(--teal-soft); color: var(--teal); border-color: color-mix(in srgb, var(--chart-3) 30%, transparent); }
-.plan-badge-pill.pro { background: var(--violet-soft); color: var(--violet); border-color: var(--primary-border); }
+.plan-badge-pill.pro { background: var(--violet-soft); color: var(--violet-text); border-color: var(--primary-border); }
 .plan-badge-pill.business { background: var(--amber-soft); color: var(--amber-deep); border-color: var(--primary-border); }
 .plan-badge-pill.enterprise { background: color-mix(in srgb, var(--primary) 15%, transparent); color: var(--violet-text); border-color: var(--primary-border); }
 
@@ -2550,7 +2551,7 @@ select.form-input {
   color: var(--text);
 }
 .saas-tab-btn.active {
-  color: var(--violet);
+  color: var(--violet-text);
   border-bottom-color: var(--violet);
 }
 
@@ -4073,3 +4074,51 @@ div.toast-action { color: var(--text-dim); font-weight: 500; }
 .kw-tech { margin-top: 6px; font-size: 12px; }
 .kw-tech summary { cursor: pointer; color: var(--text-secondary); }
 .kw-tech code { display: block; margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11.5px; color: var(--text-secondary); }
+
+/* ── UI polish (customer app) ─────────────────────────────────────────── */
+/* footer sits at the bottom of the page instead of floating mid-screen; says what the link is */
+.portal-main { display: flex; flex-direction: column; min-height: calc(100vh - var(--topbar-h)); }
+.portal-main > .main-content { flex: 1 0 auto; width: 100%; }
+.site-footer { border-top: 1px solid var(--border-soft); margin-top: 24px; padding-top: 14px; color: var(--text-dim); }
+.site-footer [data-brand-support]:not(:empty)::before { content: "Need help? "; color: var(--text-dim); }
+.site-footer > :empty { display: none; }
+
+/* all settings panels share one width (sessions was wider than the rest) */
+.settings-pane .panel { max-width: 860px; }
+.session-more { display: flex; justify-content: center; padding: 12px; border-top: 1px solid var(--border-soft); }
+
+/* long ids / URLs in phone table cards wrap instead of running into the next column */
+@media (max-width: 720px) {
+  .ut-table td .cell-mono, .ut-table td .mini-title { overflow-wrap: anywhere; }
+}
+
+/* the 4 result steps fit a phone: numbers only, the current step keeps its label */
+@media (max-width: 560px) {
+  .steps-track { gap: 4px; padding: 8px 12px; }
+  .step-line { width: 10px; }
+  .breadcrumb-item { padding: 5px 7px; }
+  .breadcrumb-item:not(.active) .step-label { display: none; }
+  .breadcrumb-item.active { padding-right: 12px; }
+}
+
+/* lead SLA (set by assignment rules) */
+.sla-box {
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: var(--radius-sm);
+  border: 1px solid var(--info-border); background: var(--info-soft); color: var(--info-text); font-size: .9rem; line-height: 1.45;
+}
+.sla-box > .ico { width: 18px; height: 18px; flex: 0 0 auto; margin-top: 2px; }
+.sla-box b { color: inherit; font-weight: 700; }
+.sla-sub { display: block; font-size: .8rem; color: var(--text-dim); margin-top: 2px; }
+.sla-soon { border-color: var(--warning-border); background: var(--warning-soft); color: var(--warning-text); }
+.sla-missed { border-color: var(--danger-border); background: var(--danger-soft); color: var(--danger-text); }
+.sla-met { border-color: var(--success-border); background: var(--success-soft); color: var(--success-text); }
+.sla-late { border-color: var(--border); background: var(--surface-2); color: var(--text-dim); }
+.sla-badge-missed { background: var(--danger-soft); color: var(--danger-text); border: 1px solid var(--danger-border); }
+.sla-badge-soon { background: var(--warning-soft); color: var(--warning-text); border: 1px solid var(--warning-border); }
+@media (max-width: 720px) {
+  .ut-table td.col-tag, .ut-table td.col-num { white-space: normal; min-width: 0; }
+}
+/* a post without an image keeps a small icon tile on phones (was a big empty 160px box) */
+@media (max-width: 768px) {
+  .pt-thumb-video, .pt-thumb-fallback { width: 56px; height: 56px; }
+}

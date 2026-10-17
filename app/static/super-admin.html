@@ -7,9 +7,9 @@
 <meta name="robots" content="noindex,nofollow">
 <meta name="referrer" content="no-referrer">
 <link rel="preload" href="/static/design/tokens.css?v=r1005" as="style">
-<link rel="preload" href="/static/design/components.css?v=r1005" as="style">
+<link rel="preload" href="/static/design/components.css?v=r1006" as="style">
 <link rel="stylesheet" href="/static/design/tokens.css?v=r1005">
-<link rel="stylesheet" href="/static/design/components.css?v=r1005">
+<link rel="stylesheet" href="/static/design/components.css?v=r1006">
 <link rel="stylesheet" href="/static/design/tour.css?v=tour1">
 <script src="/static/design/theme.js?v=r1006" defer></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
@@ -148,6 +148,8 @@
   .sa-filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
   .sa-filters .form-input,.sa-filters .form-select{width:auto;min-width:140px;padding:7px 10px;font-size:13px}
   .sa-filters .sa-grow{flex:1;min-width:180px}
+  /* table tools (extra buttons, Columns, Export) stay together on the right when the filter row wraps */
+  .sa-tools{display:inline-flex;gap:8px;flex-wrap:wrap;align-items:center;margin-left:auto}
   .sa-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
   .sa-chip{padding:4px 11px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text-secondary);font-size:12.5px;cursor:pointer}
   .sa-chip.active{background:var(--primary-light);border-color:var(--primary);color:var(--text-primary)}
@@ -182,6 +184,8 @@
   .sa-skel .skeleton.tall{height:90px;border-radius:12px}
 
   .sa-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:14px;overflow-x:auto}
+  /* wide screens: long tab bars wrap onto a second row instead of hiding tabs off the right edge */
+  @media (min-width:641px){.sa-tabs{flex-wrap:wrap;overflow-x:visible}}
   .sa-tab{padding:9px 14px;background:none;border:0;border-bottom:2px solid transparent;color:var(--sa-muted);cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap}
   .sa-tab:hover{color:var(--text-primary)}
   .sa-tab.active{color:var(--text-primary);border-bottom-color:var(--primary)}
@@ -234,7 +238,7 @@
   .sa-field{display:grid;gap:4px}
   .sa-field label{font-size:12.5px;font-weight:600;color:var(--text-secondary)}
   .sa-field .hint{font-size:11.5px;color:var(--sa-muted)}
-  .sa-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .sa-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
   .sa-check{display:flex;gap:8px;align-items:center;font-size:13px}
   .sa-check input{accent-color:var(--primary);width:15px;height:15px}
   .sa-err{color:var(--danger-text);font-size:12.5px}
@@ -267,7 +271,13 @@
   .sa-chart:focus-visible{outline:2px solid var(--primary);outline-offset:4px}
   .sa-plot{display:flex;gap:8px;margin-top:14px}
   .sa-chart-foot .sa-link{font-size:12px}
-  .sa-kpi .k span{overflow:hidden;text-overflow:ellipsis;min-width:0}
+  /* KPI labels wrap (max two lines) instead of being cut off with "…" */
+  .sa-kpi > .k,.sa-kpi > .k span{white-space:normal;overflow:visible;text-overflow:clip;min-width:0}
+  .sa-kpi > .k{align-items:flex-start;line-height:1.35}
+  .sa-kpi .k span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:break-word}
+  .sa-kpi .k .sa-ico{margin-top:.5px}
+  /* clickable KPI cards: content starts at the top like the plain ones (buttons centre it by default) */
+  button.sa-kpi{display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch}
   .sa-yaxis{display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end;font-size:10.5px;color:var(--sa-muted);font-variant-numeric:tabular-nums;min-width:28px;margin:-6px 0}
   .sa-area{position:relative;flex:1;min-width:0}
   .sa-grid-l{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none}
@@ -441,6 +451,10 @@
     .sa-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
     .sa-bc{display:none}
     .sa-crumbs{flex:1 1 0;min-width:0}
+    /* phone: the GLOBAL badge sits under the page name so the name is not cut off */
+    .sa-tb-title{flex-direction:column;align-items:flex-start;gap:1px}
+    #saTitle{max-width:100%;line-height:1.25}
+    .sa-global-tb{font-size:9px;padding:0 6px;letter-spacing:.1em}
     .sa-topbar > [data-theme-toggle]{display:none}
     .sa-profile-btn{padding:3px}
     .sa-filters .form-select,.sa-filters .sa-q{flex:1 1 140px;min-width:0}
@@ -513,14 +527,14 @@
 </div>
 <div id="saLayer"></div>
 <div id="toast-container" aria-live="polite"></div>
-<script src="/static/design/tour.js?v=tour1" defer></script>
-<script src="/static/super-admin.js?v=names2" defer></script>
-<script src="/static/super-admin-partners.js?v=tour1" defer></script>
-<script src="/static/super-admin-access.js?v=tour1" defer></script>
-<script src="/static/super-admin-ops.js?v=merge1" defer></script>
-<script src="/static/super-admin-engine.js?v=logs1" defer></script>
-<script src="/static/super-admin-settings.js?v=gs9" defer></script>
-<script src="/static/super-admin-limits.js?v=lim1" defer></script>
+<script src="/static/design/tour.js?v=tour2" defer></script>
+<script src="/static/super-admin.js?v=ui3" defer></script>
+<script src="/static/super-admin-partners.js?v=ui3" defer></script>
+<script src="/static/super-admin-access.js?v=ui3" defer></script>
+<script src="/static/super-admin-ops.js?v=ui3" defer></script>
+<script src="/static/super-admin-engine.js?v=ui3" defer></script>
+<script src="/static/super-admin-settings.js?v=ui3" defer></script>
+<script src="/static/super-admin-limits.js?v=ui3" defer></script>
 <!-- Global Settings brand colours / font / default colour mode (name, logo: theme.js) -->
 <script src="/static/config.js?v=brand2" defer></script>
 <script>window.addEventListener("DOMContentLoaded", function () { if (window.AppConfig) AppConfig.load(); });</script>
